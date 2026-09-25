@@ -1,0 +1,65 @@
+---
+title: Skills
+description: Teach any model reusable procedures with SKILL.md folders.
+---
+
+import { Steps, FileTree, Aside } from "@astrojs/starlight/components";
+
+A **skill** is a folder with a `SKILL.md` file — instructions the model can pull in when a task calls for them — plus any reference files it needs. It's the same format Claude uses, so skills you already have (for example in `~/.claude/skills`) work in Moka with any model.
+
+<FileTree>
+- brand-voice/
+  - SKILL.md required: frontmatter + instructions
+  - examples.md optional reference files
+  - templates/
+    - reply.md
+</FileTree>
+
+```markdown title="SKILL.md"
+---
+name: brand-voice
+description: House style for customer-facing replies. Use whenever writing a message to a customer.
+---
+
+# Brand voice
+
+- Warm, plain English. No jargon.
+- Structure: acknowledge → explain in one sentence → concrete next step.
+- Sign off with "— The Moka team ☕".
+
+See `examples.md` for good and bad replies.
+```
+
+## How Moka uses skills
+
+Skills use **progressive disclosure**, so dozens of them cost almost no context:
+
+<Steps>
+
+1. The system prompt lists each enabled skill's **name and description** only.
+2. When a request matches, the model calls the built-in **`load_skill`** tool and receives the full `SKILL.md` body plus a list of the skill's files.
+3. If the instructions reference other files, the model calls **`read_skill_file`** to read them.
+
+</Steps>
+
+Both calls show up in the chat and the inspector, so you can see exactly when and why a skill was used.
+
+<Aside type="tip" title="Write great descriptions">
+The description is the trigger. Say **what** the skill does and **when** to use it: *"Template and rules for incident reports. Use when asked to write up an outage or postmortem."*
+</Aside>
+
+## Adding skills
+
+**Settings → Skills → Add skill**:
+
+- **Folder** — a path to a skill folder (or directly to a `SKILL.md`). Absolute, `~/…`, or relative to your config file. Click **Preview** to see exactly what the model will get.
+- **Scan** — point at a folder of skills (e.g. `~/.claude/skills`) and add them all at once.
+- **Write** — author a skill inline; it's stored in `moka.json`.
+
+Enable or disable skills per workspace with the switch at the top of each skill, or in **Workspaces**.
+
+## Notes
+
+- Files are read fresh on every use — edit `SKILL.md` and ask again, no restart.
+- `read_skill_file` can only read inside the skill's folder; path traversal is rejected.
+- Skills that include scripts: Moka exposes the files to the model to read, but doesn't execute them. Pair a skill with an MCP server (for example a shell or code-execution server) if you need execution.

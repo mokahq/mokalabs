@@ -1,0 +1,95 @@
+---
+title: MCP Apps
+description: How Moka hosts MCP Apps (the official MCP UI extension).
+---
+
+import { Aside, Steps } from "@astrojs/starlight/components";
+
+[MCP Apps](https://github.com/modelcontextprotocol/ext-apps) is the official MCP extension for interactive UI. Moka implements the **host** side of the `2026-01-26` specification.
+
+## How a tool gets UI
+
+A tool declares a UI resource in its metadata:
+
+```json
+{
+  "name": "roll_dice",
+  "description": "Roll dice. Shows an interactive dice roller.",
+  "inputSchema": { "type": "object", "properties": { "sides": { "type": "number" }, "count": { "type": "number" } } },
+  "_meta": { "ui": { "resourceUri": "ui://moka-demo/dice" } }
+}
+```
+
+The server serves that resource with the MCP Apps mime type:
+
+```json
+{
+  "uri": "ui://moka-demo/dice",
+  "mimeType": "text/html;profile=mcp-app",
+  "text": "<!doctype html><html>…</html>",
+  "_meta": { "ui": { "prefersBorder": true, "csp": { "connectDomains": ["https://api.example.com"] } } }
+}
+```
+
+## What Moka does
+
+<Steps>
+
+1. When the model (or you, in the Tool runner) calls the tool, Moka reads the `ui://` resource via `resources/read`.
+2. It renders the HTML in a **sandboxed iframe** below the tool call, with a Content-Security-Policy built from `_meta.ui.csp`.
+3. The app sends `ui/initialize`; Moka replies with host info, capabilities and **host context**: theme, CSS variables, locale, time zone and container size.
+4. After `ui/notifications/initialized`, Moka sends `ui/notifications/tool-input` (the arguments) and `ui/notifications/tool-result` (the full MCP result, including `structuredContent`).
+5. The app can now call back into the host.
+
+</Steps>
+
+## Supported host methods
+
+| Method (app → host) | What Moka does |
+|---|---|
+| `ui/initialize` | Returns protocol version, `hostInfo`, `hostCapabilities`, `hostContext` |
+| `ui/notifications/initialized` | Sends tool input and result |
+| `tools/call` | Calls a tool **on the same MCP server** and returns the result |
+| `resources/read` | Reads a resource from the same server |
+| `ui/message` | Posts a user message into the chat (shown as *From app: …*) and runs the agent |
+| `ui/update-model-context` | Attaches the content to the model's next turn |
+| `ui/open-link` | Opens the URL in a new tab |
+| `ui/request-display-mode` | Switches between `inline` and `fullscreen` |
+| `ui/notifications/size-changed` | Resizes the iframe (60–1200 px) |
+| `ping` | Responds `{}` |
+
+| Notification (host → app) | When |
+|---|---|
+| `ui/notifications/tool-input` | After initialization |
+| `ui/notifications/tool-result` | After initialization, or as soon as the tool finishes |
+| `ui/notifications/host-context-changed` | When the user switches light/dark theme |
+
+Tools that declare `_meta.ui.visibility: ["app"]` are hidden from the model but callable by their app.
+
+## Theming
+
+`hostContext.styles.variables` uses the standard names, so apps can match Moka automatically:
+
+| Variable | |
+|---|---|
+| `--color-background-primary` / `--color-background-secondary` | Surfaces |
+| `--color-text-primary` / `--color-text-secondary` | Text |
+| `--color-border-primary` | Borders |
+| `--color-accent` / `--color-accent-foreground` | Brand accent |
+| `--font-sans`, `--border-radius-md` | Typography and shape |
+
+```css
+:root {
+  --bg: var(--color-background-primary, #fff);
+  --fg: var(--color-text-primary, #111);
+}
+```
+
+## Security
+
+- The iframe is sandboxed with `allow-scripts allow-forms allow-popups` and **without** `allow-same-origin`, so the app runs in an opaque origin: it cannot read Moka's token, cookies or storage, or call Moka's API directly.
+- A CSP is injected: no network access unless the resource declares `connectDomains`; scripts, styles, images and fonts only inline or from declared `resourceDomains`.
+- Apps can only call tools on **their own** server.
+- Every message in both directions is logged to the inspector as `ui.rpc`.
+
+<Aside>Ready to build one? Follow [Build an MCP App](/generative-ui/build-an-mcp-app/).</Aside>

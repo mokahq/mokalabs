@@ -1,0 +1,26 @@
+---
+title: Inspector events
+description: Every event kind, and what's in its payload.
+---
+
+Each event has `id`, `ts` (ms), `kind`, `title`, and optionally `runId`, `serverId`, `durationMs`, `direction` (`in`/`out`), `level` (`info`/`warn`/`error`) and `data`.
+
+| Kind | Emitted when | `data` |
+|---|---|---|
+| `run.start` | A chat turn starts | `profile`, `model`, `tools` (names), `system` (full system prompt) |
+| `llm.request` | Each model step begins | `model`, `provider`, `body` (provider request body), `warnings` |
+| `llm.response` | Each model step ends | `finishReason`, `usage`, `response` (`id`, `modelId`) |
+| `tool.call` | The model (or you, or an app) calls a tool | `id`, `input` |
+| `tool.result` | A tool returns | `id`, `output` |
+| `tool.error` | A tool throws or returns `isError` | `id`, `error` |
+| `skill.load` | `load_skill` runs | `id` |
+| `run.finish` | A turn completes | usage totals |
+| `run.error` | A turn fails or is stopped | error name, message, HTTP status, response body |
+| `mcp.status` | A server connects, fails or disconnects | `status`, `error`, `serverInfo`, `tools` count |
+| `mcp.rpc` | Any JSON-RPC message to/from a server | the raw message |
+| `mcp.log` | A stdio server writes to stderr, or the client errors | the line |
+| `ui.rpc` | An MCP App message crosses the iframe boundary | the raw JSON-RPC (or MCP-UI) message |
+| `ui.action` | An A2UI button is pressed | the resolved action |
+| `log` | Warnings, e.g. a server skipped because it couldn't connect | |
+
+Payloads larger than 200 KB (e.g. base64 images) are truncated in the live stream to keep the UI fast.

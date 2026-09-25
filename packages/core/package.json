@@ -1,0 +1,33 @@
+{
+  "name": "@mokalabs/core",
+  "version": "0.1.0",
+  "description": "Headless Moka engine: any LLM + MCP servers + skills, with a full event trace.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "repository": { "type": "git", "url": "git+https://github.com/mokalabs/moka.git", "directory": "packages/core" },
+  "keywords": ["llm", "mcp", "model-context-protocol", "agent", "skills", "ai-sdk"],
+  "scripts": {
+    "build": "tsup src/index.ts --format esm --dts --clean",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@ai-sdk/anthropic": "^4.0.63",
+    "@ai-sdk/azure": "^4.0.79",
+    "@ai-sdk/google": "^4.0.80",
+    "@ai-sdk/openai": "^4.0.75",
+    "@ai-sdk/openai-compatible": "^3.0.55",
+    "@modelcontextprotocol/sdk": "^1.30.1",
+    "ai": "^7.0.114",
+    "zod": "^4.6.5"
+  }
+}

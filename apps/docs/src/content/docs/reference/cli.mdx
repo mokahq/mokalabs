@@ -1,0 +1,46 @@
+---
+title: CLI
+description: Every command and flag.
+---
+
+```text
+npx @mokalabs/sandbox [config.json] [options]
+moka [config.json] [options]            # after npm install -g @mokalabs/sandbox
+```
+
+## Commands
+
+| Command | Description |
+|---|---|
+| `moka` | Start the server and open the UI |
+| `moka path/to/moka.json` | Start with a specific config file |
+| `moka init [file]` | Write a starter `moka.json` (detected models + demo server + guide skill) |
+| `moka demo-server` | Run the bundled demo MCP server on stdio (use it from any MCP client) |
+
+## Options
+
+| Flag | Default | Description |
+|---|---|---|
+| `-p, --port <n>` | `4000` or `$PORT` | Port. If taken, the next free port is used |
+| `-H, --host <host>` | `127.0.0.1` or `$MOKA_HOST` | Interface to bind. Use `0.0.0.0` to expose on the network |
+| `-c, --config <file>` | see below | Config file path |
+| `--token <token>` | random or `$MOKA_TOKEN` | Fixed access token |
+| `--no-auth` | off | Disable the access token (trusted machines only) |
+| `--no-open` | off | Don't open a browser (also `$MOKA_NO_OPEN=1` or `CI`) |
+| `-v, --version` | | Print the version |
+| `-h, --help` | | Show help |
+
+## Config file lookup
+
+1. `--config` or the positional argument
+2. `$MOKA_CONFIG`
+3. `./moka.json` in the current directory
+4. `~/.moka/config.json` (created on first run)
+
+On first run, Moka seeds the config with every provider it detects, a local Ollama if running, the demo MCP server and a small guide skill.
+
+## Using the demo server elsewhere
+
+```json title="Claude Desktop / Cursor"
+{ "mcpServers": { "moka-demo": { "command": "npx", "args": ["-y", "@mokalabs/sandbox", "demo-server"] } } }
+```

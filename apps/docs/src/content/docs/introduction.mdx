@@ -1,0 +1,48 @@
+---
+title: Introduction
+description: What Moka is, who it's for, and how it works.
+---
+
+import { Card, CardGrid } from "@astrojs/starlight/components";
+
+**Moka is a local-first sandbox for AI agents.** Run one command and you get a polished web app where you can chat with any LLM, connect MCP servers and Agent Skills, watch every step in a live inspector, and render interactive UI from tools and models.
+
+## Who it's for
+
+<CardGrid>
+  <Card title="Engineers building agents" icon="laptop">
+    Try a new MCP server, model or prompt in seconds. See the exact JSON-RPC traffic, tool arguments, token counts and latencies. Export working code when you're done.
+  </Card>
+  <Card title="MCP server authors" icon="puzzle">
+    Test your tools, resources, prompts and MCP Apps against real models — and call tools directly without a model in the loop.
+  </Card>
+  <Card title="Solution & sales engineers" icon="star">
+    Build repeatable demos with workspaces, starter prompts and presenter mode. Share a `moka.json` and anyone can reproduce your demo with `npx`.
+  </Card>
+  <Card title="Platform teams" icon="setting">
+    Point Moka at your internal LLM gateway and MCP servers, ship the Docker image, and give every team a sanctioned playground.
+  </Card>
+</CardGrid>
+
+## How it works
+
+```
+Browser UI  ──HTTP/NDJSON──▶  Moka server (Hono)  ──▶  @mokalabs/core
+ chat · compare · tools                                  ├─ providers   (AI SDK: OpenAI, Anthropic, Gemini, Azure, OpenAI-compatible)
+ settings · inspector                                    ├─ MCP manager (stdio · Streamable HTTP · SSE, raw JSON-RPC tap)
+ MCP Apps · A2UI renderer                                ├─ skills      (SKILL.md, load_skill / read_skill_file)
+                                                         ├─ agent loop  (streaming tool calls, render_ui)
+                                                         └─ event bus   (everything the inspector shows)
+```
+
+- **Local-first.** Moka runs on your machine (or your container). Your keys and data never go anywhere except the providers you configure. No telemetry.
+- **One config file.** Everything you set in the UI is saved to a readable `moka.json`. Secrets stay in environment variables via `env:NAME` references.
+- **Standards, not lock-in.** MCP for tools, Agent Skills for instructions, MCP Apps and A2UI for UI, the Vercel AI SDK for providers. What you build in Moka works elsewhere.
+
+## Packages
+
+| Package | What it is |
+|---|---|
+| `@mokalabs/sandbox` | The app you run: CLI, server, web UI and a demo MCP server |
+| `@mokalabs/core` | The headless engine, if you want to embed Moka in your own tools |
+| `create-moka` | `npm create moka` — scaffolds a shareable demo project |

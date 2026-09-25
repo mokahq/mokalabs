@@ -1,0 +1,55 @@
+---
+title: Troubleshooting
+description: Fixes for the most common problems.
+---
+
+## Getting started
+
+**"Access token required" page**
+Open the full URL printed in the terminal (it includes `?token=`). The token is remembered in that browser afterwards. For a stable token, start with `--token my-token` or `MOKA_TOKEN`.
+
+**The browser didn't open**
+Copy the URL from the terminal. Headless environments, `CI=1` and `--no-open` skip opening.
+
+**Port already in use**
+Moka automatically tries the next port (4001, 4002, …). Use the URL it prints, or pass `--port`.
+
+## Models
+
+**"No model configured"**
+Add one in **Settings → Models**, or export a key (e.g. `OPENAI_API_KEY`) *before* the first run — Moka creates profiles for keys it finds.
+
+**404 / "model not found"**
+The model name doesn't exist for your account. Click **Fetch models** in the model form and pick one from the list.
+
+**401 / "invalid API key"**
+If you used `env:NAME`, the variable must be set in the shell that started Moka. Restart Moka after changing it.
+
+**Tool calls don't happen with a local model**
+Smaller local models often can't call tools reliably. Try a larger model, or confirm with **Compare** against a hosted model.
+
+## MCP servers
+
+**`spawn npx ENOENT` / `spawn uvx ENOENT`**
+The command isn't on the `PATH` Moka sees. Use an absolute path (`which npx`), or install uv for `uvx`.
+
+**Connection timed out**
+First runs of `npx -y some-server` download packages. Raise **Timeout (ms)** under Advanced, or run the command once in a terminal to warm the cache.
+
+**The server connects but the model never uses it**
+Check the server is enabled in the **active workspace**, the tool isn't switched off, and look at `run.start` in the inspector to see the exact tool list the model received.
+
+**Seeing the error output**
+Server stderr shows in the server's settings page and in the inspector under **Logs**.
+
+## Generative UI
+
+**An MCP App is blank**
+Open the inspector's **Tools** tab and look for `ui.rpc` events. If there's no `ui/initialize`, the app's script failed — often because it loads a script from a domain not listed in `_meta.ui.csp.resourceDomains`.
+
+**The model ignores A2UI**
+Make sure **Generative UI** is on in the workspace, and nudge it in the system prompt: *"Use render_ui for forms and choices."*
+
+## Still stuck?
+
+Download a trace from the inspector (⬇) and open an issue at [github.com/mokalabs/moka](https://github.com/mokalabs/moka/issues). Remove anything sensitive first.

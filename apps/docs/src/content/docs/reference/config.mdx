@@ -1,0 +1,116 @@
+---
+title: moka.json
+description: Complete configuration reference.
+---
+
+import { Aside } from "@astrojs/starlight/components";
+
+Moka reads a single JSON file (see [lookup order](/reference/cli/#config-file-lookup)). Everything in the Settings UI maps to this file.
+
+```json
+{
+  "$schema": "https://unpkg.com/@mokalabs/sandbox/dist/moka.schema.json",
+  "version": 1,
+  "activeWorkspaceId": "demo",
+  "llms": [],
+  "mcpServers": [],
+  "skills": [],
+  "workspaces": []
+}
+```
+
+<Aside type="tip">Add the `$schema` line for autocompletion and validation in VS Code, JetBrains and other editors.</Aside>
+
+## Environment references
+
+Any secret-ish string (API keys, URLs, headers, env values, commands, args) supports:
+
+| Syntax | Meaning |
+|---|---|
+| `env:NAME` | The whole value is `$NAME` |
+| `${NAME}` | Interpolated inside a string, e.g. `Bearer ${TOKEN}` |
+
+Missing variables resolve to an empty string.
+
+## `llms[]`
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | string | Unique id, referenced by workspaces |
+| `name` | string | Display name |
+| `provider` | `openai` · `anthropic` · `google` · `azure` · `ollama` · `openai-compatible` | Provider type |
+| `model` | string | Model id (Azure: deployment name) |
+| `apiKey` | string? | Literal, `env:NAME` or `${NAME}` |
+| `baseURL` | string? | Required for `openai-compatible`; optional override otherwise |
+| `headers` | object? | Extra HTTP headers |
+| `resourceName` | string? | Azure resource name |
+| `apiVersion` | string? | Azure API version |
+| `useChatApi` | boolean? | OpenAI: use Chat Completions instead of Responses |
+| `temperature` | number? | 0–2 |
+| `maxOutputTokens` | integer? | |
+| `providerOptions` | object? | Passed to the AI SDK as `providerOptions` |
+
+## `mcpServers[]`
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | string | Unique id (also the tool-name prefix) |
+| `name` | string | Display name |
+| `transport` | `stdio` · `http` · `sse` | `http` is Streamable HTTP |
+| `command` | string? | stdio: executable. `moka:demo` = built-in demo server |
+| `args` | string[]? | stdio: arguments |
+| `env` | object? | stdio: extra environment variables |
+| `cwd` | string? | stdio: working directory |
+| `url` | string? | http/sse: endpoint |
+| `headers` | object? | http/sse: request headers |
+| `disabledTools` | string[]? | Tools hidden from the model |
+| `timeoutMs` | integer? | Connect timeout (default 30000). Tool calls time out after 120 s |
+
+## `skills[]`
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | string | Unique id |
+| `path` | string? | Skill folder or `SKILL.md` path (relative to the config file, `~` expanded) |
+| `content` | string? | Inline `SKILL.md` (instead of `path`) |
+| `name` | string? | Override frontmatter `name` |
+| `description` | string? | Override frontmatter `description` |
+
+## `workspaces[]`
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | string | Unique id |
+| `name` | string | Display name |
+| `llmId` | string? | Default model (falls back to the first) |
+| `mcpServerIds` | string[] | Enabled servers |
+| `skillIds` | string[] | Enabled skills |
+| `systemPrompt` | string? | |
+| `starterPrompts` | string[]? | Chips on an empty chat |
+| `maxSteps` | integer? | 1–100, default 12 |
+| `generativeUi` | boolean? | Offer the `render_ui` (A2UI) tool. Default `true` |
+
+## Full example
+
+```json title="moka.json"
+{
+  "$schema": "https://unpkg.com/@mokalabs/sandbox/dist/moka.schema.json",
+  "version": 1,
+  "activeWorkspaceId": "support",
+  "llms": [
+    { "id": "gpt", "name": "OpenAI", "provider": "openai", "model": "gpt-5-mini", "apiKey": "env:OPENAI_API_KEY" },
+    { "id": "gw", "name": "Gateway", "provider": "openai-compatible", "model": "llama-3.3-70b",
+      "baseURL": "https://llm.internal.example.com/v1", "apiKey": "env:GATEWAY_KEY", "headers": { "X-Team": "support" } }
+  ],
+  "mcpServers": [
+    { "id": "demo", "name": "Demo tools", "transport": "stdio", "command": "moka:demo" },
+    { "id": "gh", "name": "GitHub", "transport": "http", "url": "https://api.githubcopilot.com/mcp/",
+      "headers": { "Authorization": "Bearer ${GITHUB_TOKEN}" }, "disabledTools": ["delete_repository"] }
+  ],
+  "skills": [{ "id": "voice", "path": "skills/brand-voice" }],
+  "workspaces": [
+    { "id": "support", "name": "Support", "llmId": "gpt", "mcpServerIds": ["demo", "gh"], "skillIds": ["voice"],
+      "systemPrompt": "You are a friendly support agent.", "starterPrompts": ["Draft a reply to a late-delivery complaint"] }
+  ]
+}
+```

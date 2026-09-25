@@ -1,0 +1,101 @@
+---
+title: "Tutorial: your first demo"
+description: Build a complete demo — model, MCP server, skill, generative UI — and share it.
+---
+
+import { Steps, Aside, FileTree } from "@astrojs/starlight/components";
+
+In this tutorial you'll build a **"Support desk"** demo: a model that answers customers in your brand voice, uses real tools, shows a booking form, and can be shared with one command. It takes about 10 minutes.
+
+## 1. Create the project
+
+<Steps>
+
+1. Scaffold a project and install:
+
+   ```bash
+   npm create moka@latest support-desk
+   cd support-desk && npm install
+   ```
+
+   <FileTree>
+   - support-desk/
+     - moka.json the whole demo: models, servers, skills, workspaces
+     - package.json
+     - skills/
+       - brand-voice/
+         - SKILL.md
+         - examples.md
+       - incident-report/
+         - SKILL.md
+     - .env.example
+   </FileTree>
+
+2. Give it a key and start it:
+
+   ```bash
+   export OPENAI_API_KEY=sk-...
+   npm start
+   ```
+
+</Steps>
+
+## 2. Pick the model
+
+Open the **model menu** in the top bar. The template ships with OpenAI, Anthropic and Ollama profiles that read keys from the environment (`env:OPENAI_API_KEY`). Pick the one you have a key for.
+
+Need something else? **Settings → Models → Add model** and choose a preset, or **Custom / Enterprise gateway** for any OpenAI-compatible endpoint. Hit **Test** to confirm it works. → [Models & providers](/guides/models/)
+
+## 3. Add a real MCP server
+
+<Steps>
+
+1. **Settings → MCP servers → Add server → Gallery → Filesystem**.
+2. Change the last argument from `.` to the folder you want the model to see.
+3. Click **Save & reconnect** — the dot turns green and its tools are listed. Switch off any tool you don't want the model to use.
+
+</Steps>
+
+Try: *"What files are in the project folder, and what does the README say?"* Open the **Inspector** and click the `tools/call` events to see the exact JSON-RPC messages. → [MCP servers](/guides/mcp-servers/)
+
+## 4. Use a skill
+
+The **Support bot** workspace already enables the `brand-voice` skill. Ask:
+
+> A customer says their beans arrived two weeks late. Write a reply.
+
+In the inspector you'll see a `load_skill` call: the model read `skills/brand-voice/SKILL.md` because its description matched the task, then followed it. Edit `SKILL.md` and ask again — no restart needed. → [Skills](/guides/skills/)
+
+## 5. Add generative UI
+
+Every workspace gives the model a `render_ui` tool, so it can answer with real UI. Ask:
+
+> Show me a form to reschedule the delivery: date, time window and a notes field.
+
+The model renders an [A2UI](/generative-ui/a2ui/) form. Fill it in and press the button — the values come back to the model as a `[ui action]` message and it continues the conversation.
+
+The demo server also includes an **MCP App**: ask *"roll 3 dice"* and you'll get an interactive dice roller that calls tools on its own. → [Generative UI](/generative-ui/overview/)
+
+## 6. Polish the demo
+
+<Steps>
+
+1. **Settings → Workspaces → Support bot**: tweak the system prompt and **starter prompts** — they show up as one-click chips on an empty chat.
+2. Press <kbd>⌘</kbd> <kbd>.</kbd> for **presenter mode**: bigger text, no side panels.
+3. Try **Compare** to run the same prompt against two models side by side.
+
+</Steps>
+
+## 7. Share it
+
+Everything you changed lives in `moka.json`. Keys stay in env vars, so it's safe to commit:
+
+```bash
+git init && git add . && git commit -m "Support desk demo"
+```
+
+Anyone can now clone the repo and run `npm install && npm start`. Or hand it to your platform team as a [Docker](/deploy/docker/) deployment.
+
+<Aside type="tip" title="Take it to production">
+Open **Export** (the `</>` icon) to get the same agent as Vercel AI SDK (TypeScript) or LangGraph (Python) code. → [Export to code](/guides/export/)
+</Aside>

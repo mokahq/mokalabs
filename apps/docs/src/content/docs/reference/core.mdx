@@ -1,0 +1,71 @@
+---
+title: "@mokalabs/core"
+description: Embed the Moka engine in scripts, tests and your own apps.
+---
+
+```bash
+npm install @mokalabs/core
+```
+
+`@mokalabs/core` is the headless engine behind the UI: providers, MCP client manager, skills, the agent loop and the event bus.
+
+## MokaEngine
+
+```ts
+import { MokaEngine, ConfigStore, parseConfig } from "@mokalabs/core";
+
+// From a file (changes via setConfig are persisted)…
+const store = new ConfigStore("./moka.json");
+const { config } = await store.load();
+const engine = new MokaEngine({ config, store });
+
+// …or in memory
+const inMemory = new MokaEngine({ config: parseConfig({ llms: [/* … */], workspaces: [/* … */] }) });
+
+// Observe everything
+engine.bus.subscribe((e) => console.log(`[${e.kind}] ${e.title}`));
+
+// Run a turn
+const history = [{ role: "user", content: "Roll 2d20" }];
+for await (const chunk of engine.chat({ messages: history })) {
+  if (chunk.type === "text") process.stdout.write(chunk.text);
+  if (chunk.type === "tool-call") console.log("\n→", chunk.tool, chunk.input);
+  if (chunk.type === "finish") history.push(...chunk.messages); // keep for the next turn
+}
+
+await engine.close(); // stops stdio servers
+```
+
+| Method | |
+|---|---|
+| `chat({messages, workspaceId?, llmId?, signal?})` | Async iterator of chat chunks |
+| `getConfig()` / `setConfig(next)` | Read / validate + persist config |
+| `workspace(id?)` / `llm(id?)` | Resolve a workspace or model profile |
+| `connectAll(workspaceId?)` | Connect servers eagerly |
+| `loadSkills(ids?)` | Load skills from disk |
+| `testLlm(profile)` / `listModels(profile)` | Connectivity helpers |
+| `mcp` | The `McpManager` (`ensure`, `callTool`, `readResource`, `getPrompt`, `states`, …) |
+| `bus` | The `EventBus` (`subscribe`, `history`, `clear`) |
+
+## Utilities
+
+| Export | |
+|---|---|
+| `parseConfig`, `mokaConfigSchema`, `mokaJsonSchema()` | Validate configs; JSON Schema for editors |
+| `resolveSecret`, `redactConfig` | `env:`/`${}` resolution; safe-to-share copies |
+| `createModel(profile)`, `PROVIDER_PRESETS`, `detectProfiles(env)` | Providers |
+| `loadSkill`, `discoverSkills`, `parseFrontmatter` | Skills |
+| `importMcpJson`, `exportMcpJson`, `exportCode` | Interop with Claude/Cursor/VS Code configs; code generation |
+| `parseA2ui`, `detectResultUi`, `renderUiToMessages`, `toolUiResourceUri` | Generative UI helpers |
+
+## Testing agents in CI
+
+Because `MokaEngine` accepts any OpenAI-compatible base URL, you can run agent tests against a local mock model (or a cheap real one) and assert on tool calls:
+
+```ts
+const calls: string[] = [];
+for await (const c of engine.chat({ messages: [{ role: "user", content: "What's 6*7?" }] })) {
+  if (c.type === "tool-call") calls.push(c.tool);
+}
+expect(calls).toContain("calculate");
+```

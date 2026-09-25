@@ -1,0 +1,36 @@
+{
+  "name": "mokalabs",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Moka — any LLM, any MCP server, any skill. One command.",
+  "license": "MIT",
+  "type": "module",
+  "packageManager": "pnpm@10.33.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "pnpm -r run build",
+    "dev": "pnpm --filter @mokalabs/sandbox run dev",
+    "typecheck": "pnpm -r run typecheck",
+    "test": "pnpm -r run test",
+    "changeset": "changeset",
+    "version-packages": "changeset version",
+    "release": "pnpm build && changeset publish",
+    "start": "node packages/sandbox/dist/cli.js",
+    "docker:build": "docker build -t mokalabs/sandbox:dev ."
+  },
+  "devDependencies": {
+    "@changesets/changelog-github": "^1.0.1",
+    "@changesets/cli": "^3.0.3",
+    "@types/node": "^22.10.0",
+    "tsup": "^8.5.1",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  }
+}

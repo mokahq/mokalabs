@@ -1,0 +1,35 @@
+---
+title: Sharing demos
+description: Hand someone a demo they can run with one command.
+---
+
+import { Steps } from "@astrojs/starlight/components";
+
+A Moka demo is just a folder:
+
+```text
+my-demo/
+├── moka.json        # models, servers, skills, workspaces
+├── skills/          # SKILL.md folders referenced from moka.json
+└── package.json     # optional: pins @mokalabs/sandbox
+```
+
+<Steps>
+
+1. Use `env:` references for every secret (the UI suggests them). Check with **Settings → Config file → Download (keys redacted)** — the downloaded file is what's safe to share.
+2. Use relative paths for skills (`"path": "skills/brand-voice"`); they resolve relative to `moka.json`.
+3. Commit the folder, or zip it.
+4. The recipient runs, inside the folder:
+
+   ```bash
+   npx @mokalabs/sandbox        # or: npm install && npm start if you used create-moka
+   ```
+
+</Steps>
+
+## Tips
+
+- Add a `.env.example` listing the variables your demo needs.
+- Add `"$schema": "https://unpkg.com/@mokalabs/sandbox/dist/moka.schema.json"` to `moka.json` for autocompletion in VS Code and other editors.
+- Put the story in **starter prompts** so the presenter doesn't have to remember what to type.
+- Stdio servers that use `npx -y …` or `uvx …` install themselves on first run — no extra setup for the recipient.

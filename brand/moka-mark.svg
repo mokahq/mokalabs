@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Moka">
+  <defs>
+    <linearGradient id="skin" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f8c47e"/>
+      <stop offset="1" stop-color="#d97a38"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="16" fill="#1c1411"/>
+  <!-- head -->
+  <path d="M8 58 C 4 36, 12 12, 34 9 C 52 7, 60 16, 60 27 C 60 36, 53 41, 44 41 L 30 41 C 28 50, 24 56, 20 58 Z" fill="url(#skin)"/>
+  <path d="M8 30 l 5 -7 l 3 8 z M13 20 l 6 -6 l 2 8 z" fill="#9a4f23"/>
+  <circle cx="37" cy="22" r="5" fill="#fff"/>
+  <circle cx="38.6" cy="22.8" r="2.8" fill="#1c1411"/>
+  <path d="M31 16 q 5 -3 10 -1" fill="none" stroke="#9a4f23" stroke-width="2" stroke-linecap="round"/>
+  <path d="M47 35 q 6 2 11 -2" fill="none" stroke="#8a4520" stroke-width="2.2" stroke-linecap="round"/>
+  <!-- cup -->
+  <path d="M38 45 h 18 v 7 a 8 8 0 0 1 -8 8 h -2 a 8 8 0 0 1 -8 -8 z" fill="#fbf4ec"/>
+  <path d="M38 47.5 h -2.5 a 4 4 0 0 0 0 8 h 3" fill="none" stroke="#fbf4ec" stroke-width="2.4"/>
+  <ellipse cx="47" cy="45.4" rx="9" ry="2" fill="#5c2f17"/>
+</svg>

@@ -1,0 +1,68 @@
+---
+title: Quickstart
+description: From zero to chatting with tools in 60 seconds.
+---
+
+import { Steps, Tabs, TabItem, Aside } from "@astrojs/starlight/components";
+
+<Steps>
+
+1. **Set a key** (optional — you can also add one in the UI).
+
+   <Tabs syncKey="provider">
+     <TabItem label="OpenAI">
+
+     ```bash
+     export OPENAI_API_KEY=sk-...
+     ```
+
+     </TabItem>
+     <TabItem label="Anthropic">
+
+     ```bash
+     export ANTHROPIC_API_KEY=sk-ant-...
+     ```
+
+     </TabItem>
+     <TabItem label="Gemini">
+
+     ```bash
+     export GEMINI_API_KEY=...
+     ```
+
+     </TabItem>
+     <TabItem label="Ollama (local)">
+
+     ```bash
+     ollama pull llama3.2   # Moka detects Ollama on localhost automatically
+     ```
+
+     </TabItem>
+   </Tabs>
+
+2. **Run Moka** (Node.js 20 or newer).
+
+   ```bash
+   npx @mokalabs/sandbox
+   ```
+
+   Your browser opens at a URL like `http://localhost:4000/?token=…`. The token protects the local server — see [Security](/deploy/security/).
+
+3. **Click a starter prompt.** The built-in **Moka demo tools** server is already connected, so the model can check the time, do math, roll dice (with an interactive [MCP App](/generative-ui/mcp-apps/)), fetch web pages and more. Watch the **Inspector** on the right fill with model steps, tool calls and raw MCP messages.
+
+4. **Add your own things.** Open **Settings** (<kbd>⌘</kbd> <kbd>,</kbd>):
+   - **Models → Add model** to connect another provider or your company gateway.
+   - **MCP servers → Add server** to pick from the gallery, fill in a form, or paste your Claude Desktop / Cursor config.
+   - **Skills → Add skill** to load a `SKILL.md` folder.
+
+</Steps>
+
+<Aside type="tip" title="Want a shareable project instead?">
+`npm create moka@latest my-demo` scaffolds a folder with a `moka.json`, example skills and two ready-made workspaces. Run `npm start` inside it.
+</Aside>
+
+## Next steps
+
+- Follow the [tutorial](/tutorial/) to build a complete demo.
+- Learn how [generative UI](/generative-ui/overview/) works.
+- See all [CLI options](/reference/cli/).

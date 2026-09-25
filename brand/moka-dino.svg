@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Moka">
+  <defs>
+    <linearGradient id="skin" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f8c47e"/>
+      <stop offset="1" stop-color="#d97a38"/>
+    </linearGradient>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2b1e19"/>
+      <stop offset="1" stop-color="#130d0b"/>
+    </linearGradient>
+    <radialGradient id="glow" cx=".72" cy=".62" r=".5">
+      <stop offset="0" stop-color="#eb9a5c" stop-opacity=".28"/>
+      <stop offset="1" stop-color="#eb9a5c" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="128" height="128" rx="30" fill="url(#bg)"/>
+  <rect width="128" height="128" rx="30" fill="url(#glow)"/>
+
+  <!-- tail -->
+  <path d="M36 88 C 24 90, 16 96, 12 104 C 14 107, 20 106, 26 104 C 32 102, 40 100, 46 100 Z" fill="url(#skin)"/>
+  <!-- back spikes -->
+  <path d="M33 72 l5 -9 l5 9 z M42 62 l6 -9 l5 10 z M54 54 l6 -9 l5 10 z" fill="#9a4f23"/>
+  <!-- body -->
+  <ellipse cx="54" cy="86" rx="25" ry="21" fill="url(#skin)"/>
+  <!-- belly -->
+  <path d="M58 76 C 70 74, 76 84, 74 94 C 72 102, 62 106, 56 102 C 52 94, 52 82, 58 76 Z" fill="#fde7c9"/>
+  <!-- legs -->
+  <rect x="38" y="97" width="12" height="15" rx="6" fill="url(#skin)"/>
+  <rect x="56" y="99" width="12" height="13" rx="6" fill="url(#skin)"/>
+  <path d="M38 109 h12 M56 109 h12" stroke="#c9692e" stroke-width="1.5" opacity=".6"/>
+  <!-- head -->
+  <path d="M54 66 C 50 46, 60 28, 82 25 C 102 22, 117 31, 117 45 C 117 56, 109 62, 97 62 L 80 63 C 76 71, 66 75, 57 73 Z" fill="url(#skin)"/>
+  <!-- cheek -->
+  <ellipse cx="96" cy="52" rx="5" ry="3" fill="#f08a6a" opacity=".55"/>
+  <!-- smile -->
+  <path d="M100 55 q 7 2.5 13 -2.5" fill="none" stroke="#8a4520" stroke-width="2.4" stroke-linecap="round"/>
+  <!-- nostril -->
+  <ellipse cx="111" cy="38" rx="1.4" ry="1.8" fill="#8a4520"/>
+  <!-- eye -->
+  <circle cx="88" cy="40" r="6.2" fill="#fff"/>
+  <circle cx="90" cy="41" r="3.4" fill="#1c1411"/>
+  <circle cx="91.3" cy="39.5" r="1.2" fill="#fff"/>
+  <path d="M81 32 q 6 -4 13 -1" fill="none" stroke="#9a4f23" stroke-width="2.2" stroke-linecap="round"/>
+
+  <!-- cup (handle faces the dino so it can hold it) -->
+  <path d="M90 80 h 24 v 11 a 12 12 0 0 1 -12 12 a 12 12 0 0 1 -12 -12 z" fill="#fbf4ec"/>
+  <path d="M90 84 h -3.5 a 5.5 5.5 0 0 0 0 11 h 4" fill="none" stroke="#fbf4ec" stroke-width="3.2"/>
+  <ellipse cx="102" cy="80.5" rx="12" ry="2.8" fill="#5c2f17"/>
+  <ellipse cx="102" cy="80.2" rx="6" ry="1.2" fill="#c98a55" opacity=".9"/>
+  <!-- steam, drifting up and right, clear of the jaw -->
+  <path d="M104 75 c -2 -2.5, 3 -4, 1 -6.5 M111 76 c -2 -2.5, 3 -4, 1 -6.5" fill="none" stroke="#f8c47e" stroke-width="2.2" stroke-linecap="round" opacity=".85"/>
+
+  <!-- tiny T-rex arm: shoulder -> elbow -> claws wrapped around the handle -->
+  <path d="M70 83 q 5 5 11 5" fill="none" stroke="url(#skin)" stroke-width="6.5" stroke-linecap="round"/>
+  <path d="M81 86.5 q 4 -1.5 6.5 -4 M81 90 q 4 0.5 6.5 -1.5" fill="none" stroke="#e3894a" stroke-width="3" stroke-linecap="round"/>
+</svg>

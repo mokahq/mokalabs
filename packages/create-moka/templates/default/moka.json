@@ -1,0 +1,45 @@
+{
+  "$schema": "https://unpkg.com/@mokalabs/sandbox/dist/moka.schema.json",
+  "version": 1,
+  "activeWorkspaceId": "support-bot",
+  "llms": [
+    { "id": "openai", "name": "OpenAI", "provider": "openai", "model": "gpt-5-mini", "apiKey": "env:OPENAI_API_KEY" },
+    { "id": "anthropic", "name": "Anthropic", "provider": "anthropic", "model": "claude-sonnet-5", "apiKey": "env:ANTHROPIC_API_KEY" },
+    { "id": "ollama", "name": "Ollama", "provider": "ollama", "model": "llama3.2" }
+  ],
+  "mcpServers": [
+    { "id": "moka-demo", "name": "Moka demo tools", "transport": "stdio", "command": "moka:demo", "args": [] },
+    { "id": "deepwiki", "name": "DeepWiki", "transport": "http", "url": "https://mcp.deepwiki.com/mcp" }
+  ],
+  "skills": [
+    { "id": "brand-voice", "path": "skills/brand-voice" },
+    { "id": "incident-report", "path": "skills/incident-report" }
+  ],
+  "workspaces": [
+    {
+      "id": "support-bot",
+      "name": "Support bot",
+      "llmId": "openai",
+      "mcpServerIds": ["moka-demo"],
+      "skillIds": ["brand-voice"],
+      "systemPrompt": "You are Moka Support, a friendly assistant for a coffee subscription company. Use tools when they help and keep answers short.",
+      "starterPrompts": [
+        "What time is it in Bengaluru and New York right now?",
+        "A customer paid $18.50 for 3 bags — what's the price per bag?",
+        "Write a reply to a customer whose order arrived late"
+      ]
+    },
+    {
+      "id": "sre",
+      "name": "On-call SRE",
+      "llmId": "anthropic",
+      "mcpServerIds": ["moka-demo", "deepwiki"],
+      "skillIds": ["incident-report"],
+      "systemPrompt": "You are a calm, precise SRE assistant.",
+      "starterPrompts": [
+        "Draft an incident report: checkout API returned 500s for 12 minutes after a deploy",
+        "Using DeepWiki, how does the modelcontextprotocol/typescript-sdk handle reconnection?"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,34 @@
+---
+title: Workspaces & demos
+description: Bundle a model, tools, skills and prompts — and present them.
+---
+
+import { Aside } from "@astrojs/starlight/components";
+
+A **workspace** is a named bundle of:
+
+| | |
+|---|---|
+| **Model** | The default model for chats in this workspace |
+| **MCP servers** | Which servers' tools the model can use |
+| **Skills** | Which skills are advertised |
+| **System prompt** | Persona and rules |
+| **Starter prompts** | One-click chips on an empty chat |
+| **Max agent steps** | Upper bound on model ↔ tool round trips per message (default 12) |
+| **Generative UI** | Whether the model gets the `render_ui` tool (default on) |
+
+Create one per use case — "Support bot", "SRE on-call", "Sales demo: CRM" — and switch between them from the top bar. Chats remember which workspace they started in.
+
+## Demo mode checklist
+
+- **Starter prompts** that show off your best flows, in the order you want to present them.
+- **Presenter mode** — <kbd>⌘</kbd> <kbd>.</kbd> hides the sidebar and inspector and enlarges text. Toggle the inspector back with <kbd>⌘</kbd> <kbd>I</kbd> when you want to show "how it works".
+- **Compare** — run the same question on two models live.
+- **Command palette** — <kbd>⌘</kbd> <kbd>K</kbd> to jump between workspaces, models and past chats without touching the mouse.
+- **Light theme** for projectors — the sun/moon icon in the top bar.
+
+<Aside type="tip">Commit your `moka.json` next to the demo so anyone can rerun it — see [Sharing demos](/deploy/sharing/).</Aside>
+
+## Chat history
+
+Chats are saved to `~/.moka/sessions/` (or `$MOKA_HOME/sessions`). Search them from the sidebar or the command palette. Each chat stores both what you saw and the exact model message history, so reopening a chat and continuing works exactly as before.

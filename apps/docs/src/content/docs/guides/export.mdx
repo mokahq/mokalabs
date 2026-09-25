@@ -1,0 +1,43 @@
+---
+title: Export to code
+description: Turn a workspace into Vercel AI SDK or LangGraph code, or a portable config.
+---
+
+import { Tabs, TabItem } from "@astrojs/starlight/components";
+
+Click **`</>`** in the top bar to export the active workspace. Keys are never included — the code reads them from the environment.
+
+<Tabs>
+<TabItem label="Vercel AI SDK">
+A TypeScript agent using `streamText`, `@ai-sdk/mcp` clients for each server, and the same model, system prompt and step limit.
+
+```ts
+import { streamText, stepCountIs } from "ai";
+import { createMCPClient } from "@ai-sdk/mcp";
+import { createAnthropic } from "@ai-sdk/anthropic";
+
+const model = createAnthropic({ apiKey: process.env.ANTHROPIC_API_KEY })("claude-sonnet-5");
+const mcp0 = await createMCPClient({ transport: { type: "http", url: "https://mcp.deepwiki.com/mcp" } });
+const result = streamText({ model, tools: { ...(await mcp0.tools()) }, stopWhen: stepCountIs(12), prompt: "…" });
+```
+</TabItem>
+<TabItem label="LangGraph">
+A Python ReAct agent using `langchain-mcp-adapters`' `MultiServerMCPClient` and `create_react_agent`, with the right `langchain-*` chat model for your provider.
+
+```python
+client = MultiServerMCPClient({"deepwiki": {"url": "https://mcp.deepwiki.com/mcp", "transport": "streamable_http"}})
+tools = await client.get_tools()
+agent = create_react_agent(model, tools, prompt=SYSTEM_PROMPT)
+```
+</TabItem>
+<TabItem label="mcp.json">
+The servers in the standard `mcpServers` format — paste into Claude Desktop, Claude Code, Cursor or Windsurf.
+</TabItem>
+<TabItem label="moka.json">
+The whole config (keys redacted) so someone else can run the exact same demo.
+</TabItem>
+</Tabs>
+
+The bundled demo server is exported as `npx -y @mokalabs/sandbox demo-server`, so exported code runs anywhere.
+
+Skills and generative UI are Moka runtime features and aren't included in the exported agent code.

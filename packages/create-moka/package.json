@@ -1,0 +1,17 @@
+{
+  "name": "create-moka",
+  "version": "0.1.0",
+  "description": "Scaffold a Moka demo project: npm create moka@latest",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "create-moka": "./index.js"
+  },
+  "files": ["index.js", "templates"],
+  "repository": { "type": "git", "url": "git+https://github.com/mokalabs/moka.git", "directory": "packages/create-moka" },
+  "keywords": ["moka", "mcp", "llm", "create", "scaffold", "agent", "skills"],
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  }
+}

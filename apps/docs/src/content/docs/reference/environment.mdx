@@ -1,0 +1,35 @@
+---
+title: Environment variables
+description: Variables Moka reads.
+---
+
+## Moka
+
+| Variable | Description |
+|---|---|
+| `PORT` | Port (default 4000) |
+| `MOKA_HOST` | Bind address (default `127.0.0.1`) |
+| `MOKA_TOKEN` | Fixed access token |
+| `MOKA_CONFIG` | Config file path |
+| `MOKA_HOME` | Data directory (default `~/.moka`): default config + chat sessions |
+| `MOKA_NO_OPEN` | `1` to never open a browser |
+| `OLLAMA_HOST` | Where to look for Ollama on first run (default `http://localhost:11434`) |
+
+## Providers detected on first run
+
+| Variable | Creates a profile for |
+|---|---|
+| `OPENAI_API_KEY` | OpenAI |
+| `ANTHROPIC_API_KEY` | Anthropic |
+| `GOOGLE_GENERATIVE_AI_API_KEY` or `GEMINI_API_KEY` | Google Gemini |
+| `AZURE_API_KEY` + `AZURE_RESOURCE_NAME` | Azure OpenAI |
+| `OPENROUTER_API_KEY` | OpenRouter |
+| `GROQ_API_KEY` | Groq |
+| `DEEPSEEK_API_KEY` | DeepSeek |
+| `MISTRAL_API_KEY` | Mistral |
+| `XAI_API_KEY` | xAI |
+| `TOGETHER_API_KEY` | Together AI |
+
+Profiles reference the variable (`env:OPENAI_API_KEY`), so rotating a key only requires restarting Moka with the new value.
+
+Any other variable can be referenced from `moka.json` with `env:NAME` or `${NAME}`.

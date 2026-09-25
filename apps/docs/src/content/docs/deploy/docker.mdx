@@ -1,0 +1,72 @@
+---
+title: Docker
+description: Run Moka in a container — for yourself or your team.
+---
+
+import { Aside } from "@astrojs/starlight/components";
+
+```bash
+docker run --rm -p 4000:4000 -e OPENAI_API_KEY ghcr.io/mokalabs/moka
+```
+
+The image (`linux/amd64` and `linux/arm64`) includes Node.js (`npx`), [uv](https://docs.astral.sh/uv/) (`uvx`) and `git`, so both Node and Python MCP servers work out of the box.
+
+## Common setups
+
+```bash title="Use a moka.json from the current folder"
+docker run --rm -p 4000:4000 \
+  -v "$PWD:/workspace" \
+  -e ANTHROPIC_API_KEY \
+  ghcr.io/mokalabs/moka
+```
+
+```bash title="Persistent config and chat history"
+docker run -d --name moka -p 4000:4000 \
+  -v moka-data:/data \
+  -e MOKA_TOKEN=change-me \
+  -e OPENAI_API_KEY \
+  ghcr.io/mokalabs/moka
+```
+
+```yaml title="docker-compose.yml"
+services:
+  moka:
+    image: ghcr.io/mokalabs/moka:latest
+    ports: ["4000:4000"]
+    environment:
+      MOKA_TOKEN: ${MOKA_TOKEN}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      GATEWAY_KEY: ${GATEWAY_KEY}
+    volumes:
+      - ./demo:/workspace      # contains moka.json and skills/
+      - moka-data:/data
+volumes:
+  moka-data:
+```
+
+## Defaults inside the image
+
+| Setting | Value |
+|---|---|
+| Working directory | `/workspace` — a `moka.json` here is used automatically |
+| `MOKA_HOME` | `/data` — default config and chat sessions |
+| `MOKA_HOST` | `0.0.0.0` |
+| `PORT` | `4000` |
+| User | `node` (non-root) |
+| Health check | `GET /api/health` |
+
+## Access token
+
+The container generates a random token on each start and prints the URL in `docker logs`. Set `MOKA_TOKEN` for a stable one.
+
+<Aside type="caution">
+Anyone with the token can make Moka run the MCP servers you configured — including arbitrary stdio commands. Only expose the port on trusted networks or behind your SSO proxy. See [Security](/deploy/security/).
+</Aside>
+
+## Tags
+
+| Tag | |
+|---|---|
+| `latest` | Most recent release |
+| `X.Y.Z` | Exact release |
+| `X.Y` | Latest patch of a minor version |

@@ -1,0 +1,43 @@
+---
+title: Inspector
+description: See every model step, tool call, token and JSON-RPC message.
+---
+
+import { Aside } from "@astrojs/starlight/components";
+
+The inspector (right panel, <kbd>⌘</kbd> <kbd>I</kbd>) streams everything Moka does, live.
+
+## Filters
+
+| Tab | Shows |
+|---|---|
+| **All** | Everything |
+| **LLM** | Run start/finish and every model request/response step |
+| **Tools** | Tool calls, results, errors, skill loads, and generative UI traffic |
+| **RPC** | Raw MCP JSON-RPC messages, both directions, including the `initialize` handshake |
+| **Logs** | Connection status changes, server stderr, warnings and errors |
+
+Use the search box to filter by title or payload content (e.g. a tool argument value).
+
+## Event details
+
+Click any event to open it:
+
+- **Payload** — the full JSON: request bodies sent to the provider, tool inputs and outputs, JSON-RPC messages, usage.
+- **This run** — a waterfall of every step in the same run, so you can spot where time went (slow tool vs. slow model).
+
+From a chat message, **Inspect run →** jumps straight to that run.
+
+## Counters
+
+The header totals tokens, tool calls and errors since the inspector was last cleared.
+
+## Pause, clear, download
+
+- **Pause** freezes the list while new events keep buffering.
+- **Clear** wipes the server-side buffer (the last 2,000 events are kept by default).
+- **Download trace** saves all events as JSON — handy for bug reports and for diffing runs.
+
+<Aside type="caution">Traces contain prompts and tool outputs. Review before sharing.</Aside>
+
+See the [event reference](/reference/events/) for every event kind and its payload.

@@ -1,0 +1,23 @@
+---
+title: Contributing
+description: Develop Moka locally.
+---
+
+```bash
+git clone https://github.com/mokalabs/moka && cd moka
+corepack enable
+pnpm install
+pnpm dev          # API on :4000 (no auth) + Vite UI on :5173 with hot reload
+pnpm test         # unit + end-to-end tests (no API keys needed)
+pnpm --filter @mokalabs/docs dev   # this documentation site
+```
+
+| Path | |
+|---|---|
+| `packages/core` | Engine: providers, MCP, skills, agent loop, generative UI helpers |
+| `packages/sandbox/src` | CLI, HTTP server, demo MCP server |
+| `packages/sandbox/web` | React UI |
+| `packages/create-moka` | Scaffolder and templates |
+| `apps/docs` | This site (Astro Starlight) |
+
+User-facing changes need a changeset (`pnpm changeset`). Releases are automated — see `docs/releasing.md` in the repository.

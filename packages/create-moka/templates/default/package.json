@@ -1,0 +1,12 @@
+{
+  "name": "moka-demo",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "moka",
+    "dev": "moka --no-open"
+  },
+  "devDependencies": {
+    "@mokalabs/sandbox": "^0.1.0"
+  }
+}

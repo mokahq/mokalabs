@@ -1,0 +1,71 @@
+---
+title: HTTP API
+description: The local API behind the Moka UI — script it, test with it, build on it.
+---
+
+import { Aside } from "@astrojs/starlight/components";
+
+The UI talks to the Moka server over a small JSON API. You can use it too — for scripted demos, CI smoke tests or your own front end.
+
+**Auth:** send the token printed at startup as `x-moka-token: <token>` (or `?token=`). `GET /api/health` needs no token.
+
+```bash
+TOKEN=...   # from the startup URL
+curl -s -H "x-moka-token: $TOKEN" localhost:4000/api/bootstrap | jq .config.llms
+```
+
+## Chat
+
+`POST /api/chat` streams **NDJSON** — one JSON object per line.
+
+```bash
+curl -N -H "x-moka-token: $TOKEN" -H 'content-type: application/json' \
+  -d '{"messages":[{"role":"user","content":"What time is it in Tokyo?"}]}' \
+  localhost:4000/api/chat
+```
+
+| Body field | |
+|---|---|
+| `messages` | AI SDK `ModelMessage[]` — the full history |
+| `workspaceId` | Optional; defaults to the active workspace |
+| `llmId` | Optional; override the workspace's model |
+
+| Chunk `type` | Fields |
+|---|---|
+| `start` | `runId`, `model`, `profileId`, `tools` (count) |
+| `text` / `reasoning` | `text` (delta) |
+| `tool-call` | `id`, `name`, `tool`, `source`, `input` |
+| `tool-result` | `id`, `output`, `isError`, `durationMs`, `ui?`, `raw?` |
+| `step` | `usage`, `finishReason` |
+| `finish` | `usage`, `durationMs`, `messages` — append these to your history for the next turn |
+| `error` | `message` |
+
+`ui` is one of `{kind:"mcp-app", serverId, resourceUri}`, `{kind:"mcp-ui", …}` or `{kind:"a2ui", messages}`.
+
+## Endpoints
+
+| Method & path | Description |
+|---|---|
+| `GET /api/health` | `{ ok, version }` |
+| `GET /api/bootstrap` | Config, provider presets, detected env keys, MCP states, skills |
+| `PUT /api/config` | Replace the whole config (validated; 400 with details if invalid) |
+| `GET /api/config/export?redact=1` | Config with secrets redacted |
+| `POST /api/export` | `{target: "ai-sdk"\|"langgraph"\|"mcp-json"\|"moka", workspaceId}` → `{code}` |
+| `POST /api/llm/test` | `{profile}` → `{ok, latencyMs, text?, error?}` |
+| `POST /api/llm/models` | `{profile}` → `{models, error?}` |
+| `GET /api/mcp` | All server states |
+| `POST /api/mcp/test` | `{server}` → connect a draft config and report capabilities |
+| `POST /api/mcp/import` | `{json}` → parsed servers from Claude/Cursor/VS Code JSON |
+| `POST /api/mcp/:id/connect` | `{force?}` → connect or reconnect |
+| `POST /api/mcp/:id/disconnect` | |
+| `POST /api/mcp/:id/call` | `{tool, args}` → `{result, durationMs}` |
+| `POST /api/mcp/:id/resource` | `{uri}` → `resources/read` result |
+| `POST /api/mcp/:id/prompt` | `{name, args}` → `prompts/get` result |
+| `POST /api/skills/preview` | `{skill}` → loaded skill (body, files, errors) |
+| `POST /api/skills/discover` | `{path}` → skill folders under a path |
+| `GET /api/events` | NDJSON stream: buffered history, then live events (15 s heartbeats) |
+| `POST /api/events/ui` | Report `ui.rpc` / `ui.action` events |
+| `DELETE /api/events` | Clear the buffer |
+| `GET /api/sessions` · `GET/PUT/DELETE /api/sessions/:id` | Chat history |
+
+<Aside type="caution">The API is local-first and may evolve between minor versions. For a stable programmatic interface, use [`@mokalabs/core`](/reference/core/).</Aside>

@@ -1,0 +1,59 @@
+---
+title: Moka
+description: Any LLM. Any MCP server. Any skill. One command.
+template: splash
+hero:
+  title: Chat with any LLM. Plug in any MCP server. See every call.
+  tagline: Moka is a zero-config sandbox for building, debugging and demoing AI agents — with a live inspector and generative UI built in.
+  image:
+    file: ../../assets/dino.svg
+    alt: Moka the dino, holding a coffee
+  actions:
+    - text: Quickstart
+      link: quickstart/
+      icon: right-arrow
+    - text: Star on GitHub
+      link: https://github.com/mokalabs/moka
+      icon: github
+      variant: minimal
+---
+
+import { Card, CardGrid, LinkCard } from "@astrojs/starlight/components";
+
+```bash
+npx @mokalabs/sandbox
+```
+
+![Moka chat with tool calls and the live inspector](../../assets/chat.png)
+
+That's it. Moka finds your API keys, detects Ollama, starts a built-in MCP server with demo tools, and opens a polished chat UI in your browser.
+
+<CardGrid stagger>
+  <Card title="Any model" icon="random">
+    OpenAI, Anthropic, Gemini, Azure, Ollama, OpenRouter, Groq, DeepSeek, Mistral, xAI — or any OpenAI-compatible gateway with your own base URL and headers.
+  </Card>
+  <Card title="Any MCP server" icon="puzzle">
+    stdio, Streamable HTTP and SSE. Paste your Claude Desktop, Cursor or VS Code config, or pick from the gallery.
+  </Card>
+  <Card title="Agent Skills" icon="open-book">
+    Drop in `SKILL.md` folders — including `~/.claude/skills` — loaded on demand with progressive disclosure.
+  </Card>
+  <Card title="Inspector" icon="magnifier">
+    Every model step, tool call, token and raw MCP JSON-RPC message, with timings and a per-run waterfall.
+  </Card>
+  <Card title="Generative UI" icon="seti:html">
+    Render MCP Apps in a secure sandbox, and let any model answer with native A2UI forms, cards and buttons.
+  </Card>
+  <Card title="Ship it" icon="rocket">
+    Export a workspace to Vercel AI SDK or LangGraph code, share a `moka.json`, or run the Docker image for your team.
+  </Card>
+</CardGrid>
+
+## Where next?
+
+<CardGrid>
+  <LinkCard title="Quickstart" description="Running in 60 seconds." href="/quickstart/" />
+  <LinkCard title="Tutorial" description="Build a demo with a model, tools, a skill and generative UI." href="/tutorial/" />
+  <LinkCard title="Generative UI" description="MCP Apps and A2UI, explained with working examples." href="/generative-ui/overview/" />
+  <LinkCard title="moka.json reference" description="Every field, every option." href="/reference/config/" />
+</CardGrid>

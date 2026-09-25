@@ -1,0 +1,31 @@
+---
+title: FAQ
+description: Frequently asked questions.
+---
+
+**Is Moka free?**
+Yes. Moka is open source under the MIT license. You pay only for the model APIs you use.
+
+**Does Moka send my data anywhere?**
+No. Moka has no telemetry and no backend. Prompts go only to the model providers and MCP servers you configure.
+
+**Which models support tools?**
+Any model that supports function/tool calling through its API: current OpenAI, Anthropic, Gemini, Mistral, Groq-hosted and most OpenRouter models, plus many local models through Ollama.
+
+**Can I use my company's LLM gateway?**
+Yes — add a model with the **Custom / Enterprise gateway** preset. Base URL, headers and keys are all configurable. See [Models & providers](/guides/models/).
+
+**Does it work with Claude Desktop / Cursor configs?**
+Yes. Paste your `mcpServers` JSON into **MCP servers → Add server → Paste JSON**.
+
+**Are skills Claude-only?**
+No. Moka implements skills on top of ordinary tool calling, so the same `SKILL.md` folders work with every model.
+
+**How is Moka different from the official MCP Inspector?**
+The MCP Inspector is a protocol debugger. Moka puts a real model in the loop, adds skills, generative UI, workspaces and model comparison, and still shows the raw protocol traffic.
+
+**Can I run it for my whole team?**
+Yes — use the [Docker image](/deploy/docker/) with a fixed token behind your SSO proxy, and share a `moka.json`.
+
+**Can I build my own UI on top?**
+Use [`@mokalabs/core`](/reference/core/) directly, or the local [HTTP API](/reference/http-api/).

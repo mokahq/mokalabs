@@ -1,0 +1,115 @@
+---
+title: Build an MCP App
+description: A complete, working MCP App in one file — and how to test it in Moka.
+---
+
+import { Steps, Aside } from "@astrojs/starlight/components";
+
+We'll build a **"Deploy status"** MCP server whose `get_deploys` tool shows an interactive table with a *Redeploy* button. It uses the official TypeScript SDK and no frameworks.
+
+<Steps>
+
+1. **Create the project**
+
+   ```bash
+   mkdir deploy-app && cd deploy-app
+   npm init -y && npm pkg set type=module
+   npm install @modelcontextprotocol/sdk zod
+   ```
+
+2. **Write the server** — `server.js`:
+
+   ```js title="server.js"
+   import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+   import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+   import { z } from "zod";
+
+   const deploys = [
+     { id: "web", status: "healthy", version: "1.42.0" },
+     { id: "api", status: "failing", version: "3.8.1" },
+   ];
+   const APP_URI = "ui://deploys/table";
+
+   const server = new McpServer({ name: "deploys", version: "1.0.0" });
+
+   // 1. The tool the model calls. `_meta.ui.resourceUri` attaches the app.
+   server.registerTool(
+     "get_deploys",
+     { description: "List services and their deploy status", inputSchema: {}, _meta: { ui: { resourceUri: APP_URI } } },
+     async () => ({
+       content: [{ type: "text", text: deploys.map((d) => `${d.id}: ${d.status} (${d.version})`).join("\n") }],
+       structuredContent: { deploys },
+     }),
+   );
+
+   // 2. A tool only the app can call (hidden from the model).
+   server.registerTool(
+     "redeploy",
+     { description: "Redeploy a service", inputSchema: { id: z.string() }, _meta: { ui: { visibility: ["app"] } } },
+     async ({ id }) => {
+       const d = deploys.find((x) => x.id === id);
+       if (d) d.status = "healthy";
+       return { content: [{ type: "text", text: `Redeployed ${id}` }], structuredContent: { deploys } };
+     },
+   );
+
+   // 3. The UI resource.
+   server.registerResource("deploy-table", APP_URI, { mimeType: "text/html;profile=mcp-app" }, async (uri) => ({
+     contents: [{ uri: uri.href, mimeType: "text/html;profile=mcp-app", text: HTML }],
+   }));
+
+   const HTML = `<!doctype html><html><head><style>
+     :root { --bg: var(--color-background-primary, #fff); --fg: var(--color-text-primary, #111);
+             --line: var(--color-border-primary, #ddd); --accent: var(--color-accent, #b8622c); }
+     body { margin: 0; padding: 14px; font: 14px system-ui; background: var(--bg); color: var(--fg); }
+     table { width: 100%; border-collapse: collapse; } td { padding: 8px; border-bottom: 1px solid var(--line); }
+     .failing { color: #e5484d; font-weight: 600; } button { border: 0; border-radius: 8px; padding: 6px 10px;
+     background: var(--accent); color: white; cursor: pointer; }
+   </style></head><body><table id="t"></table><script>
+     let id = 0; const pending = {};
+     const rpc = (method, params) => new Promise((res) => { pending[++id] = res; parent.postMessage({ jsonrpc: "2.0", id, method, params }, "*"); });
+     const notify = (method, params) => parent.postMessage({ jsonrpc: "2.0", method, params }, "*");
+     const render = (r) => {
+       const rows = r.structuredContent.deploys;
+       document.getElementById("t").innerHTML = rows.map((d) =>
+         '<tr><td>' + d.id + '</td><td class="' + d.status + '">' + d.status + '</td><td>' + d.version + '</td><td>' +
+         (d.status === "failing" ? '<button data-id="' + d.id + '">Redeploy</button>' : "") + '</td></tr>').join("");
+       notify("ui/notifications/size-changed", { height: document.body.scrollHeight });
+     };
+     addEventListener("message", (e) => {
+       const m = e.data; if (!m || m.jsonrpc !== "2.0") return;
+       if (m.id && pending[m.id]) { pending[m.id](m.result); delete pending[m.id]; return; }
+       if (m.method === "ui/notifications/tool-result") render(m.params);
+     });
+     document.addEventListener("click", async (e) => {
+       const id = e.target.dataset && e.target.dataset.id; if (!id) return;
+       render(await rpc("tools/call", { name: "redeploy", arguments: { id } }));
+       rpc("ui/message", { role: "user", content: { type: "text", text: "I redeployed " + id + ". Anything else failing?" } });
+     });
+     rpc("ui/initialize", { protocolVersion: "2026-01-26", clientInfo: { name: "deploys", version: "1" }, capabilities: {} })
+       .then((res) => {
+         for (const [k, v] of Object.entries(res.hostContext.styles.variables)) document.documentElement.style.setProperty(k, v);
+         notify("ui/notifications/initialized", {});
+       });
+   </script></body></html>`;
+
+   await server.connect(new StdioServerTransport());
+   ```
+
+3. **Add it to Moka** — Settings → MCP servers → Add server → Manual → stdio:
+   - Command: `node`
+   - Arguments: the absolute path to `server.js`
+
+4. **Try it.** Ask *"How are my deploys?"* The table renders under the tool call. Click **Redeploy**: the app calls the hidden `redeploy` tool, re-renders, and posts a follow-up message that the model answers.
+
+</Steps>
+
+## Develop faster
+
+- Use the **Tools** view to call `get_deploys` without a model — the app renders there too.
+- Click **↻** on the app header to reload it after editing the HTML (and ↻ next to the server to restart the process).
+- Watch the **Tools** tab in the inspector: every `ui.rpc` message between your app and Moka is logged with its payload.
+
+<Aside type="tip" title="Using a framework?">
+Bundle your React/Vue/Svelte app into a single HTML file (e.g. Vite + `vite-plugin-singlefile`) and serve that string as the resource. The official [`@modelcontextprotocol/ext-apps`](https://github.com/modelcontextprotocol/ext-apps) SDK gives you a typed `App` client instead of hand-written postMessage code.
+</Aside>

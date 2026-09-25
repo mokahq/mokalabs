@@ -1,0 +1,64 @@
+---
+title: Installation
+description: npx, global install, create-moka, Docker, or from source.
+---
+
+import { Tabs, TabItem, Aside } from "@astrojs/starlight/components";
+
+Moka needs **Node.js 20+** (or Docker). Pick the style that suits you:
+
+<Tabs>
+  <TabItem label="npx (no install)">
+  ```bash
+  npx @mokalabs/sandbox
+  ```
+  Always runs the latest version. Great for trying things out.
+  </TabItem>
+  <TabItem label="Global">
+  ```bash
+  npm install -g @mokalabs/sandbox
+  moka                    # same as npx @mokalabs/sandbox
+  moka --help
+  ```
+  </TabItem>
+  <TabItem label="Project (create-moka)">
+  ```bash
+  npm create moka@latest my-demo     # or: pnpm create moka / yarn create moka
+  cd my-demo
+  npm install
+  npm start
+  ```
+  Creates a folder with `moka.json`, example skills and `@mokalabs/sandbox` pinned as a dev dependency — commit it and your whole team gets the same demo.
+  </TabItem>
+  <TabItem label="Docker">
+  ```bash
+  docker run --rm -p 4000:4000 -e OPENAI_API_KEY ghcr.io/mokalabs/moka
+  ```
+  See [Docker](/deploy/docker/) for volumes, tokens and team setups.
+  </TabItem>
+  <TabItem label="From source">
+  ```bash
+  git clone https://github.com/mokalabs/moka && cd moka
+  corepack enable && pnpm install && pnpm build
+  node packages/sandbox/dist/cli.js
+  ```
+  </TabItem>
+</Tabs>
+
+## What gets created
+
+| Path | Contents |
+|---|---|
+| `./moka.json` | Used if present in the current folder (commit it!) |
+| `~/.moka/config.json` | Default config when there's no `moka.json` |
+| `~/.moka/sessions/` | Chat history, one JSON file per chat |
+
+Override the data directory with `MOKA_HOME`. See [environment variables](/reference/environment/).
+
+<Aside>
+MCP servers you add often run through `npx` (Node) or `uvx` (Python). Install [uv](https://docs.astral.sh/uv/) if you want to use Python servers like `mcp-server-fetch` or `mcp-server-git`. The Docker image includes both.
+</Aside>
+
+## Updating
+
+`npx @mokalabs/sandbox` always fetches the latest release. For global installs run `npm install -g @mokalabs/sandbox@latest`. Your config and chats are kept.

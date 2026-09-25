@@ -1,0 +1,45 @@
+---
+title: A2UI component catalog
+description: Every A2UI component Moka renders, with its properties.
+---
+
+All string properties accept a literal or `{ "path": "/pointer" }`. Every component has `id` and `component`; containers reference children **by id**. Optional `weight` (number) sets flex-grow inside a Row or Column.
+
+## Layout
+
+| Component | Properties | Notes |
+|---|---|---|
+| `Column` | `children: id[] \| {componentId, path}`, `justify`, `align` | Vertical stack |
+| `Row` | `children`, `justify`, `align` | Horizontal, wraps on small screens |
+| `List` | `children`, `direction: "vertical" \| "horizontal"` | Use a template to repeat over data |
+| `Card` | `child: id` | Bordered panel |
+| `Divider` | `axis: "horizontal" \| "vertical"` | |
+| `Tabs` | `tabs: [{title, child}]` | |
+
+`justify`: `start`, `center`, `end`, `spaceBetween`, `spaceAround`, `spaceEvenly`, `stretch` · `align`: `start`, `center`, `end`, `stretch`
+
+## Content
+
+| Component | Properties | Notes |
+|---|---|---|
+| `Text` | `text`, `variant: h1…h5 \| body \| caption` | |
+| `Image` | `url`, `altText`, `variant: icon \| avatar \| smallFeature \| mediumFeature \| largeFeature \| header`, `fit` | |
+| `Icon` | `name` | `check`, `close`, `add`, `star`, `calendar`, `mail`, `phone`, `info`, `warning`, `error`, `search`, `settings`, `person`, `home`, `shoppingCart`, `favorite`, `locationOn`, `send`, `share`, `edit`, `delete`, `download`, `lock`, `notifications`, `payment`, `time`, `coffee`, … |
+
+## Input (two-way bound)
+
+| Component | Properties | Notes |
+|---|---|---|
+| `TextField` | `label`, `value`, `placeholder`, `variant: shortText \| longText \| number \| obscured \| date` | |
+| `CheckBox` | `label`, `value` (boolean) | |
+| `Slider` | `label`, `value` (number), `min`, `max`, `step` | |
+| `ChoicePicker` | `label`, `options: [{label, value}]`, `value`, `variant: mutuallyExclusive \| multipleSelection` | Multi-select stores an array |
+| `DateTimeInput` | `label`, `value`, `enableDate`, `enableTime` | ISO-like string |
+
+## Action
+
+| Component | Properties | Notes |
+|---|---|---|
+| `Button` | `child: id` (usually a `Text`), `variant: primary \| borderless`, `action: {event: {name, context}}` | `context` values can be paths; they're resolved when clicked |
+
+Unknown components render as a labelled placeholder rather than failing, so a surface degrades gracefully.

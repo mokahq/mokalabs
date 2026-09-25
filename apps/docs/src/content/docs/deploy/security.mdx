@@ -1,0 +1,34 @@
+---
+title: Security
+description: Moka's threat model, defaults and hardening tips.
+---
+
+import { Aside } from "@astrojs/starlight/components";
+
+Moka runs MCP servers — which are local programs — and calls LLM APIs with your credentials. Treat it like a terminal.
+
+## Defaults
+
+| Protection | Default |
+|---|---|
+| Network binding | `127.0.0.1` only |
+| API access | Random per-run token required on every `/api` call (`x-moka-token`) |
+| Secrets | `env:NAME` / `${NAME}` references resolved in memory, never written to disk |
+| Config file | Written with `0600` permissions |
+| Exports | Literal keys and sensitive-looking headers/env values redacted |
+| Skill files | Only readable inside the skill's own folder |
+| MCP Apps | Opaque-origin sandboxed iframe + CSP; can only call tools on their own server |
+| A2UI | Data only — no code executes |
+| Telemetry | None |
+
+`--host 0.0.0.0` and `--no-auth` are explicit opt-ins, and Moka prints a warning when auth is disabled.
+
+## Hardening for shared deployments
+
+- Set a long random `MOKA_TOKEN` and put Moka behind your SSO / identity-aware proxy.
+- Run the Docker image (non-root `node` user) with only the env vars that deployment needs.
+- Prefer **HTTP MCP servers** you operate over arbitrary stdio commands.
+- Hide dangerous tools from the model with the per-tool switch (`disabledTools`).
+- Use read-only credentials for demo environments.
+
+<Aside>Found a vulnerability? Please report it privately via GitHub's *Report a vulnerability* on the repository rather than opening an issue.</Aside>

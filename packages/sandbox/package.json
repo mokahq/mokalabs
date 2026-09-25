@@ -1,0 +1,75 @@
+{
+  "name": "@mokalabs/sandbox",
+  "version": "0.1.0",
+  "description": "Moka sandbox \u2014 chat with any LLM, plug in any MCP server or skill, and inspect every call. One command: npx @mokalabs/sandbox",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "sandbox": "./dist/cli.js",
+    "moka": "./dist/cli.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mokalabs/moka.git",
+    "directory": "packages/sandbox"
+  },
+  "homepage": "https://github.com/mokalabs/moka#readme",
+  "keywords": [
+    "llm",
+    "mcp",
+    "playground",
+    "sandbox",
+    "inspector",
+    "agent",
+    "skills",
+    "openai",
+    "anthropic",
+    "ollama"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "pnpm run build:web && pnpm run build:server && node scripts/schema.mjs",
+    "build:server": "tsup src/cli.ts src/index.ts --format esm --dts --clean=false --target node20",
+    "build:web": "vite build web --config web/vite.config.ts",
+    "dev": "concurrently -k -n server,web \"tsx watch src/cli.ts --no-open --port 4000 --no-auth\" \"vite web --config web/vite.config.ts\"",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p web",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@hono/node-server": "^2.1.1",
+    "@modelcontextprotocol/sdk": "^1.30.1",
+    "@mokalabs/core": "workspace:^",
+    "hono": "^4.13.9",
+    "open": "^11.0.4",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "@vitejs/plugin-react": "^6.1.1",
+    "concurrently": "^9.2.0",
+    "lucide-react": "^1.48.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
+    "tailwindcss": "^4.3.3",
+    "tsx": "^4.20.0",
+    "vite": "^8.3.1",
+    "zustand": "^5.0.15"
+  }
+}
