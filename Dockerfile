@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 # Moka sandbox — any LLM, any MCP server, any skill.
-#   docker run --rm -p 4000:4000 -e OPENAI_API_KEY ghcr.io/mokalabs/moka
-#   docker run --rm -p 4000:4000 -v "$PWD:/workspace" ghcr.io/mokalabs/moka   # uses ./moka.json
+#   docker run --rm -p 4000:4000 -e OPENAI_API_KEY ghcr.io/thebunnyweb/moka
+#   docker run --rm -p 4000:4000 -v "$PWD:/workspace" ghcr.io/thebunnyweb/moka   # uses ./moka.json
 
 ARG UV_IMAGE=ghcr.io/astral-sh/uv:latest
 FROM ${UV_IMAGE} AS uv
@@ -24,7 +24,7 @@ RUN pnpm --filter @mokalabs/core --filter @mokalabs/sandbox run build \
 FROM node:22-bookworm-slim
 LABEL org.opencontainers.image.title="Moka sandbox" \
       org.opencontainers.image.description="Chat with any LLM, plug in any MCP server or skill, inspect every call." \
-      org.opencontainers.image.source="https://github.com/mokalabs/moka" \
+      org.opencontainers.image.source="https://github.com/thebunnyweb/mokalabs" \
       org.opencontainers.image.licenses="MIT"
 # git + uv/uvx so Python MCP servers (uvx mcp-server-*) work out of the box; npx ships with node.
 RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates tini \

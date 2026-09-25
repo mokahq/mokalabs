@@ -6,7 +6,7 @@ description: Run Moka in a container — for yourself or your team.
 import { Aside } from "@astrojs/starlight/components";
 
 ```bash
-docker run --rm -p 4000:4000 -e OPENAI_API_KEY ghcr.io/mokalabs/moka
+docker run --rm -p 4000:4000 -e OPENAI_API_KEY ghcr.io/thebunnyweb/moka
 ```
 
 The image (`linux/amd64` and `linux/arm64`) includes Node.js (`npx`), [uv](https://docs.astral.sh/uv/) (`uvx`) and `git`, so both Node and Python MCP servers work out of the box.
@@ -17,7 +17,7 @@ The image (`linux/amd64` and `linux/arm64`) includes Node.js (`npx`), [uv](https
 docker run --rm -p 4000:4000 \
   -v "$PWD:/workspace" \
   -e ANTHROPIC_API_KEY \
-  ghcr.io/mokalabs/moka
+  ghcr.io/thebunnyweb/moka
 ```
 
 ```bash title="Persistent config and chat history"
@@ -25,13 +25,13 @@ docker run -d --name moka -p 4000:4000 \
   -v moka-data:/data \
   -e MOKA_TOKEN=change-me \
   -e OPENAI_API_KEY \
-  ghcr.io/mokalabs/moka
+  ghcr.io/thebunnyweb/moka
 ```
 
 ```yaml title="docker-compose.yml"
 services:
   moka:
-    image: ghcr.io/mokalabs/moka:latest
+    image: ghcr.io/thebunnyweb/moka:latest
     ports: ["4000:4000"]
     environment:
       MOKA_TOKEN: ${MOKA_TOKEN}

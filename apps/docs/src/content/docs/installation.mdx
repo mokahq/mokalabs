@@ -32,13 +32,13 @@ Moka needs **Node.js 20+** (or Docker). Pick the style that suits you:
   </TabItem>
   <TabItem label="Docker">
   ```bash
-  docker run --rm -p 4000:4000 -e OPENAI_API_KEY ghcr.io/mokalabs/moka
+  docker run --rm -p 4000:4000 -e OPENAI_API_KEY ghcr.io/thebunnyweb/moka
   ```
   See [Docker](/deploy/docker/) for volumes, tokens and team setups.
   </TabItem>
   <TabItem label="From source">
   ```bash
-  git clone https://github.com/mokalabs/moka && cd moka
+  git clone https://github.com/thebunnyweb/mokalabs && cd moka
   corepack enable && pnpm install && pnpm build
   node packages/sandbox/dist/cli.js
   ```

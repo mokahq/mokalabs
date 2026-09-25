@@ -9,7 +9,7 @@ Releases are fully automated with [Changesets](https://github.com/changesets/cha
 3. In the repo settings, go to Actions → General → Workflow permissions and enable **Read and write** plus **Allow GitHub Actions to create and approve pull requests**.
 4. GHCR needs no setup: the workflow pushes `ghcr.io/<owner>/moka` with `GITHUB_TOKEN`. After the first push, set the package's visibility to **Public** under Packages.
 5. **Docs**: Settings → Pages → Source: **GitHub Actions**. The Docs workflow publishes `apps/docs` on every push to `main` that touches it. For a custom domain set the repository variables `DOCS_SITE` (e.g. `https://docs.mokalabs.dev`) and `DOCS_BASE` (`/`).
-6. If the repo is not `mokalabs/moka`, update `repository` in each `packages/*/package.json`, `.changeset/config.json`, and the image name in the README and Dockerfile labels.
+6. If the GitHub repo is not `mokalabs/moka`, run `node scripts/set-github-repo.mjs <owner>/<repo>` once and commit. It rewrites repo URLs (required for npm provenance), the GHCR image name, the docs URL and changelog links. npm package names (`@mokalabs/*`) don't change.
 
 ## Day to day
 

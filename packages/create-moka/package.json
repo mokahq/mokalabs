@@ -8,7 +8,7 @@
     "create-moka": "./index.js"
   },
   "files": ["index.js", "templates"],
-  "repository": { "type": "git", "url": "git+https://github.com/mokalabs/moka.git", "directory": "packages/create-moka" },
+  "repository": { "type": "git", "url": "git+https://github.com/thebunnyweb/mokalabs.git", "directory": "packages/create-moka" },
   "keywords": ["moka", "mcp", "llm", "create", "scaffold", "agent", "skills"],
   "engines": { "node": ">=20" },
   "scripts": {

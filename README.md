@@ -11,9 +11,9 @@
 A local sandbox to chat with any model, plug in MCP servers and Agent Skills, and see every call in a live inspector.
 
 [![npm](https://img.shields.io/npm/v/@mokalabs/sandbox?color=c2703d&label=%40mokalabs%2Fsandbox)](https://www.npmjs.com/package/@mokalabs/sandbox)
-[![CI](https://github.com/mokalabs/moka/actions/workflows/ci.yml/badge.svg)](https://github.com/mokalabs/moka/actions/workflows/ci.yml)
+[![CI](https://github.com/thebunnyweb/mokalabs/actions/workflows/ci.yml/badge.svg)](https://github.com/thebunnyweb/mokalabs/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
-[![Docs](https://img.shields.io/badge/docs-mokalabs.github.io%2Fmoka-c2703d)](https://mokalabs.github.io/moka/)
+[![Docs](https://img.shields.io/badge/docs-thebunnyweb.github.io%2Fmokalabs-c2703d)](https://thebunnyweb.github.io/mokalabs/)
 
 ```bash
 npx @mokalabs/sandbox
@@ -51,7 +51,7 @@ npm create moka@latest my-demo
 cd my-demo && npm install && npm start
 
 # 3. …or use Docker
-docker run --rm -p 4000:4000 -e OPENAI_API_KEY ghcr.io/mokalabs/moka
+docker run --rm -p 4000:4000 -e OPENAI_API_KEY ghcr.io/thebunnyweb/moka
 ```
 
 Moka prints a URL with a one-time access token and opens your browser.
@@ -99,7 +99,7 @@ The right-hand panel streams everything Moka does:
 Click any event to see its full payload and the run's waterfall. **Download trace** exports everything as JSON.
 
 ### Generative UI
-Ask the demo server to *"roll 3 dice"* to get an **MCP App**: an interactive iframe that calls tools and posts messages back into the chat. Ask *"book a table at Toit"* to get **A2UI** returned by an MCP tool. Ask for *"a signup form"* and the model itself builds A2UI with `render_ui`. Button presses go back to the agent as `[ui action]` messages. Full guide: [docs → Generative UI](https://mokalabs.github.io/moka/generative-ui/overview/).
+Ask the demo server to *"roll 3 dice"* to get an **MCP App**: an interactive iframe that calls tools and posts messages back into the chat. Ask *"book a table at Toit"* to get **A2UI** returned by an MCP tool. Ask for *"a signup form"* and the model itself builds A2UI with `render_ui`. Button presses go back to the agent as `[ui action]` messages. Full guide: [docs → Generative UI](https://thebunnyweb.github.io/mokalabs/generative-ui/overview/).
 
 ### Keyboard
 
@@ -162,10 +162,10 @@ Provider values: `openai`, `anthropic`, `google`, `azure`, `ollama`, `openai-com
 
 ```bash
 # Zero config, with keys from your shell
-docker run --rm -p 4000:4000 -e OPENAI_API_KEY -e ANTHROPIC_API_KEY ghcr.io/mokalabs/moka
+docker run --rm -p 4000:4000 -e OPENAI_API_KEY -e ANTHROPIC_API_KEY ghcr.io/thebunnyweb/moka
 
 # Use a moka.json (and skills) from the current folder; keep history in a volume
-docker run --rm -p 4000:4000 -v "$PWD:/workspace" -v moka-data:/data -e MOKA_TOKEN=change-me ghcr.io/mokalabs/moka
+docker run --rm -p 4000:4000 -v "$PWD:/workspace" -v moka-data:/data -e MOKA_TOKEN=change-me ghcr.io/thebunnyweb/moka
 ```
 
 The image includes `npx` and `uvx`, so both Node and Python MCP servers work. It binds `0.0.0.0` inside the container. Set `MOKA_TOKEN` or read the generated token from `docker logs`.
@@ -206,7 +206,7 @@ See [SECURITY.md](SECURITY.md) to report a vulnerability.
 
 ## Documentation
 
-Full docs live at **[mokalabs.github.io/moka](https://mokalabs.github.io/moka/)** (source in [`apps/docs`](apps/docs), built with Astro Starlight and deployed by the Docs workflow).
+Full docs live at **[thebunnyweb.github.io/mokalabs](https://thebunnyweb.github.io/mokalabs/)** (source in [`apps/docs`](apps/docs), built with Astro Starlight and deployed by the Docs workflow).
 
 ## Contributing
 

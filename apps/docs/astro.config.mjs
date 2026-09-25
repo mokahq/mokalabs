@@ -4,8 +4,8 @@ import { defineConfig } from "astro/config";
 import rehypeBaseLinks from "./plugins/rehype-base-links.mjs";
 
 // Deployed to GitHub Pages. Override with DOCS_SITE / DOCS_BASE for a custom domain (e.g. https://docs.mokalabs.dev, "/").
-const site = process.env.DOCS_SITE ?? "https://mokalabs.github.io";
-const base = process.env.DOCS_BASE ?? "/moka";
+const site = process.env.DOCS_SITE ?? "https://thebunnyweb.github.io";
+const base = process.env.DOCS_BASE ?? "/mokalabs";
 
 export default defineConfig({
   site,
@@ -18,10 +18,10 @@ export default defineConfig({
       logo: { src: "./src/assets/logo.svg", replacesTitle: false },
       favicon: "/favicon.svg",
       social: [
-        { icon: "github", label: "GitHub", href: "https://github.com/mokalabs/moka" },
+        { icon: "github", label: "GitHub", href: "https://github.com/thebunnyweb/mokalabs" },
         { icon: "seti:npm", label: "npm", href: "https://www.npmjs.com/package/@mokalabs/sandbox" },
       ],
-      editLink: { baseUrl: "https://github.com/mokalabs/moka/edit/main/apps/docs/" },
+      editLink: { baseUrl: "https://github.com/thebunnyweb/mokalabs/edit/main/apps/docs/" },
       lastUpdated: true,
       customCss: ["./src/styles/theme.css"],
       head: [
