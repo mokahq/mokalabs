@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { spawn } from "node:child_process";
 import { parseArgs } from "node:util";
 import { writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
@@ -27,6 +28,23 @@ const HELP = `
     OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY, OPENROUTER_API_KEY, GROQ_API_KEY …
     are detected automatically on first run. Ollama on localhost is detected too.
 `;
+
+/** Open a URL in the default browser without extra dependencies. */
+function openBrowser(url: string): void {
+  const [cmd, args] =
+    process.platform === "darwin"
+      ? ["open", [url]]
+      : process.platform === "win32"
+        ? ["cmd", ["/c", "start", '""', url.replace(/&/g, "^&")]]
+        : ["xdg-open", [url]];
+  try {
+    const child = spawn(cmd, args, { stdio: "ignore", detached: true });
+    child.on("error", () => {}); // headless / no browser: the URL is printed anyway
+    child.unref();
+  } catch {
+    // ignore
+  }
+}
 
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
@@ -112,8 +130,7 @@ async function main(): Promise<void> {
 
   if (!values["no-open"] && !process.env.CI && process.env.MOKA_NO_OPEN !== "1") {
     try {
-      const { default: open } = await import("open");
-      await open(sandbox.url);
+      openBrowser(sandbox.url);
     } catch {
       // headless environment — the URL is printed above
     }
