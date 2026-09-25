@@ -1,7 +1,7 @@
 {
   "name": "@mokalabs/sandbox",
   "version": "0.1.0",
-  "description": "Moka sandbox \u2014 chat with any LLM, plug in any MCP server or skill, and inspect every call. One command: npx @mokalabs/sandbox",
+  "description": "Moka sandbox — chat with any LLM, plug in any MCP server or skill, and inspect every call. One command: npx @mokalabs/sandbox",
   "license": "MIT",
   "type": "module",
   "bin": {
@@ -50,11 +50,11 @@
   },
   "dependencies": {
     "@hono/node-server": "^2.1.1",
-    "@modelcontextprotocol/sdk": "^1.30.1",
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "@mokalabs/core": "workspace:^",
-    "hono": "^4.13.9",
-    "open": "^11.0.4",
-    "zod": "^4.6.5"
+    "hono": "^4.13.7",
+    "open": "^11.0.3",
+    "zod": "^4.6.2"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",
@@ -62,14 +62,14 @@
     "@types/react-dom": "^19.1.0",
     "@vitejs/plugin-react": "^6.1.1",
     "concurrently": "^9.2.0",
-    "lucide-react": "^1.48.0",
+    "lucide-react": "^1.45.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1",
     "tailwindcss": "^4.3.3",
     "tsx": "^4.20.0",
-    "vite": "^8.3.1",
+    "vite": "^8.3.0",
     "zustand": "^5.0.15"
   }
 }
