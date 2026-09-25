@@ -1,0 +1,443 @@
+From 04ae9fee42acf3a539cd789293244c7eebcca497 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 25 Sep 2026 21:18:58 +0000
+Subject: [PATCH 1/3] fix(sandbox): ship as a zero-dependency bundle
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01CJrE9EcUGGefoqzNnYFBvo
+---
+ .changeset/zero-deps.md         |   5 ++
+ packages/sandbox/package.json   |  20 +++--
+ packages/sandbox/src/cli.ts     |  21 ++++-
+ packages/sandbox/tsup.config.ts |  20 +++++
+ pnpm-lock.yaml                  | 135 ++++++--------------------------
+ 5 files changed, 81 insertions(+), 120 deletions(-)
+ create mode 100644 .changeset/zero-deps.md
+ create mode 100644 packages/sandbox/tsup.config.ts
+
+diff --git a/.changeset/zero-deps.md b/.changeset/zero-deps.md
+new file mode 100644
+index 0000000..9765910
+--- /dev/null
++++ b/.changeset/zero-deps.md
+@@ -0,0 +1,5 @@
++---
++"@mokalabs/sandbox": patch
++---
++
++`@mokalabs/sandbox` now ships as a single self-contained package with zero runtime dependencies. Everything (including `@mokalabs/core`) is bundled at build time from the repo's 14-day-vetted lockfile, so `npx @mokalabs/sandbox` installs exactly one package — nothing floats to freshly published versions, and it works behind curated/quarantined registries.
+diff --git a/packages/sandbox/package.json b/packages/sandbox/package.json
+index 131a788..1c2006a 100644
+--- a/packages/sandbox/package.json
++++ b/packages/sandbox/package.json
+@@ -42,26 +42,28 @@
+   },
+   "scripts": {
+     "build": "pnpm run build:web && pnpm run build:server && node scripts/schema.mjs",
+-    "build:server": "tsup src/cli.ts src/index.ts --format esm --dts --clean=false --target node20",
++    "build:server": "tsup",
+     "build:web": "vite build web --config web/vite.config.ts",
+     "dev": "concurrently -k -n server,web \"tsx watch src/cli.ts --no-open --port 4000 --no-auth\" \"vite web --config web/vite.config.ts\"",
+     "typecheck": "tsc --noEmit && tsc --noEmit -p web",
+     "test": "vitest run"
+   },
+-  "dependencies": {
++  "devDependencies": {
++    "@ai-sdk/anthropic": "^4.0.52",
++    "@ai-sdk/azure": "^4.0.68",
++    "@ai-sdk/google": "^4.0.67",
++    "@ai-sdk/openai": "^4.0.65",
++    "@ai-sdk/openai-compatible": "^3.0.47",
+     "@hono/node-server": "^2.1.1",
+     "@modelcontextprotocol/sdk": "^1.30.0",
+     "@mokalabs/core": "workspace:^",
+-    "hono": "^4.13.7",
+-    "open": "^11.0.3",
+-    "zod": "^4.6.2"
+-  },
+-  "devDependencies": {
+     "@tailwindcss/vite": "^4.3.3",
+     "@types/react": "^19.1.0",
+     "@types/react-dom": "^19.1.0",
+     "@vitejs/plugin-react": "^6.1.1",
++    "ai": "^7.0.97",
+     "concurrently": "^9.2.0",
++    "hono": "^4.13.7",
+     "lucide-react": "^1.45.0",
+     "react": "^19.3.0",
+     "react-dom": "^19.3.0",
+@@ -70,6 +72,8 @@
+     "tailwindcss": "^4.3.3",
+     "tsx": "^4.20.0",
+     "vite": "^8.3.0",
++    "zod": "^4.6.2",
+     "zustand": "^5.0.15"
+-  }
++  },
++  "dependencies": {}
+ }
+diff --git a/packages/sandbox/src/cli.ts b/packages/sandbox/src/cli.ts
+index 1632fcf..a1d817c 100644
+--- a/packages/sandbox/src/cli.ts
++++ b/packages/sandbox/src/cli.ts
+@@ -1,4 +1,5 @@
+ #!/usr/bin/env node
++import { spawn } from "node:child_process";
+ import { parseArgs } from "node:util";
+ import { writeFile } from "node:fs/promises";
+ import { existsSync } from "node:fs";
+@@ -28,6 +29,23 @@ const HELP = `
+     are detected automatically on first run. Ollama on localhost is detected too.
+ `;
+ 
++/** Open a URL in the default browser without extra dependencies. */
++function openBrowser(url: string): void {
++  const [cmd, args] =
++    process.platform === "darwin"
++      ? ["open", [url]]
++      : process.platform === "win32"
++        ? ["cmd", ["/c", "start", '""', url.replace(/&/g, "^&")]]
++        : ["xdg-open", [url]];
++  try {
++    const child = spawn(cmd, args, { stdio: "ignore", detached: true });
++    child.on("error", () => {}); // headless / no browser: the URL is printed anyway
++    child.unref();
++  } catch {
++    // ignore
++  }
++}
++
+ async function main(): Promise<void> {
+   const argv = process.argv.slice(2);
+   const command = argv[0];
+@@ -112,8 +130,7 @@ async function main(): Promise<void> {
+ 
+   if (!values["no-open"] && !process.env.CI && process.env.MOKA_NO_OPEN !== "1") {
+     try {
+-      const { default: open } = await import("open");
+-      await open(sandbox.url);
++      openBrowser(sandbox.url);
+     } catch {
+       // headless environment — the URL is printed above
+     }
+diff --git a/packages/sandbox/tsup.config.ts b/packages/sandbox/tsup.config.ts
+new file mode 100644
+index 0000000..af692e6
+--- /dev/null
++++ b/packages/sandbox/tsup.config.ts
+@@ -0,0 +1,20 @@
++import { defineConfig } from "tsup";
++
++// The published CLI bundles ALL of its dependencies (including @mokalabs/core),
++// so `npx @mokalabs/sandbox` installs exactly one package with zero transitive
++// dependencies. Versions come from the repo's pnpm lockfile, which only admits
++// releases at least 14 days old (pnpm-workspace.yaml: minimumReleaseAge).
++export default defineConfig({
++  entry: ["src/cli.ts", "src/index.ts"],
++  format: ["esm"],
++  platform: "node",
++  target: "node20",
++  noExternal: [/.*/],
++  splitting: true,
++  // Bundled CommonJS deps call require(); give ESM output a real require.
++  banner: {
++    js: 'import { createRequire as __mokaCreateRequire } from "node:module"; const require = __mokaCreateRequire(import.meta.url);',
++  },
++  dts: { entry: { index: "src/index.ts" }, resolve: ["@mokalabs/core"] },
++  clean: false,
++});
+diff --git a/pnpm-lock.yaml b/pnpm-lock.yaml
+index d00ad98..a6bc44b 100644
+--- a/pnpm-lock.yaml
++++ b/pnpm-lock.yaml
+@@ -81,7 +81,22 @@ importers:
+   packages/create-moka: {}
+ 
+   packages/sandbox:
+-    dependencies:
++    devDependencies:
++      '@ai-sdk/anthropic':
++        specifier: ^4.0.52
++        version: 4.0.52(zod@4.6.2)
++      '@ai-sdk/azure':
++        specifier: ^4.0.68
++        version: 4.0.68(zod@4.6.2)
++      '@ai-sdk/google':
++        specifier: ^4.0.67
++        version: 4.0.67(zod@4.6.2)
++      '@ai-sdk/openai':
++        specifier: ^4.0.65
++        version: 4.0.65(zod@4.6.2)
++      '@ai-sdk/openai-compatible':
++        specifier: ^3.0.47
++        version: 3.0.47(zod@4.6.2)
+       '@hono/node-server':
+         specifier: ^2.1.1
+         version: 2.1.1(hono@4.13.7)
+@@ -91,16 +106,6 @@ importers:
+       '@mokalabs/core':
+         specifier: workspace:^
+         version: link:../core
+-      hono:
+-        specifier: ^4.13.7
+-        version: 4.13.7
+-      open:
+-        specifier: ^11.0.3
+-        version: 11.0.3
+-      zod:
+-        specifier: ^4.6.2
+-        version: 4.6.2
+-    devDependencies:
+       '@tailwindcss/vite':
+         specifier: ^4.3.3
+         version: 4.3.3(vite@8.3.0(@types/node@24.13.4)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.13)(yaml@2.9.0))
+@@ -113,9 +118,15 @@ importers:
+       '@vitejs/plugin-react':
+         specifier: ^6.1.1
+         version: 6.1.1(vite@8.3.0(@types/node@24.13.4)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.13)(yaml@2.9.0))
++      ai:
++        specifier: ^7.0.97
++        version: 7.0.97(zod@4.6.2)
+       concurrently:
+         specifier: ^9.2.0
+         version: 9.2.4
++      hono:
++        specifier: ^4.13.7
++        version: 4.13.7
+       lucide-react:
+         specifier: ^1.45.0
+         version: 1.45.0(react@19.3.0)
+@@ -140,6 +151,9 @@ importers:
+       vite:
+         specifier: ^8.3.0
+         version: 8.3.0(@types/node@24.13.4)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.13)(yaml@2.9.0)
++      zod:
++        specifier: ^4.6.2
++        version: 4.6.2
+       zustand:
+         specifier: ^5.0.15
+         version: 5.0.15(@types/react@19.3.0)(react@19.3.0)
+@@ -1652,10 +1666,6 @@ packages:
+   boolbase@1.0.0:
+     resolution: {integrity: sha512-JZOSA7Mo9sNGB8+UjSgzdLtokWAky1zbztM3WRLCbZ70/3cTANmQmOdR7y2g+J0e2WXywy1yS468tY+IruqEww==}
+ 
+-  bundle-name@4.1.0:
+-    resolution: {integrity: sha512-tjwM5exMg6BGRI+kNmTntNsvdZS1X8BFYS6tnJ2hdH0kVxM6/eVZ2xy+FqStSWvYmtfFMDLIxurorHwDKfDz5Q==}
+-    engines: {node: '>=18'}
+-
+   bundle-require@5.1.0:
+     resolution: {integrity: sha512-3WrrOuZiyaaZPWiEt4G3+IffISVC9HYlWueJEBWED4ZH4aIAC2PnkdnuRrR94M+w6yGWn4AglWtJtBI8YqvgoA==}
+     engines: {node: ^12.20.0 || ^14.13.1 || >=16.0.0}
+@@ -1853,18 +1863,6 @@ packages:
+     resolution: {integrity: sha512-h5k/5U50IJJFpzfL6nO9jaaumfjO/f2NjK/oYB2Djzm4p9L+3T9qWpZqZ2hAbLPuuYq9wrU08WQyBTL5GbPk5Q==}
+     engines: {node: '>=6'}
+ 
+-  default-browser-id@5.0.1:
+-    resolution: {integrity: sha512-x1VCxdX4t+8wVfd1so/9w+vQ4vx7lKd2Qp5tDRutErwmR85OgmfX7RlLRMWafRMY7hbEiXIbudNrjOAPa/hL8Q==}
+-    engines: {node: '>=18'}
+-
+-  default-browser@5.5.1:
+-    resolution: {integrity: sha512-m1pAzaJgZ/gssEqlOhJkPJp8Xly7QyW6xcrkUa2KKcDeDSEMP7X8xipU3snUcfisTQx0w1AGae+9UtJSfVnXGw==}
+-    engines: {node: '>=18'}
+-
+-  define-lazy-prop@3.0.0:
+-    resolution: {integrity: sha512-N+MeXYoqr3pOgn8xfyRPREN7gHakLYjhsHhWGT3fWAiL4IkAt0iDw14QiiEm2bE30c5XX5q0FtAA3CK5f9/BUg==}
+-    engines: {node: '>=12'}
+-
+   defu@6.1.7:
+     resolution: {integrity: sha512-7z22QmUWiQ/2d0KkdYmANbRUVABpZ9SNYyH5vx6PZ+nE5bcC0l7uFvEfHlyld/HcGBFTL536ClDt3DEcSlEJAQ==}
+ 
+@@ -2272,11 +2270,6 @@ packages:
+   is-decimal@2.0.1:
+     resolution: {integrity: sha512-AAB9hiomQs5DXWcRB1rqsxGUstbRroFOPPVAomNk/3XHR5JyEZChOyTWe2oayKnsSsr/kcGqF+z6yuH6HHpN0A==}
+ 
+-  is-docker@3.0.0:
+-    resolution: {integrity: sha512-eljcgEDlEns/7AXFosB5K/2nCM4P7FQPkGc/DWLy5rmFEWvZayGrik1d9/QIY5nJ4f9YsVvBkA6kJpHn9rISdQ==}
+-    engines: {node: ^12.20.0 || ^14.13.1 || >=16.0.0}
+-    hasBin: true
+-
+   is-docker@4.0.0:
+     resolution: {integrity: sha512-LHE+wROyG/Y/0ZnbktRCoTix2c1RhgWaZraMZ8o1Q7zCh0VSrICJQO5oqIIISrcSBtrXv0o233w1IYwsWCjTzA==}
+     engines: {node: '>=20'}
+@@ -2289,15 +2282,6 @@ packages:
+   is-hexadecimal@2.0.1:
+     resolution: {integrity: sha512-DgZQp241c8oO6cA1SbTEWiXeoxV42vlcJxgH+B3hi1AiqqKruZR3ZGF8In3fj4+/y/7rHvlOZLZtgJ/4ttYGZg==}
+ 
+-  is-in-ssh@1.0.0:
+-    resolution: {integrity: sha512-jYa6Q9rH90kR1vKB6NM7qqd1mge3Fx4Dhw5TVlK1MUBqhEOuCagrEHMevNuCcbECmXZ0ThXkRm+Ymr51HwEPAw==}
+-    engines: {node: '>=20'}
+-
+-  is-inside-container@1.0.0:
+-    resolution: {integrity: sha512-KIYLCCJghfHZxqjYBE7rEy0OBuTd5xCHS7tHVgvCLkx7StIoaxwNW3hCALgEUjFfeRk+MG/Qxmp/vtETEF3tRA==}
+-    engines: {node: '>=14.16'}
+-    hasBin: true
+-
+   is-plain-obj@4.1.0:
+     resolution: {integrity: sha512-+Pgi+vMuUNkJyExiMBt5IlFoMyKnr5zhJ4Uspz58WOhBF5QoIZkFyNHIbBAtHwzVAgk5RtndVNsDRN61/mmDqg==}
+     engines: {node: '>=12'}
+@@ -2305,10 +2289,6 @@ packages:
+   is-promise@4.0.0:
+     resolution: {integrity: sha512-hvpoI6korhJMnej285dSg6nu1+e6uxs7zG3BYAm5byqDsgJNWwxzM6z6iZiAgQR4TJ30JmBTOwqZUw3WlyH3AQ==}
+ 
+-  is-wsl@3.1.1:
+-    resolution: {integrity: sha512-e6rvdUCiQCAuumZslxRJWR/Doq4VpPR82kqclvcS0efgt430SlGIk05vdCN58+VrzgtIcfNODjozVielycD4Sw==}
+-    engines: {node: '>=16'}
+-
+   isexe@2.0.0:
+     resolution: {integrity: sha512-RHxMLp9lnKHGHRng9QFhRCMbYAcVpn69smSGcq3f36xjgVVWThj4qqLbTLlq7Ssj8B+fIQ1EuCEGI2lKsyQeIw==}
+ 
+@@ -2803,10 +2783,6 @@ packages:
+   oniguruma-to-es@4.3.6:
+     resolution: {integrity: sha512-csuQ9x3Yr0cEIs/Zgx/OEt9iBw9vqIunAPQkx19R/fiMq2oGVTgcMqO/V3Ybqefr1TBvosI6jU539ksaBULJyA==}
+ 
+-  open@11.0.3:
+-    resolution: {integrity: sha512-b3souUgU0VaAvMmzA4+9cRgrOgMdE0vc9H9VhQ0FYnjjcyZ8R/f9DiwMU9V8rl+vjf05On9UJhbgb06fsTs87Q==}
+-    engines: {node: '>=20'}
+-
+   p-limit@7.3.2:
+     resolution: {integrity: sha512-Ll0w3fU24vYpXoZmjjZIee6bJQDgG0oAyo1PdmFYI8UDwJJddaHAypxIH9avUu+t+lSsAwKVsb1jDCMIIChliw==}
+     engines: {node: '>=20'}
+@@ -2910,14 +2886,6 @@ packages:
+     resolution: {integrity: sha512-RRuzqDtt5Y9h3quz5hWhK+TPnsmVs6WwSU6LkJMeY4HstUEDuYTG8UJSdawMRzmzAtV+KEoG8N3Qg2qLy5vM/A==}
+     engines: {node: ^10 || ^12 || >=14}
+ 
+-  powershell-utils@0.1.0:
+-    resolution: {integrity: sha512-dM0jVuXJPsDN6DvRpea484tCUaMiXWjuCn++HGTqUWzGDjv5tZkEZldAJ/UMlqRYGFrD/etByo4/xOuC/snX2A==}
+-    engines: {node: '>=20'}
+-
+-  powershell-utils@0.2.1:
+-    resolution: {integrity: sha512-C+y9x90UElAddDZmV4qOx9W53B61PO7cIqWz2dQsWlwswuq4mr8NEwytdGKboYbQlGZ3awrkTeNvcZiZNHnQ8A==}
+-    engines: {node: '>=20'}
+-
+   prismjs@1.30.0:
+     resolution: {integrity: sha512-DEvV2ZF2r2/63V+tK8hQvrR2ZGn10srHbXviTlcv7Kpzw8jWiNTqbVgjO3IY8RxrrOUF8VPMQQFysYYYv0YZxw==}
+     engines: {node: '>=6'}
+@@ -3069,10 +3037,6 @@ packages:
+     resolution: {integrity: sha512-nLTrUKm2UyiL7rlhapu/Zl45FwNgkZGaCpZbIHajDYgwlJCOzLSk+cIPAnsEqV955GjILJnKbdQC1nVPz+gAYQ==}
+     engines: {node: '>= 18'}
+ 
+-  run-applescript@7.1.0:
+-    resolution: {integrity: sha512-DPe5pVFaAsinSaV6QjQ6gdiedWDcRCbUuiQfQa2wmWV7+xC9bGulGI8+TdRmoFkAPaBXk8CrAbnlY2ISniJ47Q==}
+-    engines: {node: '>=18'}
+-
+   rxjs@7.8.2:
+     resolution: {integrity: sha512-dhKf903U/PQZY6boNNtAGdWbG85WAbjT/1xYoZIC7FAY0yWapOBQVsVrDl58W86//e1VpMNBtRV4MaXfdMySFA==}
+ 
+@@ -3613,10 +3577,6 @@ packages:
+   wrappy@1.0.2:
+     resolution: {integrity: sha512-l4Sp/DRseor9wL6EvV2+TuQn63dMkPjZ/sp9XkghTEbV9KlPS1xUsZ3u7/IQO4wxtcFB4bgpQPRcR3QCvezPcQ==}
+ 
+-  wsl-utils@1.0.0:
+-    resolution: {integrity: sha512-Hl0ZOAs672vg+06kfujwRhoS6/jehvULrlFkuF2dRu6pHgA8U06h3xqNIqNNU1LTXPcedxByAR4GS6pwQK0mgA==}
+-    engines: {node: '>=20'}
+-
+   xxhash-wasm@1.1.0:
+     resolution: {integrity: sha512-147y/6YNh+tlp6nd/2pWq38i9h6mz/EuQ6njIrmW8D1BS5nCqs0P6DG+m6zTGnNz5I+uhZ0SHxBs9BsPrwcKDA==}
+ 
+@@ -5058,10 +5018,6 @@ snapshots:
+ 
+   boolbase@1.0.0: {}
+ 
+-  bundle-name@4.1.0:
+-    dependencies:
+-      run-applescript: 7.1.0
+-
+   bundle-require@5.1.0(esbuild@0.27.7):
+     dependencies:
+       esbuild: 0.27.7
+@@ -5226,15 +5182,6 @@ snapshots:
+ 
+   deep-eql@5.0.2: {}
+ 
+-  default-browser-id@5.0.1: {}
+-
+-  default-browser@5.5.1:
+-    dependencies:
+-      bundle-name: 4.1.0
+-      default-browser-id: 5.0.1
+-
+-  define-lazy-prop@3.0.0: {}
+-
+   defu@6.1.7: {}
+ 
+   depd@2.0.0: {}
+@@ -5827,28 +5774,16 @@ snapshots:
+ 
+   is-decimal@2.0.1: {}
+ 
+-  is-docker@3.0.0: {}
+-
+   is-docker@4.0.0: {}
+ 
+   is-fullwidth-code-point@3.0.0: {}
+ 
+   is-hexadecimal@2.0.1: {}
+ 
+-  is-in-ssh@1.0.0: {}
+-
+-  is-inside-container@1.0.0:
+-    dependencies:
+-      is-docker: 3.0.0
+-
+   is-plain-obj@4.1.0: {}
+ 
+   is-promise@4.0.0: {}
+ 
+-  is-wsl@3.1.1:
+-    dependencies:
+-      is-inside-container: 1.0.0
+-
+   isexe@2.0.0: {}
+ 
+   jiti@2.7.0: {}
+@@ -6554,15 +6489,6 @@ snapshots:
+       regex: 6.1.0
+       regex-recursion: 6.0.2
+ 
+-  open@11.0.3:
+-    dependencies:
+-      default-browser: 5.5.1
+-      define-lazy-prop: 3.0.0
+-      is-in-ssh: 1.0.0
+-      is-inside-container: 1.0.0
+-      powershell-utils: 0.2.1
+-      wsl-utils: 1.0.0
+-
+   p-limit@7.3.2:
+     dependencies:
+       yocto-queue: 1.2.2
+@@ -6662,10 +6588,6 @@ snapshots:
+       picocolors: 1.1.1
+       source-map-js: 1.2.1
+ 
+-  powershell-utils@0.1.0: {}
+-
+-  powershell-utils@0.2.1: {}
+-
+   prismjs@1.30.0: {}
+ 
+   process-ancestry@0.1.0: {}
+@@ -6938,8 +6860,6 @@ snapshots:
+     transitivePeerDependencies:
+       - supports-color
+ 
+-  run-applescript@7.1.0: {}
+-
+   rxjs@7.8.2:
+     dependencies:
+       tslib: 2.8.1
+@@ -7472,11 +7392,6 @@ snapshots:
+ 
+   wrappy@1.0.2: {}
+ 
+-  wsl-utils@1.0.0:
+-    dependencies:
+-      is-wsl: 3.1.1
+-      powershell-utils: 0.1.0
+-
+   xxhash-wasm@1.1.0: {}
+ 
+   y18n@5.0.8: {}
+-- 
+2.43.0
+

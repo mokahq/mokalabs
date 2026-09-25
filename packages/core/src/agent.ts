@@ -5,15 +5,19 @@ import { errorMessage, type McpManager, type McpTool } from "./mcp.js";
 import { createModel } from "./providers.js";
 import { readSkillFile, skillsSystemPrompt, type LoadedSkill } from "./skills.js";
 import {
-  detectResultUi,
-  RENDER_UI_DESCRIPTION,
-  RENDER_UI_SCHEMA,
-  renderUiToMessages,
-  toolUiResourceUri,
-  toolVisibleToModel,
-  validateComponents,
-  type UiDescriptor,
-} from "./ui.js";
+  buildRenderUiDescription,
+  buildRenderUiSchema,
+  ComponentRegistry,
+  expandMessages,
+  parseCatalog,
+  renderUi,
+  resolveGenerativeUi,
+  STANDARD_CATALOG,
+  surfaceCatalogIds,
+  workspaceRegistry,
+  type LoadedCatalog,
+} from "./catalog.js";
+import { detectResultUi, toolUiResourceUri, toolVisibleToModel, type UiDescriptor } from "./ui.js";
 
 /** Chunks streamed to UIs while a run is in progress. */
 export type ChatChunk =
@@ -43,6 +47,19 @@ export interface RunAgentOptions {
   bus: EventBus;
   signal?: AbortSignal;
   env?: NodeJS.ProcessEnv;
+  /** Every loaded A2UI catalog (the workspace picks which ones render_ui may use). */
+  catalogs?: LoadedCatalog[];
+  /** Called before an MCP tool runs; resolve false to block the call. */
+  authorizeTool?: (request: ToolAuthorization) => Promise<boolean>;
+}
+
+export interface ToolAuthorization {
+  runId: string;
+  toolCallId: string;
+  server: McpServerConfig;
+  tool: McpTool;
+  input: unknown;
+  signal?: AbortSignal;
 }
 
 interface ToolBinding {
@@ -169,15 +186,23 @@ export async function* runAgent(options: RunAgentOptions): AsyncGenerator<ChatCh
   }
 
   // 3. Generative UI: any model can render native UI through A2UI.
-  if (workspace.generativeUi !== false) {
-    bindings.set("render_ui", { source: "generative UI", tool: "render_ui" });
-    tools.render_ui = dynamicTool({
-      description: RENDER_UI_DESCRIPTION,
-      inputSchema: jsonSchema(RENDER_UI_SCHEMA as any),
+  const genUi = resolveGenerativeUi(workspace);
+  if (genUi.enabled) {
+    const registry = workspaceRegistry(genUi, options.catalogs ?? []);
+    const name = genUi.toolName;
+    bindings.set(name, { source: "generative UI", tool: name });
+    tools[name] = dynamicTool({
+      description: buildRenderUiDescription(genUi, registry),
+      inputSchema: jsonSchema(buildRenderUiSchema(registry) as any),
       execute: async (input: any, { toolCallId }) => {
-        const problems = input?.messages ? [] : validateComponents(input?.components);
-        if (problems.length) throw new Error(`Invalid UI: ${problems.join("; ")}`);
-        const messages = renderUiToMessages(input, `surface-${toolCallId.slice(-8)}`);
+        const { messages, problems } = renderUi(input, {
+          fallbackId: `surface-${toolCallId.slice(-8)}`,
+          registry: genUi.repair ? registry : new ComponentRegistry(registry.catalogs),
+          theme: genUi.theme,
+        });
+        if (problems.length && (genUi.repair || messages.length === 0)) {
+          throw new Error(`Invalid UI, nothing was shown. Fix these problems and call ${name} again:\n- ${problems.join("\n- ")}`);
+        }
         sideChannel.set(toolCallId, { ui: { kind: "a2ui", messages } });
         const surfaceId = messages.find((m) => m.createSurface)?.createSurface?.surfaceId;
         return `UI rendered${surfaceId ? ` (surface "${surfaceId}")` : ""}. The user can now see and interact with it; do not repeat its contents in text.`;
@@ -316,8 +341,13 @@ function mcpToolToAiTool(mcpTool: McpTool, server: McpServerConfig, options: Run
     description: mcpTool.description ?? mcpTool.title ?? mcpTool.name,
     inputSchema: jsonSchema(normaliseSchema(mcpTool.inputSchema) as any),
     execute: async (input: any, { abortSignal, toolCallId }) => {
+      if (options.authorizeTool) {
+        const allowed = await options.authorizeTool({ runId: options.runId, toolCallId, server, tool: mcpTool, input, signal: abortSignal });
+        if (!allowed) throw new Error("The user declined to run this tool. Ask them how to proceed instead of retrying.");
+      }
       const result = await options.mcp.callTool(server.id, mcpTool.name, input ?? {}, { signal: abortSignal });
-      const ui: UiDescriptor | undefined = appUri ? { kind: "mcp-app", serverId: server.id, resourceUri: appUri } : detectResultUi(server.id, result);
+      let ui: UiDescriptor | undefined = appUri ? { kind: "mcp-app", serverId: server.id, resourceUri: appUri } : detectResultUi(server.id, result);
+      if (ui?.kind === "a2ui") ui = { kind: "a2ui", messages: await expandServerUi(ui.messages, server.id, options) };
       sideChannel.set(toolCallId, { ui, raw: { content: result.content, structuredContent: result.structuredContent, isError: result.isError } });
       const text = mcpContentToText(result);
       if (result.isError) throw new Error(text || "Tool reported an error");
@@ -359,4 +389,37 @@ function serialiseError(error: unknown): unknown {
   const e = error as any;
   if (!(error instanceof Error)) return error;
   return { name: e.name, message: e.message, statusCode: e.statusCode, url: e.url, responseBody: e.responseBody };
+}
+
+const serverCatalogs = new Map<string, { at: number; catalog?: LoadedCatalog }>();
+
+/**
+ * Expand custom components in A2UI returned by an MCP tool. Catalogs come from
+ * Moka's config, or from the server itself when a surface's catalogId is a
+ * resource URI it serves (e.g. `catalog://my-server/v1`).
+ */
+export async function expandServerUi(
+  messages: Record<string, any>[],
+  serverId: string,
+  options: { mcp: McpManager; catalogs?: LoadedCatalog[] },
+): Promise<Record<string, any>[]> {
+  const catalogs = [STANDARD_CATALOG, ...(options.catalogs ?? []).filter((c) => !c.error)];
+  for (const catalogId of surfaceCatalogIds(messages)) {
+    if (catalogs.some((c) => c.catalogId === catalogId || c.id === catalogId) || /^https?:/.test(catalogId)) continue;
+    const key = `${serverId}\u0000${catalogId}`;
+    let entry = serverCatalogs.get(key);
+    if (!entry || Date.now() - entry.at > 60_000) {
+      entry = { at: Date.now() };
+      try {
+        const result: any = await options.mcp.readResource(serverId, catalogId);
+        const text = result?.contents?.find((c: any) => typeof c.text === "string")?.text;
+        if (text) entry.catalog = { ...parseCatalog(JSON.parse(text), { id: catalogId }), id: catalogId, source: "mcp" };
+      } catch {
+        // not a resource on this server: leave components as-is
+      }
+      serverCatalogs.set(key, entry);
+    }
+    if (entry.catalog) catalogs.push(entry.catalog);
+  }
+  return catalogs.length > 1 ? expandMessages(messages, new ComponentRegistry(catalogs)) : messages;
 }

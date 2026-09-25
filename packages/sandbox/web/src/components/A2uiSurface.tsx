@@ -1,6 +1,9 @@
 import * as Icons from "lucide-react";
 import { LayoutTemplate } from "lucide-react";
-import { Component, createContext, useContext, useMemo, useReducer, useState, type ReactNode } from "react";
+import { Component, createContext, useContext, useEffect, useMemo, useReducer, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useStore } from "../store";
+import type { SurfaceTheme } from "../types";
+import { buildCsp } from "./McpAppFrame";
 import { cn } from "./ui";
 
 /**
@@ -15,6 +18,7 @@ interface Surface {
   root: string;
   components: Map<string, Json>;
   data: Json;
+  theme?: SurfaceTheme;
   deleted?: boolean;
 }
 
@@ -102,6 +106,7 @@ export function applyMessages(messages: Json[]): Surface[] {
     if (m.createSurface) {
       const s = get(m.createSurface.surfaceId);
       s.deleted = false;
+      if (m.createSurface.theme && typeof m.createSurface.theme === "object") s.theme = m.createSurface.theme;
       for (const c of m.createSurface.components ?? []) s.components.set(c.id, normaliseComponent(c));
       if (m.createSurface.dataModel !== undefined) s.data = m.createSurface.dataModel;
     } else if (m.beginRendering) {
@@ -245,13 +250,13 @@ function Node({ id, scope }: { id: string; scope: string }) {
       return <A2Icon name={String(resolve(node.name) ?? "info")} className="h-5 w-5 text-accent" />;
     case "Row":
       return (
-        <div style={weight} className={cn("flex flex-wrap gap-2.5", JUSTIFY[node.justify ?? node.distribution] ?? "justify-start", ALIGN[node.align ?? node.alignment] ?? "items-center")}>
+        <div style={weight} className={cn("flex flex-wrap gap-[var(--a2-gap-sm,0.625rem)]", JUSTIFY[node.justify ?? node.distribution] ?? "justify-start", ALIGN[node.align ?? node.alignment] ?? "items-center")}>
           <Children node={node} scope={scope} />
         </div>
       );
     case "Column":
       return (
-        <div style={weight} className={cn("flex flex-col gap-3", JUSTIFY[node.justify ?? node.distribution] ?? "", ALIGN[node.align ?? node.alignment] ?? "items-stretch")}>
+        <div style={weight} className={cn("flex flex-col gap-[var(--a2-gap,0.75rem)]", JUSTIFY[node.justify ?? node.distribution] ?? "", ALIGN[node.align ?? node.alignment] ?? "items-stretch")}>
           <Children node={node} scope={scope} />
         </div>
       );
@@ -263,7 +268,7 @@ function Node({ id, scope }: { id: string; scope: string }) {
       );
     case "Card":
       return (
-        <div style={weight} className="rounded-xl border border-line bg-panel p-4 shadow-sm">
+        <div style={weight} className="rounded-[var(--a2-radius,0.75rem)] border border-line bg-panel p-[var(--a2-pad,1rem)] shadow-sm">
           <Children node={node} scope={scope} />
         </div>
       );
@@ -318,6 +323,8 @@ function Node({ id, scope }: { id: string; scope: string }) {
     case "Tabs": {
       return <TabsNode node={node} scope={scope} />;
     }
+    case "MokaHtml":
+      return <HtmlNode node={node} scope={scope} />;
     default:
       return (
         <div className="rounded-lg border border-dashed border-line px-3 py-2 font-mono text-[11px] text-subtle">
@@ -347,7 +354,7 @@ function ButtonNode({ node, scope }: { node: Json; scope: string }) {
       onClick={fire}
       disabled={!!ctx.sent}
       className={cn(
-        "inline-flex h-9 items-center justify-center gap-2 rounded-lg px-3.5 text-[13.5px] font-medium transition-all disabled:opacity-60",
+        "inline-flex h-9 items-center justify-center gap-2 rounded-[var(--a2-radius-sm,0.5rem)] px-3.5 text-[13.5px] font-medium transition-all disabled:opacity-60",
         primary ? "bg-accent text-accent-fg hover:brightness-110" : node.variant === "borderless" ? "text-muted hover:text-fg" : "border border-line-strong hover:bg-panel-2",
         done && "ring-2 ring-accent/40",
       )}
@@ -377,7 +384,7 @@ function TextFieldNode({ node, scope }: { node: Json; scope: string }) {
   const path = bindingPath(node.value ?? node.text, scope);
   const value = String(resolve(node.value ?? node.text) ?? "");
   const variant = node.variant ?? node.textFieldType ?? "shortText";
-  const cls = "w-full rounded-lg border border-line bg-panel px-3 text-[14px] placeholder:text-subtle focus:border-accent/60 focus:outline-none focus:ring-3 focus:ring-accent/15";
+  const cls = "w-full rounded-[var(--a2-radius-sm,0.5rem)] border border-line bg-panel px-3 text-[14px] placeholder:text-subtle focus:border-accent/60 focus:outline-none focus:ring-3 focus:ring-accent/15";
   const onChange = (v: string) => path && ctx.setData(path, variant === "number" ? (v === "" ? "" : Number(v)) : v);
   return (
     <label className="block">
@@ -450,7 +457,134 @@ function TabsNode({ node, scope }: { node: Json; scope: string }) {
   );
 }
 
+/* ---------------------------------------------------------------- HTML components */
+
+/** Script injected into HTML catalog components: exposes `window.moka`. */
+const HTML_BOOTSTRAP = `<script>(function(){
+var listeners=[],props={};
+window.moka={
+  get props(){return props},
+  onProps:function(cb){listeners.push(cb);try{cb(props)}catch(e){console.error(e)}},
+  action:function(name,context){parent.postMessage({moka:"action",name:String(name),context:context||{}},"*")},
+  update:function(prop,value){parent.postMessage({moka:"update",prop:String(prop),value:value},"*")}
+};
+addEventListener("message",function(e){
+  if(e.source!==parent||!e.data||e.data.moka!=="props")return;
+  props=e.data.props||{};var t=e.data.theme||{};
+  for(var k in t)document.documentElement.style.setProperty(k,t[k]);
+  document.documentElement.setAttribute("data-theme",e.data.mode||"light");
+  listeners.forEach(function(cb){try{cb(props)}catch(err){console.error(err)}});
+});
+function size(){parent.postMessage({moka:"resize",height:Math.ceil(document.documentElement.getBoundingClientRect().height)},"*")}
+new ResizeObserver(size).observe(document.documentElement);addEventListener("load",size);
+parent.postMessage({moka:"ready"},"*");
+})();</script>
+<style>html,body{margin:0;background:transparent;color:var(--moka-fg);font:14px/1.5 var(--moka-font,system-ui)}</style>`;
+
+function htmlDocument(html: string, csp?: { resourceDomains?: string[]; connectDomains?: string[] }): string {
+  const policy = buildCsp({ resourceDomains: csp?.resourceDomains, connectDomains: csp?.connectDomains });
+  const head = `<meta http-equiv="Content-Security-Policy" content="${policy.replace(/"/g, "&quot;")}">${HTML_BOOTSTRAP}`;
+  if (/<head[^>]*>/i.test(html)) return html.replace(/<head[^>]*>/i, (m) => `${m}${head}`);
+  return `<!doctype html><html><head><meta charset="utf-8">${head}</head><body>${html}</body></html>`;
+}
+
+function hostTheme(el: Element | null): Record<string, string> {
+  const style = getComputedStyle(el ?? document.documentElement);
+  const v = (name: string) => style.getPropertyValue(name).trim();
+  return {
+    "--moka-fg": v("--fg"),
+    "--moka-muted": v("--muted"),
+    "--moka-accent": v("--accent"),
+    "--moka-accent-fg": v("--accent-fg"),
+    "--moka-panel": v("--panel"),
+    "--moka-panel-2": v("--panel-2"),
+    "--moka-line": v("--line"),
+    "--moka-radius": v("--a2-radius") || "0.75rem",
+    "--moka-font": style.fontFamily,
+  };
+}
+
+function HtmlNode({ node, scope }: { node: Json; scope: string }) {
+  const ctx = useSurface();
+  const resolve = useResolver(scope);
+  const mode = useStore((s) => s.theme);
+  const frame = useRef<HTMLIFrameElement>(null);
+  const [height, setHeight] = useState<number>(typeof node.height === "number" ? node.height : 120);
+  const rawProps: Record<string, Json> = node.props ?? {};
+  const props = Object.fromEntries(Object.entries(rawProps).map(([k, v]) => [k, resolve(v)]));
+  const propsJson = JSON.stringify(props);
+  const srcDoc = useMemo(() => htmlDocument(String(node.html ?? ""), node.csp), [node.html, node.csp]);
+
+  const post = () =>
+    frame.current?.contentWindow?.postMessage({ moka: "props", props: JSON.parse(propsJson), theme: hostTheme(frame.current), mode }, "*");
+
+  useEffect(post, [propsJson, mode]);
+
+  useEffect(() => {
+    const onMessage = (event: MessageEvent) => {
+      if (!frame.current || event.source !== frame.current.contentWindow) return;
+      const msg = event.data as Json;
+      if (!msg || typeof msg !== "object") return;
+      if (msg.moka === "ready") post();
+      else if (msg.moka === "resize" && typeof msg.height === "number") setHeight(Math.min(Math.max(msg.height, 24), 1200));
+      else if (msg.moka === "action" && !ctx.sent) {
+        ctx.onAction({ name: String(msg.name), surfaceId: ctx.surface.id, sourceComponentId: node.id, timestamp: new Date().toISOString(), context: msg.context ?? {} });
+      } else if (msg.moka === "update") {
+        const path = bindingPath(rawProps[msg.prop], scope);
+        if (path) ctx.setData(path, msg.value);
+      }
+    };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  });
+
+  const weight = typeof node.weight === "number" ? { flexGrow: node.weight, flexBasis: 0 } : undefined;
+  return (
+    <iframe
+      ref={frame}
+      title={String(node.name ?? "component")}
+      sandbox="allow-scripts"
+      srcDoc={srcDoc}
+      className="block w-full border-0 bg-transparent"
+      style={{ height, ...weight }}
+    />
+  );
+}
+
 /* ---------------------------------------------------------------- surface */
+
+function luminance(hex: string): number | undefined {
+  const m = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(hex.trim());
+  if (!m) return undefined;
+  const h = m[1]!.length === 3 ? m[1]!.split("").map((c) => c + c).join("") : m[1]!;
+  const [r, g, b] = [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16) / 255).map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+  return 0.2126 * r! + 0.7152 * g! + 0.0722 * b!;
+}
+
+/** Map an A2UI surface theme onto Moka's CSS variables for this surface only. */
+export function themeStyle(theme?: SurfaceTheme): CSSProperties | undefined {
+  if (!theme) return undefined;
+  const style: Record<string, string> = {};
+  if (theme.primaryColor) {
+    // Tailwind resolves --color-* at :root, so override both layers for this subtree.
+    const soft = `color-mix(in srgb, ${theme.primaryColor} 16%, transparent)`;
+    style["--accent"] = style["--color-accent"] = theme.primaryColor;
+    style["--accent-soft"] = style["--color-accent-soft"] = soft;
+    const lum = luminance(theme.primaryColor);
+    if (lum !== undefined) style["--accent-fg"] = style["--color-accent-fg"] = lum > 0.45 ? "#111111" : "#ffffff";
+  }
+  if (typeof theme.radius === "number") {
+    style["--a2-radius"] = `${theme.radius}px`;
+    style["--a2-radius-sm"] = `${Math.round(theme.radius * 0.7)}px`;
+  }
+  if (theme.density === "compact") {
+    style["--a2-gap"] = "0.4rem";
+    style["--a2-gap-sm"] = "0.35rem";
+    style["--a2-pad"] = "0.65rem";
+  }
+  if (theme.font) style.fontFamily = `${theme.font}, var(--font-sans)`;
+  return style as CSSProperties;
+}
 
 function SurfaceView({ surface, onAction }: { surface: Surface; onAction: (a: A2uiAction) => void }) {
   const [data, dispatch] = useReducer((state: Json, [path, value]: [string, Json]) => setAt(state, path, value), surface.data);
@@ -470,7 +604,9 @@ function SurfaceView({ surface, onAction }: { surface: Surface; onAction: (a: A2
   );
   return (
     <SurfaceContext.Provider value={ctx}>
-      <Node id={surface.root} scope="/" />
+      <div style={themeStyle(surface.theme)}>
+        <Node id={surface.root} scope="/" />
+      </div>
     </SurfaceContext.Provider>
   );
 }
@@ -482,10 +618,17 @@ export function A2uiSurfaces({ messages, onAction, header = true }: { messages: 
     <div className="animate-in space-y-2">
       {surfaces.map((s) => (
         <div key={s.id}>
-          {header && (
-            <div className="mb-1.5 flex items-center gap-1.5 text-[11px] text-subtle">
-              <LayoutTemplate className="h-3 w-3 text-violet" /> A2UI · {s.id}
+          {s.theme?.agentDisplayName ? (
+            <div className="mb-1.5 flex items-center gap-1.5 text-[12px] font-medium text-muted">
+              {s.theme.iconUrl ? <img src={s.theme.iconUrl} alt="" className="h-4 w-4 rounded" /> : <LayoutTemplate className="h-3 w-3 text-violet" />}
+              {s.theme.agentDisplayName}
             </div>
+          ) : (
+            header && (
+              <div className="mb-1.5 flex items-center gap-1.5 text-[11px] text-subtle">
+                <LayoutTemplate className="h-3 w-3 text-violet" /> A2UI · {s.id}
+              </div>
+            )
           )}
           <ErrorBoundaryLite>
             <SurfaceView surface={s} onAction={onAction} />

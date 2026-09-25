@@ -189,7 +189,7 @@ export function Badge({
 
 export function StatusDot({ status }: { status: string }) {
   const color =
-    status === "connected" ? "bg-ok" : status === "connecting" ? "bg-warn animate-pulse" : status === "error" ? "bg-err" : "bg-subtle";
+    status === "connected" ? "bg-ok" : status === "connecting" ? "bg-warn animate-pulse" : status === "error" ? "bg-err" : status === "auth" ? "bg-info" : "bg-subtle";
   return <span className={cn("inline-block h-2 w-2 shrink-0 rounded-full", color)} />;
 }
 

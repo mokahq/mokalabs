@@ -56,7 +56,7 @@ function hostStyles() {
   };
 }
 
-function buildCsp(csp: LoadedResource["csp"] = {}): string {
+export function buildCsp(csp: LoadedResource["csp"] = {}): string {
   const list = (items?: string[]) => (items ?? []).filter((d) => /^https?:\/\/[^\s;'"]+$/.test(d)).join(" ");
   const res = list(csp.resourceDomains);
   return [

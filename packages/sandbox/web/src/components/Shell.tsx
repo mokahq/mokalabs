@@ -4,6 +4,7 @@ import {
   Code2,
   Command,
   Cpu,
+  Download,
   GitCompareArrows,
   Layers,
   MessageSquare,
@@ -12,6 +13,7 @@ import {
   Moon,
   PanelLeft,
   PanelRight,
+  Play,
   Plug,
   Presentation,
   Search,
@@ -19,6 +21,8 @@ import {
   Sparkles,
   Sun,
   Trash2,
+  Upload,
+  Workflow,
   Wrench,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -180,16 +184,23 @@ function ModelSwitcher() {
   const workspace = useStore((s) => s.workspace());
   const setWorkspaceModel = useStore((s) => s.setWorkspaceModel);
   const openSettings = useStore((s) => s.openSettings);
+  const agent = config.agents.find((a) => a.id === workspace.agentId);
   const llm = config.llms.find((l) => l.id === workspace.llmId) ?? config.llms[0];
   return (
-    <Dropdown trigger={(open) => <Pill open={open} icon={<Cpu className="h-3.5 w-3.5" />}>{llm ? llm.model : "Add a model"}</Pill>}>
+    <Dropdown
+      trigger={(open) => (
+        <Pill open={open} icon={agent ? <Workflow className="h-3.5 w-3.5" /> : <Cpu className="h-3.5 w-3.5" />}>
+          {agent ? agent.name : llm ? llm.model : "Add a model"}
+        </Pill>
+      )}
+    >
       {(close) => (
         <>
           <div className="px-2.5 pt-1.5 pb-1 text-[11px] font-medium text-subtle uppercase">Model for {workspace.name}</div>
           {config.llms.map((l) => (
             <MenuItem
               key={l.id}
-              active={l.id === llm?.id}
+              active={!agent && l.id === llm?.id}
               onClick={() => {
                 close();
                 void setWorkspaceModel(l.id);
@@ -199,7 +210,25 @@ function ModelSwitcher() {
               <span className="font-mono text-[12.5px]">{l.model}</span>
             </MenuItem>
           ))}
-          {config.llms.length > 0 && <div className="my-1 border-t border-line" />}
+          {config.agents.length > 0 && (
+            <>
+              <div className="px-2.5 pt-2 pb-1 text-[11px] font-medium text-subtle uppercase">Agents</div>
+              {config.agents.map((a) => (
+                <MenuItem
+                  key={a.id}
+                  active={agent?.id === a.id}
+                  onClick={() => {
+                    close();
+                    void setWorkspaceModel(`agent:${a.id}`);
+                  }}
+                  right={<span className="text-[11px] text-subtle">{a.protocol === "a2a" ? "A2A" : "AG-UI"}</span>}
+                >
+                  {a.name}
+                </MenuItem>
+              ))}
+            </>
+          )}
+          {(config.llms.length > 0 || config.agents.length > 0) && <div className="my-1 border-t border-line" />}
           <MenuItem
             onClick={() => {
               close();
@@ -207,6 +236,14 @@ function ModelSwitcher() {
             }}
           >
             {config.llms.length ? "Manage models…" : "Add a model…"}
+          </MenuItem>
+          <MenuItem
+            onClick={() => {
+              close();
+              openSettings("agents");
+            }}
+          >
+            {config.agents.length ? "Manage agents…" : "Connect an agent (A2A / AG-UI)…"}
           </MenuItem>
         </>
       )}
@@ -230,6 +267,10 @@ export function Sidebar() {
   const newChat = useStore((s) => s.newChat);
   const openSession = useStore((s) => s.openSession);
   const deleteSession = useStore((s) => s.deleteSession);
+  const replay = useStore((s) => s.replay);
+  const exportSession = useStore((s) => s.exportSession);
+  const importSession = useStore((s) => s.importSession);
+  const importInput = useRef<HTMLInputElement>(null);
   const config = useStore((s) => s.config);
   const mcp = useStore((s) => s.mcp);
   const workspace = useStore((s) => s.workspace());
@@ -241,12 +282,18 @@ export function Sidebar() {
   return (
     <aside className="flex h-full w-64 shrink-0 flex-col border-r border-line bg-panel/60">
       <div className="space-y-2 p-3">
-        <Button className="w-full justify-start" variant="secondary" icon={<MessageSquarePlus className="h-4 w-4" />} onClick={newChat}>
-          New chat
-          <span className="ml-auto">
-            <Kbd>⌘J</Kbd>
-          </span>
-        </Button>
+        <div className="flex gap-1.5">
+          <Button className="flex-1 justify-start" variant="secondary" icon={<MessageSquarePlus className="h-4 w-4" />} onClick={newChat}>
+            New chat
+            <span className="ml-auto">
+              <Kbd>⌘J</Kbd>
+            </span>
+          </Button>
+          <input ref={importInput} type="file" accept="application/json,.json" hidden onChange={(e) => e.target.files?.[0] && void importSession(e.target.files[0]).then(() => (e.target.value = ""))} />
+          <IconButton label="Import a chat (.json)" className="h-9 w-9" onClick={() => importInput.current?.click()}>
+            <Upload className="h-4 w-4" />
+          </IconButton>
+        </div>
         {sessions.length > 6 && (
           <div className="relative">
             <Search className="pointer-events-none absolute top-1/2 left-2.5 h-3.5 w-3.5 -translate-y-1/2 text-subtle" />
@@ -272,6 +319,28 @@ export function Sidebar() {
               <span className="min-w-0 flex-1 truncate">{s.title}</span>
               <span className="text-[10px] text-subtle group-hover:hidden">{relative(s.updatedAt)}</span>
               <button
+                className="hidden text-subtle hover:text-accent group-hover:block"
+                title="Replay this chat (no model needed)"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void replay(s.id);
+                }}
+                aria-label="Replay chat"
+              >
+                <Play className="h-3.5 w-3.5" />
+              </button>
+              <button
+                className="hidden text-subtle hover:text-fg group-hover:block"
+                title="Export as JSON"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void exportSession(s.id);
+                }}
+                aria-label="Export chat"
+              >
+                <Download className="h-3.5 w-3.5" />
+              </button>
+              <button
                 className="hidden text-subtle hover:text-err group-hover:block"
                 onClick={(e) => {
                   e.stopPropagation();
@@ -292,9 +361,14 @@ export function Sidebar() {
           if (!server) return null;
           const state = mcp[id];
           return (
-            <button key={id} onClick={() => openSettings("mcp")} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1 text-left text-[12.5px] text-muted hover:bg-panel-2 hover:text-fg">
+            <button
+              key={id}
+              onClick={() => (state?.status === "auth" && state.authUrl ? window.open(state.authUrl, "_blank", "popup,width=520,height=720") : openSettings("mcp"))}
+              className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1 text-left text-[12.5px] text-muted hover:bg-panel-2 hover:text-fg"
+            >
               <StatusDot status={state?.status ?? "idle"} />
               <span className="min-w-0 flex-1 truncate">{server.name}</span>
+              {state?.status === "auth" && <span className="text-[10.5px] font-medium text-info">Sign in</span>}
               {state?.status === "connected" && <span className="font-mono text-[10.5px] text-subtle">{state.tools.length}</span>}
             </button>
           );

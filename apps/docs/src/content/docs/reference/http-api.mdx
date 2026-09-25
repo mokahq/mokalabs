@@ -29,6 +29,7 @@ curl -N -H "x-moka-token: $TOKEN" -H 'content-type: application/json' \
 | `messages` | AI SDK `ModelMessage[]` — the full history |
 | `workspaceId` | Optional; defaults to the active workspace |
 | `llmId` | Optional; override the workspace's model |
+| `agentId` | Optional; talk to this remote agent instead |
 
 | Chunk `type` | Fields |
 |---|---|
@@ -60,9 +61,19 @@ curl -N -H "x-moka-token: $TOKEN" -H 'content-type: application/json' \
 | `POST /api/mcp/:id/disconnect` | |
 | `POST /api/mcp/:id/call` | `{tool, args}` → `{result, durationMs}` |
 | `POST /api/mcp/:id/resource` | `{uri}` → `resources/read` result |
+| `POST /api/mcp/:id/signout` | Forget OAuth tokens and reconnect |
+| `GET /oauth/callback` | OAuth redirect target (no token needed) |
+| `POST /api/agents/test` | `{agent}` → `{ok, latencyMs, card?, events?, text?, error?}` |
 | `POST /api/mcp/:id/prompt` | `{name, args}` → `prompts/get` result |
 | `POST /api/skills/preview` | `{skill}` → loaded skill (body, files, errors) |
 | `POST /api/skills/discover` | `{path}` → skill folders under a path |
+| `GET /api/catalogs` | The standard catalog plus every configured catalog (loaded) |
+| `POST /api/catalogs/preview` | `{catalog}` → load a draft catalog config and report errors |
+| `GET /api/ui/tool?workspaceId=` | The render tool a workspace sends: `name`, `description`, `inputSchema`, `components` |
+| `POST /api/ui/preview` | `{input, workspaceId}` → `{messages, problems}` (validated and expanded A2UI), or `{component: {catalogId, name}}` for a component preview |
+| `POST /api/ui/generate` | `{prompt, workspaceId?, llmId?}` → ask a model for UI with only the render tool |
+| `GET /api/interactions` | Pending approvals / elicitation / sampling requests |
+| `POST /api/interactions/:id` | `{response}`: `{approved, remember?: "session"\|"always"}` for approvals and sampling, `{action: "accept"\|"decline"\|"cancel", content?}` for elicitation |
 | `GET /api/events` | NDJSON stream: buffered history, then live events (15 s heartbeats) |
 | `POST /api/events/ui` | Report `ui.rpc` / `ui.action` events |
 | `DELETE /api/events` | Clear the buffer |

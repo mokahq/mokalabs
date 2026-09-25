@@ -1,8 +1,8 @@
-import { CheckCircle2, Copy, Layers, Plus, Sparkles, Trash2 } from "lucide-react";
+import { CheckCircle2, Copy, Layers, LayoutTemplate, Plus, ShieldCheck, Sparkles, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Badge, Button, Empty, Field, Input, Select, StatusDot, Switch, Textarea, cn } from "../components/ui";
 import { useStore } from "../store";
-import type { Workspace } from "../types";
+import type { GenerativeUiConfig, Workspace } from "../types";
 import { FormFooter, ListItem, MasterDetail, Section } from "./Settings";
 
 export function WorkspaceSettings() {
@@ -69,7 +69,22 @@ function WorkspaceForm({ initial, onDuplicate }: { initial: Workspace; onDuplica
     const out: any = { ...draft, starterPrompts: starters.split("\n").map((s) => s.trim()).filter(Boolean) };
     if (!out.systemPrompt) delete out.systemPrompt;
     if (!out.llmId) delete out.llmId;
+    if (!out.agentId) delete out.agentId;
     if (!out.maxSteps) delete out.maxSteps;
+    if (!out.requireApproval) delete out.requireApproval;
+    if (out.generativeUi && typeof out.generativeUi === "object") {
+      const g: any = { ...out.generativeUi };
+      for (const k of Object.keys(g)) {
+        const v = g[k];
+        if (v === undefined || v === "" || (Array.isArray(v) && v.length === 0) || (v && typeof v === "object" && !Array.isArray(v) && Object.keys(v).length === 0)) delete g[k];
+      }
+      if (g.theme) {
+        g.theme = Object.fromEntries(Object.entries(g.theme).filter(([, v]) => v !== undefined && v !== ""));
+        if (Object.keys(g.theme).length === 0) delete g.theme;
+      }
+      out.generativeUi = Object.keys(g).length === 0 ? undefined : g.enabled === false && Object.keys(g).length === 1 ? false : g;
+      if (out.generativeUi === undefined) delete out.generativeUi;
+    }
     return out;
   }, [draft, starters]);
   const dirty = JSON.stringify(built) !== JSON.stringify({ ...initial, starterPrompts: initial.starterPrompts ?? [] });
@@ -107,20 +122,36 @@ function WorkspaceForm({ initial, onDuplicate }: { initial: Workspace; onDuplica
                 ))}
               </Select>
             </Field>
+            {config.agents.length > 0 && (
+              <Field label="Agent" hint="Chat with a remote agent instead of the model. MCP servers are shared with AG-UI agents that accept tools.">
+                <Select value={draft.agentId ?? ""} onChange={(e) => setDraft({ ...draft, agentId: e.target.value || undefined })}>
+                  <option value="">— none (use the model) —</option>
+                  {config.agents.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.name} · {a.protocol === "a2a" ? "A2A" : "AG-UI"}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            )}
             <Field label="System prompt" className="sm:col-span-2">
               <Textarea rows={5} value={draft.systemPrompt ?? ""} onChange={(e) => setDraft({ ...draft, systemPrompt: e.target.value })} placeholder="You are a helpful assistant…" />
             </Field>
             <Field label="Starter prompts" className="sm:col-span-2" hint="One per line. Shown as one-click chips on an empty chat — great for demos.">
               <Textarea rows={4} value={starters} onChange={(e) => setStarters(e.target.value)} />
             </Field>
-            <Field label="Generative UI (A2UI)" hint="Give the model a render_ui tool so it can answer with forms, cards and buttons.">
-              <Switch checked={draft.generativeUi !== false} onChange={(v) => setDraft({ ...draft, generativeUi: v ? undefined : false })} />
+            <Field label="Ask before every tool call" hint="Safe mode for live demos: the model waits for your OK before any MCP tool runs.">
+              <div className="flex items-center gap-2 text-[12.5px] text-muted">
+                <Switch checked={Boolean(draft.requireApproval)} onChange={(v) => setDraft({ ...draft, requireApproval: v || undefined })} />
+                <ShieldCheck className="h-3.5 w-3.5" /> per-server rules still apply when off
+              </div>
             </Field>
             <Field label="Max agent steps" hint="Upper bound on model ↔ tool round-trips per message.">
               <Input type="number" min={1} max={100} value={draft.maxSteps ?? ""} onChange={(e) => setDraft({ ...draft, maxSteps: e.target.value ? Number(e.target.value) : undefined })} placeholder="12" />
             </Field>
           </div>
         </Section>
+        <GenerativeUiSection value={draft.generativeUi} onChange={(generativeUi) => setDraft({ ...draft, generativeUi })} />
         <Section title="MCP servers" description="Tools from these servers are available to the model in this workspace.">
           {config.mcpServers.length === 0 ? (
             <p className="text-[13px] text-muted">No servers yet — add one under MCP servers.</p>
@@ -206,5 +237,115 @@ function WorkspaceForm({ initial, onDuplicate }: { initial: Workspace; onDuplica
         </Button>
       </FormFooter>
     </div>
+  );
+}
+
+function GenerativeUiSection({ value, onChange }: { value: Workspace["generativeUi"]; onChange: (v: Workspace["generativeUi"]) => void }) {
+  const catalogs = useStore((s) => s.catalogs);
+  const openSettings = useStore((s) => s.openSettings);
+  const g: GenerativeUiConfig = typeof value === "object" && value ? value : value === false ? { enabled: false } : {};
+  const enabled = g.enabled !== false;
+  const patch = (p: Partial<GenerativeUiConfig>) => onChange({ ...g, ...p });
+  const custom = catalogs.filter((c) => c.source !== "builtin");
+  const selected = new Set(g.catalogIds ?? []);
+  const available = [
+    ...(g.standard !== false ? Object.keys(catalogs.find((c) => c.source === "builtin")?.components ?? {}) : []),
+    ...custom.filter((c) => selected.has(c.id)).flatMap((c) => Object.keys(c.components)),
+  ];
+  const denied = new Set(g.deny ?? []);
+  const theme = g.theme ?? {};
+
+  return (
+    <Section
+      title="Generative UI"
+      description="Let the model answer with forms, cards and buttons (A2UI). Choose its components, name and style."
+      right={<Switch checked={enabled} onChange={(v) => patch({ enabled: v ? undefined : false })} label="Enable generative UI" />}
+    >
+      {!enabled ? (
+        <p className="text-[13px] text-muted">Off. The model won't get a UI tool (MCP Apps and A2UI from MCP servers still render).</p>
+      ) : (
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Tool name" hint="What the model calls. Rename it to match your production agent.">
+            <Input mono value={g.toolName ?? ""} onChange={(e) => patch({ toolName: e.target.value || undefined })} placeholder="render_ui" />
+          </Field>
+          <Field label="Validation" hint="Send UI errors back so the model fixes them itself.">
+            <div className="flex h-9 items-center gap-2 text-[12.5px] text-muted">
+              <Switch checked={g.repair !== false} onChange={(v) => patch({ repair: v ? undefined : false })} /> Self-repair
+              <span className="w-3" />
+              <Switch checked={g.examples !== false} onChange={(v) => patch({ examples: v ? undefined : false })} /> Include examples
+            </div>
+          </Field>
+          <Field label="Catalogs" className="sm:col-span-2" hint="The standard catalog plus any of yours. Add catalogs under Generative UI.">
+            <div className="flex flex-wrap gap-1.5">
+              <ChipToggle on={g.standard !== false} onClick={() => patch({ standard: g.standard === false ? undefined : false })}>
+                A2UI standard
+              </ChipToggle>
+              {custom.map((c) => (
+                <ChipToggle
+                  key={c.id}
+                  on={selected.has(c.id)}
+                  onClick={() => patch({ catalogIds: selected.has(c.id) ? [...selected].filter((x) => x !== c.id) : [...selected, c.id] })}
+                >
+                  <LayoutTemplate className="h-3 w-3" /> {c.name}
+                </ChipToggle>
+              ))}
+              <button className="rounded-full border border-dashed border-line px-2.5 py-0.5 text-[12.5px] text-muted hover:text-fg" onClick={() => openSettings("genui")}>
+                <Plus className="mr-0.5 inline h-3 w-3" /> Add catalog
+              </button>
+            </div>
+          </Field>
+          {available.length > 0 && (
+            <Field label="Components" className="sm:col-span-2" hint="Click to hide a component from the model.">
+              <div className="flex flex-wrap gap-1">
+                {available.map((name) => (
+                  <button
+                    key={name}
+                    onClick={() => patch({ deny: denied.has(name) ? [...denied].filter((d) => d !== name) : [...denied, name] })}
+                    className={cn("rounded-md border px-1.5 py-0.5 font-mono text-[11.5px] transition-colors", denied.has(name) ? "border-line text-subtle line-through" : "border-line-strong text-fg hover:bg-panel-2")}
+                  >
+                    {name}
+                  </button>
+                ))}
+              </div>
+            </Field>
+          )}
+          <Field label="Extra instructions" className="sm:col-span-2" hint="Appended to the tool description, e.g. when to prefer which component.">
+            <Textarea rows={3} value={g.instructions ?? ""} onChange={(e) => patch({ instructions: e.target.value || undefined })} placeholder="Prefer Cards for results. Only use forms when you need 3+ fields." />
+          </Field>
+          <Field label="Accent color">
+            <div className="flex gap-2">
+              <input type="color" value={theme.primaryColor ?? "#b8622c"} onChange={(e) => patch({ theme: { ...theme, primaryColor: e.target.value } })} className="h-9 w-10 cursor-pointer rounded-lg border border-line bg-panel" />
+              <Input mono value={theme.primaryColor ?? ""} onChange={(e) => patch({ theme: { ...theme, primaryColor: e.target.value || undefined } })} placeholder="(Moka default)" />
+            </div>
+          </Field>
+          <Field label="Corner radius (px)">
+            <Input type="number" min={0} max={40} value={theme.radius ?? ""} onChange={(e) => patch({ theme: { ...theme, radius: e.target.value === "" ? undefined : Number(e.target.value) } })} placeholder="12" />
+          </Field>
+          <Field label="Font">
+            <Input value={theme.font ?? ""} onChange={(e) => patch({ theme: { ...theme, font: e.target.value || undefined } })} placeholder="Inter" />
+          </Field>
+          <Field label="Agent name on UIs" hint="Shown above each surface, e.g. your product's assistant name.">
+            <Input value={theme.agentDisplayName ?? ""} onChange={(e) => patch({ theme: { ...theme, agentDisplayName: e.target.value || undefined } })} placeholder="Acme Assistant" />
+          </Field>
+          <Field label="Density">
+            <div className="flex h-9 items-center gap-2 text-[12.5px] text-muted">
+              <Switch checked={theme.density === "compact"} onChange={(v) => patch({ theme: { ...theme, density: v ? "compact" : undefined } })} /> Compact
+            </div>
+          </Field>
+        </div>
+      )}
+    </Section>
+  );
+}
+
+function ChipToggle({ on, onClick, children }: { on: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      onClick={onClick}
+      className={cn("inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[12.5px] transition-colors", on ? "border-accent bg-accent-soft text-accent" : "border-line text-muted hover:bg-panel-2")}
+    >
+      {on && <CheckCircle2 className="h-3 w-3" />}
+      {children}
+    </button>
   );
 }

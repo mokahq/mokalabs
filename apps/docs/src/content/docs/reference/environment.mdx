@@ -13,7 +13,18 @@ description: Variables Moka reads.
 | `MOKA_CONFIG` | Config file path |
 | `MOKA_HOME` | Data directory (default `~/.moka`): default config + chat sessions |
 | `MOKA_NO_OPEN` | `1` to never open a browser |
+| `MOKA_PUBLIC_URL` | The URL browsers use to reach Moka (default `http://localhost:<port>`). Used for OAuth redirects |
 | `OLLAMA_HOST` | Where to look for Ollama on first run (default `http://localhost:11434`) |
+
+## Network
+
+| Variable | Description |
+|---|---|
+| `HTTPS_PROXY` / `HTTP_PROXY` | Proxy for model providers, HTTP MCP servers and catalog URLs (Node 22.21+ / 24+) |
+| `NO_PROXY` | Hosts that bypass the proxy. Local addresses are always added |
+| `NODE_EXTRA_CA_CERTS` | Extra root certificates (PEM), e.g. a corporate TLS-inspection CA |
+
+These, plus `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`, `npm_config_registry`, `PIP_INDEX_URL` and `UV_INDEX_URL`, are passed through to stdio MCP servers. See [corporate networks](/deploy/corporate-networks/).
 
 ## Providers detected on first run
 

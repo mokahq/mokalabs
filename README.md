@@ -37,6 +37,12 @@ Getting an LLM talking to MCP tools usually means wiring up a client, a provider
 - **Forms for everything.** Models, servers, skills and workspaces are all editable in the UI. Changes are written to a readable `moka.json`.
 - **Built for demos.** Workspaces, starter prompts, presenter mode, side-by-side model comparison, and a ⌘K command palette.
 - **Generative UI.** Moka renders [MCP Apps](https://github.com/modelcontextprotocol/ext-apps) (the official MCP UI extension) in a secure sandbox, supports legacy MCP-UI, and lets *any* model answer with native [A2UI](https://github.com/google/A2UI) forms, cards and buttons through a built-in `render_ui` tool.
+- **Your own components.** Add A2UI catalogs of template or sandboxed-HTML components, rename and theme the render tool, and try it all in the Generative UI playground.
+- **Tool approvals.** Have the model ask before it runs a tool: per tool, per server, or a whole-workspace safe mode for live demos.
+- **Any agent, too.** Point a workspace at an A2A or AG-UI agent (LangGraph, CopilotKit, ADK…) and get the chat, A2UI and inspector for it. AG-UI agents can even call your MCP tools.
+- **Full MCP client.** OAuth sign-in for hosted servers, elicitation forms, sampling with your model, `@` resources and `/` prompts.
+- **Demo-proof.** Attach images and files, and replay any saved chat offline, with no model calls.
+- **Works at work.** `HTTPS_PROXY`/`NO_PROXY`, custom CAs, and a zero-dependency package for curated registries.
 - **Export to code.** Turn any workspace into Vercel AI SDK (TypeScript) or LangGraph (Python) code, or an `mcp.json`.
 
 ## Quick start
@@ -99,7 +105,7 @@ The right-hand panel streams everything Moka does:
 Click any event to see its full payload and the run's waterfall. **Download trace** exports everything as JSON.
 
 ### Generative UI
-Ask the demo server to *"roll 3 dice"* to get an **MCP App**: an interactive iframe that calls tools and posts messages back into the chat. Ask *"book a table at Toit"* to get **A2UI** returned by an MCP tool. Ask for *"a signup form"* and the model itself builds A2UI with `render_ui`. Button presses go back to the agent as `[ui action]` messages. Full guide: [docs → Generative UI](https://mokahq.github.io/mokalabs/generative-ui/overview/).
+Ask the demo server to *"roll 3 dice"* to get an **MCP App**: an interactive iframe that calls tools and posts messages back into the chat. Ask *"book a table at Toit"* to get **A2UI** returned by an MCP tool. Ask for *"a signup form"* and the model itself builds A2UI with `render_ui`. Button presses go back to the agent as `[ui action]` messages. Add your own components under **Settings → Generative UI** ([custom catalogs](https://mokahq.github.io/mokalabs/generative-ui/catalogs/)). Full guide: [docs → Generative UI](https://mokahq.github.io/mokalabs/generative-ui/overview/).
 
 ### Keyboard
 

@@ -20,12 +20,16 @@ export function CompareView() {
   const config = useStore((s) => s.config);
   const workspace = useStore((s) => s.workspace());
   const openSettings = useStore((s) => s.openSettings);
-  const initial = [workspace.llmId ?? config.llms[0]?.id, config.llms.find((l) => l.id !== workspace.llmId)?.id ?? config.llms[0]?.id].filter(Boolean) as string[];
+  const initial = (
+    workspace.agentId
+      ? [`agent:${workspace.agentId}`, workspace.llmId ?? config.llms[0]?.id]
+      : [workspace.llmId ?? config.llms[0]?.id, config.llms.find((l) => l.id !== workspace.llmId)?.id ?? config.agents.map((a) => `agent:${a.id}`)[0] ?? config.llms[0]?.id]
+  ).filter(Boolean) as string[];
   const [lanes, setLanes] = useState<Lane[]>(() => initial.map((llmId) => ({ id: uid("lane"), llmId, history: [], turns: [] })));
   const [running, setRunning] = useState(0);
   const controllers = useRef<AbortController[]>([]);
 
-  if (config.llms.length === 0) {
+  if (config.llms.length === 0 && config.agents.length === 0) {
     return (
       <Empty icon={<GitCompareArrows className="h-5 w-5" />} title="Add models to compare" action={<Button variant="primary" onClick={() => openSettings("models")}>Add a model</Button>}>
         Compare runs one prompt against several models with the same MCP tools and skills, then shows latency, tokens and tool usage side by side.
@@ -79,7 +83,12 @@ export function CompareView() {
           variant="outline"
           disabled={busy || lanes.length >= 4}
           icon={<Plus className="h-3 w-3" />}
-          onClick={() => setLanes((ls) => [...ls, { id: uid("lane"), llmId: config.llms[ls.length % config.llms.length]!.id, history: [], turns: [] }])}
+          onClick={() =>
+            setLanes((ls) => {
+              const targets = [...config.llms.map((l) => l.id), ...config.agents.map((a) => `agent:${a.id}`)];
+              return [...ls, { id: uid("lane"), llmId: targets[ls.length % targets.length]!, history: [], turns: [] }];
+            })
+          }
         >
           Add lane
         </Button>
@@ -126,6 +135,11 @@ function LaneView({ lane, busy, canRemove, onModel, onRemove }: { lane: Lane; bu
             {config.llms.map((l) => (
               <option key={l.id} value={l.id}>
                 {l.name} · {l.model}
+              </option>
+            ))}
+            {config.agents.map((a) => (
+              <option key={a.id} value={`agent:${a.id}`}>
+                {a.name} · {a.protocol === "a2a" ? "A2A agent" : "AG-UI agent"}
               </option>
             ))}
           </Select>

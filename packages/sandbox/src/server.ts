@@ -1,8 +1,12 @@
 import {
+  agentSchema,
+  catalogConfigSchema,
   discoverSkills,
   exportCode,
   importMcpJson,
+  loadCatalog,
   loadSkill,
+  STANDARD_CATALOG,
   llmProfileSchema,
   mcpServerSchema,
   PROVIDER_PRESETS,
@@ -98,8 +102,10 @@ export function createApp(options: ServerOptions): Hono {
   // --- bootstrap / config -----------------------------------------------------
   app.get("/api/bootstrap", async (c) => {
     const config = engine.getConfig();
-    const skills = await engine.loadSkills();
+    const [skills, catalogs] = await Promise.all([engine.loadSkills(), engine.loadCatalogs()]);
     return c.json({
+      catalogs: [STANDARD_CATALOG, ...catalogs],
+      interactions: engine.interactions.pending(),
       version: options.version,
       configPath: options.configPath,
       config,
@@ -157,6 +163,14 @@ export function createApp(options: ServerOptions): Hono {
     } catch (error: any) {
       return c.json({ models: [], error: error?.message ?? String(error) });
     }
+  });
+
+  // --- Remote agents (A2A / AG-UI) -------------------------------------------
+  app.post("/api/agents/test", async (c) => {
+    const { agent } = await body(c);
+    const parsed = safeParse<any>(agentSchema, agent);
+    if (parsed.error) return badRequest(c, parsed.error);
+    return c.json(await engine.testAgent(parsed.data));
   });
 
   // --- MCP ------------------------------------------------------------------
@@ -228,6 +242,12 @@ export function createApp(options: ServerOptions): Hono {
     }
   });
 
+  app.post("/api/mcp/:id/signout", async (c) => {
+    const server = serverOr404(c);
+    if (!server) return c.json({ error: "Unknown server" }, 404);
+    return c.json({ state: await engine.mcp.signOut(server) });
+  });
+
   app.post("/api/mcp/:id/resource", async (c) => {
     const server = serverOr404(c);
     if (!server) return c.json({ error: "Unknown server" }, 404);
@@ -262,9 +282,47 @@ export function createApp(options: ServerOptions): Hono {
     }
   });
 
+  // --- Generative UI: catalogs and playground --------------------------------
+  app.get("/api/catalogs", async (c) => c.json({ catalogs: [STANDARD_CATALOG, ...(await engine.loadCatalogs())] }));
+
+  app.post("/api/catalogs/preview", async (c) => {
+    const { catalog } = await body(c);
+    const parsed = safeParse<any>(catalogConfigSchema, catalog);
+    if (parsed.error) return badRequest(c, parsed.error);
+    return c.json({ catalog: await loadCatalog(parsed.data, path.dirname(options.configPath)) });
+  });
+
+  app.get("/api/ui/tool", async (c) => c.json(await engine.renderToolDefinition(c.req.query("workspaceId"))));
+
+  app.post("/api/ui/preview", async (c) => {
+    const { input, workspaceId, component } = await body<{ input: unknown; workspaceId?: string; component?: { catalogId: string; name: string } }>(c);
+    if (component) return c.json(await engine.previewComponent(component.catalogId, component.name));
+    return c.json(await engine.previewUi(input, workspaceId));
+  });
+
+  app.post("/api/ui/generate", async (c) => {
+    const { prompt, workspaceId, llmId } = await body<{ prompt: string; workspaceId?: string; llmId?: string }>(c);
+    if (!prompt?.trim()) return badRequest(c, "prompt is required");
+    try {
+      return c.json(await engine.generateUi(prompt, { workspaceId, llmId, signal: c.req.raw.signal }));
+    } catch (error: any) {
+      return c.json({ error: error?.message ?? String(error) }, 502);
+    }
+  });
+
+  // --- Human in the loop (approvals, elicitation, sampling) -----------------
+  app.get("/api/interactions", (c) => c.json({ interactions: engine.interactions.pending() }));
+
+  app.post("/api/interactions/:id", async (c) => {
+    const { response } = await body<{ response: any }>(c);
+    if (!response || typeof response !== "object") return badRequest(c, "response is required");
+    const ok = await engine.respond(c.req.param("id"), response);
+    return ok ? c.json({ ok }) : c.json({ error: "This request is no longer pending" }, 404);
+  });
+
   // --- Chat -----------------------------------------------------------------
   app.post("/api/chat", async (c) => {
-    const req = await body<{ messages: any[]; workspaceId?: string; llmId?: string }>(c);
+    const req = await body<{ messages: any[]; workspaceId?: string; llmId?: string; agentId?: string }>(c);
     if (!Array.isArray(req.messages)) return badRequest(c, "messages must be an array");
     c.header("Content-Type", "application/x-ndjson; charset=utf-8");
     c.header("Cache-Control", "no-cache, no-transform");
@@ -278,6 +336,7 @@ export function createApp(options: ServerOptions): Hono {
         messages: req.messages,
         workspaceId: req.workspaceId,
         llmId: req.llmId,
+        agentId: req.agentId,
         signal: controller.signal,
       })) {
         if (s.aborted) break;
@@ -361,6 +420,28 @@ export function createApp(options: ServerOptions): Hono {
 
   app.all("/api/*", (c) => c.json({ error: "Not found" }, 404));
 
+  // --- OAuth redirect (no token: the browser arrives here from the provider) --
+  app.get("/oauth/callback", async (c) => {
+    const { code, state, error, error_description: description } = c.req.query();
+    const page = (title: string, detail: string, ok: boolean) =>
+      c.html(
+        `<!doctype html><meta charset="utf-8"><title>${escapeHtml(title)}</title>` +
+          `<body style="font:15px system-ui;display:grid;place-items:center;height:100vh;margin:0;background:#faf8f6;color:#1d1714">` +
+          `<div style="text-align:center;max-width:420px"><div style="font-size:40px">${ok ? "☕" : "⚠️"}</div><h2>${escapeHtml(title)}</h2>` +
+          `<p style="color:#6f6259">${escapeHtml(detail)}</p></div>` +
+          `<script>try{window.opener&&window.opener.postMessage({moka:"oauth-done"},"*")}catch(e){}${ok ? "setTimeout(()=>window.close(),1200)" : ""}</script>`,
+        ok ? 200 : 400,
+      );
+    if (error) return page("Sign-in failed", description || error, false);
+    if (!code || !state) return page("Sign-in failed", "The provider didn't return a code.", false);
+    try {
+      const state_ = await engine.mcp.finishAuth(state, code);
+      return page(`Signed in to ${state_.name}`, state_.status === "connected" ? "You can close this tab and go back to Moka." : `Connected, but: ${state_.error ?? state_.status}`, true);
+    } catch (e: any) {
+      return page("Sign-in failed", e?.message ?? String(e), false);
+    }
+  });
+
   // --- Static UI ------------------------------------------------------------
   if (options.webDir) {
     const webDir = path.resolve(options.webDir);
@@ -397,4 +478,8 @@ function safeEvent<T extends { data?: unknown }>(event: T): T {
   const json = JSON.stringify(event.data);
   if (json.length <= 200_000) return event;
   return { ...event, data: { truncated: true, preview: json.slice(0, 20_000), bytes: json.length } };
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch]!);
 }

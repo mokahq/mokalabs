@@ -16,6 +16,17 @@ export interface LlmProfile {
   providerOptions?: Record<string, unknown>;
 }
 
+export type AgentProtocol = "a2a" | "ag-ui";
+
+export interface AgentConfig {
+  id: string;
+  name: string;
+  protocol: AgentProtocol;
+  url: string;
+  headers?: Record<string, string>;
+  shareTools?: boolean;
+}
+
 export interface McpServerConfig {
   id: string;
   name: string;
@@ -28,7 +39,76 @@ export interface McpServerConfig {
   headers?: Record<string, string>;
   disabledTools?: string[];
   timeoutMs?: number;
+  approval?: { default?: ApprovalMode; tools?: Record<string, ApprovalMode> };
+  oauth?: boolean | { clientId?: string; clientSecret?: string; scopes?: string[] };
+  sampling?: "ask" | "auto" | "deny";
 }
+
+export type ApprovalMode = "auto" | "ask";
+
+export interface SurfaceTheme {
+  primaryColor?: string;
+  font?: string;
+  radius?: number;
+  density?: "compact" | "comfortable";
+  agentDisplayName?: string;
+  iconUrl?: string;
+}
+
+export interface GenerativeUiConfig {
+  enabled?: boolean;
+  toolName?: string;
+  description?: string;
+  instructions?: string;
+  standard?: boolean;
+  catalogIds?: string[];
+  allow?: string[];
+  deny?: string[];
+  theme?: SurfaceTheme;
+  examples?: boolean;
+  repair?: boolean;
+}
+
+export interface CatalogConfig {
+  id: string;
+  name?: string;
+  path?: string;
+  url?: string;
+  catalog?: Record<string, unknown>;
+}
+
+export interface CatalogComponent {
+  description?: string;
+  props?: Record<string, JsonSchema>;
+  required?: string[];
+  template?: Array<Record<string, any>>;
+  html?: string;
+  csp?: { resourceDomains?: string[]; connectDomains?: string[] };
+  height?: number;
+  example?: Record<string, unknown>;
+  builtin?: boolean;
+}
+
+export interface LoadedCatalog {
+  id: string;
+  catalogId: string;
+  name: string;
+  description?: string;
+  version?: string;
+  instructions?: string;
+  theme?: SurfaceTheme;
+  components: Record<string, CatalogComponent>;
+  examples?: Array<{ title?: string; prompt?: string; components: Array<Record<string, any>>; data?: Record<string, unknown> }>;
+  source: "builtin" | "file" | "url" | "inline" | "mcp";
+  path?: string;
+  error?: string;
+}
+
+export type Interaction = { id: string; createdAt: number } & (
+  | { kind: "tool-approval"; runId?: string; toolCallId: string; serverId: string; serverName: string; tool: string; input: unknown; annotations?: Record<string, unknown> }
+  | { kind: "elicitation"; serverId: string; serverName: string; message: string; mode: "form" | "url"; requestedSchema?: JsonSchema; url?: string }
+  | { kind: "sampling"; serverId: string; serverName: string; messages: unknown[]; systemPrompt?: string; maxTokens?: number; modelHint?: string }
+);
 
 export interface SkillConfig {
   id: string;
@@ -42,12 +122,14 @@ export interface Workspace {
   id: string;
   name: string;
   llmId?: string;
+  agentId?: string;
   mcpServerIds: string[];
   skillIds: string[];
   systemPrompt?: string;
   starterPrompts?: string[];
   maxSteps?: number;
-  generativeUi?: boolean;
+  generativeUi?: boolean | GenerativeUiConfig;
+  requireApproval?: boolean;
 }
 
 export interface MokaConfig {
@@ -56,6 +138,8 @@ export interface MokaConfig {
   llms: LlmProfile[];
   mcpServers: McpServerConfig[];
   skills: SkillConfig[];
+  agents: AgentConfig[];
+  catalogs: CatalogConfig[];
   workspaces: Workspace[];
 }
 
@@ -93,13 +177,15 @@ export interface McpTool {
 export interface McpServerState {
   id: string;
   name: string;
-  status: "idle" | "connecting" | "connected" | "error";
+  status: "idle" | "connecting" | "connected" | "error" | "auth";
   error?: string;
+  authUrl?: string;
+  oauth?: { signedIn: boolean };
   serverInfo?: { name?: string; version?: string };
   instructions?: string;
   tools: McpTool[];
   prompts: Array<{ name: string; description?: string; arguments?: Array<{ name: string; description?: string; required?: boolean }> }>;
-  resources: Array<{ uri: string; name?: string; description?: string; mimeType?: string }>;
+  resources: Array<{ uri: string; name?: string; title?: string; description?: string; mimeType?: string }>;
   stderr: string[];
 }
 
@@ -157,8 +243,25 @@ export type ChatChunk =
   | { type: "finish"; usage: Usage; durationMs: number; messages: unknown[] }
   | { type: "error"; message: string };
 
+/** A file, image or MCP resource the user attached to a message. */
+export interface Attachment {
+  id: string;
+  name: string;
+  mediaType: string;
+  size: number;
+  kind: "image" | "file" | "text" | "resource";
+  /** data: URL for images and binary files. */
+  dataUrl?: string;
+  /** Inline text for text files and MCP resources. */
+  text?: string;
+  /** MCP resource origin. */
+  uri?: string;
+  serverId?: string;
+}
+
 export type Part =
   | { type: "text"; text: string }
+  | { type: "attachment"; attachment: Omit<Attachment, "text"> & { text?: undefined } }
   | { type: "reasoning"; text: string }
   | {
       type: "tool";
@@ -215,4 +318,6 @@ export interface Bootstrap {
   env: Record<string, boolean>;
   mcp: McpServerState[];
   skills: LoadedSkill[];
+  catalogs: LoadedCatalog[];
+  interactions: Interaction[];
 }

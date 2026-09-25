@@ -38,6 +38,8 @@ export const llmProfileSchema = z.object({
 export type LlmProfile = z.infer<typeof llmProfileSchema>;
 
 export const MCP_TRANSPORTS = ["stdio", "http", "sse"] as const;
+export const MCP_APPROVAL_MODES = ["auto", "ask"] as const;
+export type ApprovalMode = (typeof MCP_APPROVAL_MODES)[number];
 export type McpTransport = (typeof MCP_TRANSPORTS)[number];
 
 export const mcpServerSchema = z.object({
@@ -53,6 +55,30 @@ export const mcpServerSchema = z.object({
   /** Tools hidden from the model (still callable from the tool runner). */
   disabledTools: z.array(z.string()).optional(),
   timeoutMs: z.number().int().positive().optional(),
+  /**
+   * OAuth for http/sse servers. On by default when the server asks for it and
+   * no Authorization header is set; `false` disables it, an object sets a
+   * pre-registered client and scopes.
+   */
+  oauth: z
+    .union([
+      z.boolean(),
+      z.object({ clientId: z.string().optional(), clientSecret: z.string().optional(), scopes: z.array(z.string()).optional() }),
+    ])
+    .optional(),
+  /** MCP sampling requests from this server: ask the user (default), allow, or refuse. */
+  sampling: z.enum(["ask", "auto", "deny"]).optional(),
+  /**
+   * When to ask the user before the model runs a tool. `default` applies to
+   * every tool (tools annotated destructiveHint default to "ask"); `tools`
+   * overrides individual tools.
+   */
+  approval: z
+    .object({
+      default: z.enum(MCP_APPROVAL_MODES).optional(),
+      tools: z.record(z.string(), z.enum(MCP_APPROVAL_MODES)).optional(),
+    })
+    .optional(),
 });
 export type McpServerConfig = z.infer<typeof mcpServerSchema>;
 
@@ -68,17 +94,85 @@ export const skillSchema = z.object({
 });
 export type SkillConfig = z.infer<typeof skillSchema>;
 
+export const AGENT_PROTOCOLS = ["a2a", "ag-ui"] as const;
+export type AgentProtocol = (typeof AGENT_PROTOCOLS)[number];
+
+/** A remote agent Moka can chat with instead of a raw model. */
+export const agentSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  protocol: z.enum(AGENT_PROTOCOLS),
+  /** A2A: agent card URL or JSON-RPC endpoint. AG-UI: the agent's run endpoint. */
+  url: z.string().min(1),
+  headers: stringRecord.optional(),
+  /** AG-UI: offer the workspace's MCP tools and render tool to the agent as frontend tools. */
+  shareTools: z.boolean().optional(),
+});
+export type AgentConfig = z.infer<typeof agentSchema>;
+
+export const catalogConfigSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().optional(),
+  /** A catalog JSON file (relative paths resolve against the config file). */
+  path: z.string().optional(),
+  /** A catalog JSON served over HTTP(S). */
+  url: z.string().optional(),
+  /** An inline catalog object. */
+  catalog: z.record(z.string(), z.any()).optional(),
+});
+export type CatalogConfig = z.infer<typeof catalogConfigSchema>;
+
+export const surfaceThemeSchema = z.object({
+  primaryColor: z.string().optional(),
+  font: z.string().optional(),
+  radius: z.number().min(0).max(40).optional(),
+  density: z.enum(["compact", "comfortable"]).optional(),
+  agentDisplayName: z.string().optional(),
+  iconUrl: z.string().optional(),
+});
+
+export const generativeUiSchema = z.object({
+  enabled: z.boolean().optional(),
+  /** Name of the tool the model calls. Default "render_ui". */
+  toolName: z
+    .string()
+    .regex(/^[a-zA-Z0-9_-]{1,64}$/, "letters, digits, _ and - only")
+    .optional(),
+  /** Replace the generated tool description entirely. */
+  description: z.string().optional(),
+  /** Extra guidance appended to the tool description. */
+  instructions: z.string().optional(),
+  /** Include the A2UI standard catalog. Default true. */
+  standard: z.boolean().optional(),
+  /** Custom catalogs (ids from the top-level `catalogs`). */
+  catalogIds: z.array(z.string()).optional(),
+  /** Only these component names. */
+  allow: z.array(z.string()).optional(),
+  /** Never these component names. */
+  deny: z.array(z.string()).optional(),
+  theme: surfaceThemeSchema.optional(),
+  /** Put catalog examples in the tool description. Default true. */
+  examples: z.boolean().optional(),
+  /** Send validation errors back to the model so it can fix its UI. Default true. */
+  repair: z.boolean().optional(),
+});
+export type GenerativeUiConfig = z.infer<typeof generativeUiSchema>;
+
 export const workspaceSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
   llmId: z.string().optional(),
+  /** Chat with a remote agent (A2A / AG-UI) instead of `llmId`. */
+  agentId: z.string().optional(),
   mcpServerIds: z.array(z.string()).default([]),
   skillIds: z.array(z.string()).default([]),
   systemPrompt: z.string().optional(),
   starterPrompts: z.array(z.string()).optional(),
   maxSteps: z.number().int().min(1).max(100).optional(),
-  /** Give the model the built-in `render_ui` (A2UI) tool. Default true. */
-  generativeUi: z.boolean().optional(),
+  /** Generative UI (A2UI): `false` to disable, or settings for the render_ui tool. Default on. */
+  generativeUi: z.union([z.boolean(), generativeUiSchema]).optional(),
+  /** Ask before every MCP tool call in this workspace (overrides per-server settings). */
+  requireApproval: z.boolean().optional(),
 });
 export type Workspace = z.infer<typeof workspaceSchema>;
 
@@ -89,6 +183,10 @@ export const mokaConfigSchema = z.object({
   llms: z.array(llmProfileSchema).default([]),
   mcpServers: z.array(mcpServerSchema).default([]),
   skills: z.array(skillSchema).default([]),
+  /** Remote agents (A2A, AG-UI). */
+  agents: z.array(agentSchema).default([]),
+  /** A2UI component catalogs available to workspaces. */
+  catalogs: z.array(catalogConfigSchema).default([]),
   workspaces: z.array(workspaceSchema).default([]),
 });
 export type MokaConfig = z.infer<typeof mokaConfigSchema>;
@@ -171,7 +269,9 @@ export function redactConfig(config: MokaConfig): MokaConfig {
       ...s,
       env: scrubRecord(s.env),
       headers: scrubRecord(s.headers),
+      ...(typeof s.oauth === "object" && s.oauth.clientSecret ? { oauth: { ...s.oauth, clientSecret: scrub(s.oauth.clientSecret, "<set-me>") } } : {}),
     })),
+    agents: config.agents.map((a) => ({ ...a, headers: scrubRecord(a.headers) })),
   };
 }
 

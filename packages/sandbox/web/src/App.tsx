@@ -4,6 +4,7 @@ import { setToken } from "./api";
 import { ChatView } from "./components/Chat";
 import { CompareView } from "./components/Compare";
 import { Inspector } from "./components/Inspector";
+import { InteractionCenter } from "./components/Interactions";
 import { CommandPalette, ExportDialog, Sidebar, Toasts, TopBar } from "./components/Shell";
 import { ToolRunner } from "./components/ToolRunner";
 import { Button, Input, Spinner, cn } from "./components/ui";
@@ -94,6 +95,7 @@ export function App() {
       <Settings />
       <ExportDialog />
       <CommandPalette />
+      <InteractionCenter />
       <Toasts />
     </div>
   );

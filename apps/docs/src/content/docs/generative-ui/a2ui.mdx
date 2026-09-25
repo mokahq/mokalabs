@@ -15,7 +15,7 @@ Moka implements **A2UI v0.9** (and reads v0.8 messages), with the standard compo
 
 <Tabs>
 <TabItem label="From any model: render_ui">
-Every workspace gives the model a built-in **`render_ui`** tool (turn it off per workspace under **Settings → Workspaces → Generative UI**). Its description teaches the model the component catalog, so it works with any tool-calling model — GPT, Claude, Gemini, Llama.
+Every workspace gives the model a built-in **`render_ui`** tool. Its description teaches the model the component catalog, so it works with any tool-calling model: GPT, Claude, Gemini, Llama. You can rename it, restrict or extend its components, and theme it; see [Customize the render tool](/generative-ui/customize/) and [Custom catalogs](/generative-ui/catalogs/).
 
 ```json title="render_ui input (what the model sends)"
 {
@@ -35,7 +35,7 @@ Every workspace gives the model a built-in **`render_ui`** tool (turn it off per
 }
 ```
 
-Moka validates the tree (a `root` component must exist; every `child`/`children` reference must resolve). If it's invalid, the model gets a precise error and usually fixes it on the next step.
+Moka validates the tree against the active catalogs (a `root` component must exist, every reference must resolve, components and required props must exist). If it's invalid, the model gets a precise error and usually [fixes it on the next step](/generative-ui/customize/#self-repair).
 </TabItem>
 <TabItem label="From an MCP server">
 Return A2UI messages from any tool as an embedded resource with mime type `application/json+a2ui`:

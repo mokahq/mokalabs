@@ -21,6 +21,11 @@ Each event has `id`, `ts` (ms), `kind`, `title`, and optionally `runId`, `server
 | `mcp.log` | A stdio server writes to stderr, or the client errors | the line |
 | `ui.rpc` | An MCP App message crosses the iframe boundary | the raw JSON-RPC (or MCP-UI) message |
 | `ui.action` | An A2UI button is pressed | the resolved action |
+| `interaction.request` | A tool approval, elicitation or sampling request is waiting for the user | the request, with its `id` and `kind` |
+| `interaction.resolved` | That request was answered or cancelled | `id`, `kind`, `outcome`, `response` |
+| `agent.request` | Moka sends a turn to a remote agent | A2A JSON-RPC body or AG-UI `RunAgentInput` |
+| `agent.event` | An A2A result or AG-UI event arrives | the raw event |
+| `agent.response` | The agent's turn is done | |
 | `log` | Warnings, e.g. a server skipped because it couldn't connect | |
 
 Payloads larger than 200 KB (e.g. base64 images) are truncated in the live stream to keep the UI fast.

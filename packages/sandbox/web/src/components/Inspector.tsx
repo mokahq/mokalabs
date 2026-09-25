@@ -14,7 +14,9 @@ import {
   Plug,
   ScrollText,
   Search,
+  ShieldQuestion,
   Sparkles,
+  Workflow,
   Wrench,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -26,8 +28,8 @@ type Filter = "all" | "llm" | "tools" | "rpc" | "logs";
 
 const FILTERS: Record<Filter, (e: MokaEvent) => boolean> = {
   all: () => true,
-  llm: (e) => e.kind.startsWith("llm.") || e.kind.startsWith("run."),
-  tools: (e) => e.kind.startsWith("tool.") || e.kind === "skill.load" || e.kind.startsWith("ui."),
+  llm: (e) => e.kind.startsWith("llm.") || e.kind.startsWith("run.") || e.kind.startsWith("agent."),
+  tools: (e) => e.kind.startsWith("tool.") || e.kind === "skill.load" || e.kind.startsWith("ui.") || e.kind.startsWith("interaction."),
   rpc: (e) => e.kind === "mcp.rpc",
   logs: (e) => e.kind === "mcp.log" || e.kind === "mcp.status" || e.kind === "log" || e.level === "error",
 };
@@ -52,6 +54,13 @@ function meta(e: MokaEvent): { icon: React.ReactNode; tone: string } {
       return { icon: <AppWindow className={i} />, tone: "text-accent bg-accent-soft" };
     case "ui.action":
       return { icon: <MousePointerClick className={i} />, tone: "text-accent bg-accent-soft" };
+    case "interaction.request":
+    case "interaction.resolved":
+      return { icon: <ShieldQuestion className={i} />, tone: "text-warn bg-warn/10" };
+    case "agent.request":
+    case "agent.event":
+    case "agent.response":
+      return { icon: <Workflow className={i} />, tone: "text-violet bg-violet/10" };
     case "mcp.rpc":
       return e.direction === "out"
         ? { icon: <ArrowUpRight className={i} />, tone: "text-muted bg-panel-2" }

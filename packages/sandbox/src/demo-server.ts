@@ -229,6 +229,57 @@ export function createDemoServer(version: string): McpServer {
     }),
   );
 
+  server.registerTool(
+    "order_coffee",
+    {
+      title: "Order a coffee",
+      description: "Order a coffee for the user. Asks the user directly for their drink, size and milk (MCP elicitation), so don't ask them yourself.",
+      inputSchema: { name: z.string().optional().describe("Who the coffee is for") },
+    },
+    async ({ name }) => {
+      if (!server.server.getClientCapabilities()?.elicitation) return text("This client can't ask the user for input (no elicitation support).");
+      const answer = await server.server.elicitInput({
+        message: `What can we get you${name ? `, ${name}` : ""}? ☕`,
+        requestedSchema: {
+          type: "object",
+          properties: {
+            drink: { type: "string", title: "Drink", enum: ["espresso", "flat white", "cappuccino", "cold brew"] },
+            size: { type: "string", title: "Size", enum: ["small", "medium", "large"], default: "medium" },
+            oatMilk: { type: "boolean", title: "Oat milk", default: false },
+            note: { type: "string", title: "Note for the barista" },
+          },
+          required: ["drink", "size"],
+        },
+      });
+      if (answer.action !== "accept") return text(`The user ${answer.action === "decline" ? "declined" : "cancelled"} the order.`);
+      const c = answer.content as { drink: string; size: string; oatMilk?: boolean; note?: string };
+      return text(`Order placed: ${c.size} ${c.drink}${c.oatMilk ? " with oat milk" : ""}${c.note ? ` (note: ${c.note})` : ""}. Ready in 4 minutes.`);
+    },
+  );
+
+  server.registerTool(
+    "brainstorm",
+    {
+      title: "Brainstorm with the host's model",
+      description: "Brainstorm three short ideas about a topic. The server borrows the client's model through MCP sampling.",
+      inputSchema: { topic: z.string().describe("What to brainstorm about") },
+    },
+    async ({ topic }) => {
+      if (!server.server.getClientCapabilities()?.sampling) return text("This client doesn't support MCP sampling.");
+      try {
+        const result = await server.server.createMessage({
+          systemPrompt: "You are a playful brainstorming partner. Reply with exactly three short bullet points.",
+          messages: [{ role: "user", content: { type: "text", text: `Three ideas for: ${topic}` } }],
+          maxTokens: 200,
+        });
+        const content = result.content as { type: string; text?: string };
+        return text(`Ideas from ${result.model}:\n${content.type === "text" ? content.text : "(non-text reply)"}`);
+      } catch (error: any) {
+        return { ...text(`Sampling failed: ${error?.message ?? error}`), isError: true };
+      }
+    },
+  );
+
   server.registerResource(
     "about",
     "moka://about",
