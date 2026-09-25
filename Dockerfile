@@ -6,7 +6,7 @@
 ARG UV_IMAGE=ghcr.io/astral-sh/uv:latest
 FROM ${UV_IMAGE} AS uv
 
-FROM node:22-bookworm-slim AS build
+FROM node:25-bookworm-slim AS build
 ENV PNPM_HOME=/pnpm PATH=/pnpm:$PATH CI=1
 RUN corepack enable
 WORKDIR /src
@@ -21,7 +21,7 @@ COPY . .
 RUN pnpm --filter @mokalabs/core --filter @mokalabs/sandbox run build \
  && pnpm --filter @mokalabs/sandbox deploy --prod --legacy /out
 
-FROM node:22-bookworm-slim
+FROM node:25-bookworm-slim
 LABEL org.opencontainers.image.title="Moka sandbox" \
       org.opencontainers.image.description="Chat with any LLM, plug in any MCP server or skill, inspect every call." \
       org.opencontainers.image.source="https://github.com/mokahq/mokalabs" \
