@@ -39,7 +39,7 @@ jobs:
       - run: pnpm test
       - name: Version PR or publish
         id: changesets
-        uses: changesets/action@v1
+        uses: changesets/action@v2
         with:
           version: pnpm version-packages
           publish: pnpm changeset publish
