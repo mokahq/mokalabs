@@ -1,6 +1,6 @@
 {
   "name": "@mokalabs/sandbox",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Moka sandbox — chat with any LLM, plug in any MCP server or skill, and inspect every call. One command: npx @mokalabs/sandbox",
   "license": "MIT",
   "type": "module",
