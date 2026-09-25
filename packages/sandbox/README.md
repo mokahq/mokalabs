@@ -20,6 +20,6 @@ moka init          # write a starter moka.json
 moka demo-server   # run the bundled demo MCP server on stdio
 ```
 
-Docker: `docker run --rm -p 4000:4000 -e OPENAI_API_KEY ghcr.io/thebunnyweb/moka`
+Docker: `docker run --rm -p 4000:4000 -e OPENAI_API_KEY ghcr.io/mokahq/moka`
 
-Full docs: https://github.com/thebunnyweb/mokalabs
+Full docs: https://github.com/mokahq/mokalabs

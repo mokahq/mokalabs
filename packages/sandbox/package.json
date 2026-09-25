@@ -21,10 +21,10 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/thebunnyweb/mokalabs.git",
+    "url": "git+https://github.com/mokahq/mokalabs.git",
     "directory": "packages/sandbox"
   },
-  "homepage": "https://github.com/thebunnyweb/mokalabs#readme",
+  "homepage": "https://github.com/mokahq/mokalabs#readme",
   "keywords": [
     "llm",
     "mcp",

@@ -1,6 +1,6 @@
 # @mokalabs/core
 
-The headless engine behind [Moka](https://github.com/thebunnyweb/mokalabs): providers for any LLM, an MCP client manager (stdio / Streamable HTTP / SSE), Agent Skills, a streaming tool loop, and an event bus that records every step.
+The headless engine behind [Moka](https://github.com/mokahq/mokalabs): providers for any LLM, an MCP client manager (stdio / Streamable HTTP / SSE), Agent Skills, a streaming tool loop, and an event bus that records every step.
 
 ```bash
 npm i @mokalabs/core
