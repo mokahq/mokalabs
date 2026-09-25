@@ -1,6 +1,6 @@
 # Moka demo
 
-A ready-to-run [Moka](https://github.com/thebunnyweb/mokalabs) sandbox: any LLM, MCP servers and skills, with a live inspector.
+A ready-to-run [Moka](https://github.com/mokahq/mokalabs) sandbox: any LLM, MCP servers and skills, with a live inspector.
 
 ```bash
 npm install
