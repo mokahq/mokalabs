@@ -1,3 +1,20 @@
 packages:
   - "packages/*"
   - "apps/*"
+
+# Only resolve package versions that have been public for at least 14 days
+# (matches enterprise registry curation / quarantine windows, and protects
+# against freshly-published compromised releases). Value is in minutes.
+minimumReleaseAge: 20160
+
+# A few packages arrive as auto-installed peer dependencies, which pnpm does not
+# age-check. Pin them (within their current major) to releases older than the
+# 14-day window. Bump these when newer releases mature.
+overrides:
+  "rollup@4": 4.63.1
+  "yaml@2": 2.9.0
+  "tsx@4": 4.23.13
+  "@types/node@24": 24.13.4
+  "@types/node@22": 22.20.2
+  "enhanced-resolve@5": 5.24.5
+  "smol-toml@1": 1.8.0

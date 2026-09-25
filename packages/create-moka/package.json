@@ -7,10 +7,27 @@
   "bin": {
     "create-moka": "./index.js"
   },
-  "files": ["index.js", "templates"],
-  "repository": { "type": "git", "url": "git+https://github.com/mokahq/mokalabs.git", "directory": "packages/create-moka" },
-  "keywords": ["moka", "mcp", "llm", "create", "scaffold", "agent", "skills"],
-  "engines": { "node": ">=20" },
+  "files": [
+    "index.js",
+    "templates"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mokahq/mokalabs.git",
+    "directory": "packages/create-moka"
+  },
+  "keywords": [
+    "moka",
+    "mcp",
+    "llm",
+    "create",
+    "scaffold",
+    "agent",
+    "skills"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "test": "node --test test/*.test.js"
   }
