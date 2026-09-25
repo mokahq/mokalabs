@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test (${{ matrix.os }}, node ${{ matrix.node }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        node: [22]
+        include:
+          - os: ubuntu-latest
+            node: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+        env:
+          ASTRO_TELEMETRY_DISABLED: "1"
+      - run: pnpm typecheck
+      - run: pnpm test
+
+  smoke:
+    name: Packed npx smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - name: Pack and install like a user would
+        run: |
+          mkdir -p /tmp/pack /tmp/app
+          (cd packages/core && pnpm pack --pack-destination /tmp/pack)
+          (cd packages/sandbox && pnpm pack --pack-destination /tmp/pack)
+          cd /tmp/app && npm init -y && npm install /tmp/pack/*.tgz
+          MOKA_HOME=/tmp/home npx sandbox --no-open --no-auth --port 4000 &
+          for i in $(seq 1 30); do curl -sf localhost:4000/api/health && break; sleep 1; done
+          curl -sf localhost:4000/ | grep -q '<div id="root">'
+          curl -sf -X POST localhost:4000/api/mcp/moka-demo/connect -H 'content-type: application/json' -d '{}' | grep -q '"connected"'
+      - name: create-moka scaffolds a project
+        run: |
+          cd /tmp && node $GITHUB_WORKSPACE/packages/create-moka/index.js my-demo --yes
+          test -f /tmp/my-demo/moka.json && test -f /tmp/my-demo/.gitignore
+
+  docker:
+    name: Docker build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: moka:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Run container
+        run: |
+          docker run -d --name moka -p 4000:4000 -e MOKA_TOKEN=ci moka:ci
+          for i in $(seq 1 30); do curl -sf localhost:4000/api/health && break; sleep 1; done
+          curl -sf -H 'x-moka-token: ci' localhost:4000/api/bootstrap | grep -q '"moka-demo"'
+          docker logs moka

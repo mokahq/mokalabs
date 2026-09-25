@@ -1,0 +1,10 @@
+name: Feature request
+description: Suggest an idea
+labels: [enhancement]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like Moka to do?
+    validations:
+      required: true

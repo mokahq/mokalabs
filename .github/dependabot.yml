@@ -1,0 +1,15 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule: { interval: weekly }
+    groups:
+      ai-sdk: { patterns: ["ai", "@ai-sdk/*"] }
+      mcp: { patterns: ["@modelcontextprotocol/*"] }
+      ui: { patterns: ["react", "react-dom", "@types/react*", "vite", "@vitejs/*", "tailwindcss", "@tailwindcss/*", "lucide-react"] }
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: monthly }
+  - package-ecosystem: docker
+    directory: /
+    schedule: { interval: monthly }
