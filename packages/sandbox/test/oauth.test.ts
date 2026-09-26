@@ -136,7 +136,8 @@ describe("MCP OAuth", () => {
     expect(secure.tools.map((t: any) => t.name)).toEqual(["whoami"]);
     const call = await api("/api/mcp/secure/call", { tool: "whoami", args: {} });
     expect(call.result.content[0].text).toBe("you are signed in");
-    expect(statSync(path.join(home, "oauth.json")).mode & 0o777).toBe(0o600);
+    // POSIX permissions only; Windows always reports 0o666 and relies on the user-profile ACL.
+    if (process.platform !== "win32") expect(statSync(path.join(home, "oauth.json")).mode & 0o777).toBe(0o600);
   }, 20_000);
 
   it("reuses stored tokens and signs out", async () => {

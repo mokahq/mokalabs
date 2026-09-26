@@ -24,7 +24,7 @@ import { api } from "../api";
 import { uid } from "../runner";
 import { useStore } from "../store";
 import type { Attachment, Part, UiMessage } from "../types";
-import dino from "../dino.svg";
+import { Dino } from "./Dino";
 import { ApprovalBar, usePendingApproval } from "./Interactions";
 import { Markdown } from "./Markdown";
 import { ToolUi } from "./ToolUi";
@@ -91,7 +91,7 @@ function EmptyChat() {
     <div className="relative flex min-h-full flex-col items-center justify-center px-6 py-16">
       <div className="glow pointer-events-none absolute inset-x-0 top-0 h-80" />
       <div className="relative w-full max-w-2xl text-center">
-        <img src={dino} alt="Moka the dino" className="mx-auto mb-3 h-28 w-28 drop-shadow-[0_12px_24px_rgba(0,0,0,0.25)]" />
+        <Dino className="mx-auto mb-3 h-28 w-36 drop-shadow-[0_12px_24px_rgba(0,0,0,0.25)]" />
         <h1 className="text-2xl font-semibold tracking-tight">{workspace.name === "Default" ? "What are we brewing?" : workspace.name}</h1>
         <div className="mt-3 flex flex-wrap items-center justify-center gap-1.5 text-[13px] text-muted">
           {llm ? (
