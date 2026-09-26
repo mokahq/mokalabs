@@ -1,9 +1,11 @@
-import { Boxes, Braces, Cpu, Layers, Plug, Sparkles, X } from "lucide-react";
+import { Boxes, Braces, Cpu, LayoutTemplate, Layers, Plug, Sparkles, Workflow, X } from "lucide-react";
 import { useEffect, type ReactNode } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { IconButton, cn } from "../components/ui";
 import { useStore, type SettingsTab } from "../store";
+import { AgentSettings } from "./AgentSettings";
 import { ConfigSettings } from "./ConfigSettings";
+import { GenUiSettings } from "./GenUiSettings";
 import { McpSettings } from "./McpSettings";
 import { ModelSettings } from "./ModelSettings";
 import { SkillSettings } from "./SkillSettings";
@@ -11,8 +13,10 @@ import { WorkspaceSettings } from "./WorkspaceSettings";
 
 const TABS: Array<{ id: SettingsTab; label: string; icon: ReactNode; blurb: string }> = [
   { id: "models", label: "Models", icon: <Cpu className="h-4 w-4" />, blurb: "LLM providers and credentials" },
+  { id: "agents", label: "Agents", icon: <Workflow className="h-4 w-4" />, blurb: "Remote agents over A2A and AG-UI" },
   { id: "mcp", label: "MCP servers", icon: <Plug className="h-4 w-4" />, blurb: "Tools, resources and prompts" },
   { id: "skills", label: "Skills", icon: <Sparkles className="h-4 w-4" />, blurb: "SKILL.md instructions" },
+  { id: "genui", label: "Generative UI", icon: <LayoutTemplate className="h-4 w-4" />, blurb: "A2UI catalogs, playground and the render tool" },
   { id: "workspaces", label: "Workspaces", icon: <Layers className="h-4 w-4" />, blurb: "Model + tools + prompt presets" },
   { id: "config", label: "Config file", icon: <Braces className="h-4 w-4" />, blurb: "Raw JSON, import & export" },
 ];
@@ -24,8 +28,10 @@ export function Settings() {
   const counts = useStore(
     useShallow((s) => ({
       models: s.config.llms.length,
+      agents: s.config.agents.length,
       mcp: s.config.mcpServers.length,
       skills: s.config.skills.length,
+      genui: s.catalogs.length,
       workspaces: s.config.workspaces.length,
     })),
   );
@@ -85,8 +91,10 @@ export function Settings() {
           </div>
           <div className="min-h-0 flex-1">
             {tab === "models" && <ModelSettings />}
+            {tab === "agents" && <AgentSettings />}
             {tab === "mcp" && <McpSettings />}
             {tab === "skills" && <SkillSettings />}
+            {tab === "genui" && <GenUiSettings />}
             {tab === "workspaces" && <WorkspaceSettings />}
             {tab === "config" && <ConfigSettings />}
           </div>

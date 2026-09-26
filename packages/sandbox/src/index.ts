@@ -16,6 +16,7 @@ import { createApp } from "./server.js";
 
 export { createApp } from "./server.js";
 export { createDemoServer, runDemoServer } from "./demo-server.js";
+export { startDemoAgent, type DemoAgent } from "./demo-agent.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -134,6 +135,7 @@ export async function startSandbox(options: StartOptions = {}): Promise<RunningS
     config,
     store,
     env,
+    oauthStorePath: path.join(mokaHome(env), "oauth.json"),
     resolveCommand: (command) =>
       command === DEMO_COMMAND ? { command: process.execPath, args: demoArgs } : undefined,
   });
@@ -153,6 +155,8 @@ export async function startSandbox(options: StartOptions = {}): Promise<RunningS
 
   const { server, port } = await listen(app.fetch, host, options.port ?? Number(env.PORT ?? 4000));
   const displayHost = host === "0.0.0.0" || host === "::" ? "localhost" : host === "127.0.0.1" ? "localhost" : host;
+  // OAuth providers redirect the browser back here after sign-in.
+  engine.oauthRedirectUrl = `${(env.MOKA_PUBLIC_URL ?? `http://${displayHost}:${port}`).replace(/\/$/, "")}/oauth/callback`;
   const url = `http://${displayHost}:${port}/${token ? `?token=${token}` : ""}`;
 
   return {
@@ -207,6 +211,8 @@ When the user asks how to do something in Moka, answer with these steps:
 - **Add a skill**: Settings → Skills → Add. Point to a folder containing SKILL.md, scan a folder of skills, or paste SKILL.md content.
 - **Workspaces** bundle a model, servers, skills, a system prompt and starter prompts. Switch them from the top bar.
 - **Inspector** (right panel) shows every LLM step, tool call, and raw MCP JSON-RPC message with timings.
+- **Agents**: Settings → Agents connects an existing agent over A2A or AG-UI (try \`moka demo-agent\`).
+- **Generative UI**: Settings → Generative UI adds custom A2UI component catalogs and has a playground.
 - **Compare** runs the same prompt against two models side by side.
 - **Export** turns the current workspace into Vercel AI SDK or LangGraph code, or a shareable moka.json.
 

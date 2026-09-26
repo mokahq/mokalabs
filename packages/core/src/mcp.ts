@@ -2,11 +2,23 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import { getDefaultEnvironment, StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { auth, UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
+import {
+  CreateMessageRequestSchema,
+  ElicitRequestSchema,
+  ErrorCode,
+  McpError,
+  type CreateMessageRequest,
+  type CreateMessageResult,
+} from "@modelcontextprotocol/sdk/types.js";
+import type { InteractionBroker } from "./interactions.js";
+import { MokaOAuthProvider, oauthSettings, type OAuthStore } from "./oauth.js";
 import { resolveRecord, resolveSecret, type McpServerConfig } from "./config.js";
 import type { EventBus } from "./events.js";
 
-export type McpStatus = "idle" | "connecting" | "connected" | "error";
+/** "auth" = the server needs the user to sign in (OAuth); see `authUrl`. */
+export type McpStatus = "idle" | "connecting" | "connected" | "error" | "auth";
 
 export interface McpTool {
   name: string;
@@ -27,9 +39,13 @@ export interface McpServerState {
   instructions?: string;
   tools: McpTool[];
   prompts: Array<{ name: string; description?: string; arguments?: unknown[] }>;
-  resources: Array<{ uri: string; name?: string; description?: string; mimeType?: string }>;
+  resources: Array<{ uri: string; name?: string; title?: string; description?: string; mimeType?: string }>;
   stderr: string[];
   connectedAt?: number;
+  /** OAuth sign-in URL when status is "auth". */
+  authUrl?: string;
+  /** Present for OAuth-capable servers. */
+  oauth?: { signedIn: boolean };
 }
 
 interface Connection {
@@ -37,14 +53,39 @@ interface Connection {
   fingerprint: string;
   client?: Client;
   transport?: Transport;
+  provider?: MokaOAuthProvider;
   state: McpServerState;
   pending?: Promise<McpServerState>;
+}
+
+/** Host hooks for server-initiated requests (elicitation, sampling). */
+export interface McpClientHooks {
+  interactions?: InteractionBroker;
+  /** Run an approved `sampling/createMessage` request against a model. */
+  sample?: (params: CreateMessageRequest["params"], server: McpServerConfig, signal?: AbortSignal) => Promise<CreateMessageResult>;
+  /** OAuth for remote servers: where tokens live and the loopback redirect URL. */
+  oauth?: { store: OAuthStore; redirectUrl: () => string | undefined };
 }
 
 /** Lets hosts map virtual commands (e.g. `moka:demo`) to real executables. */
 export type CommandResolver = (command: string, args: string[]) => { command: string; args: string[] } | undefined;
 
 const CLIENT_INFO = { name: "moka", version: "0.1.0" };
+
+/**
+ * Network settings stdio servers should inherit (the MCP SDK only passes a
+ * minimal environment by default). Keeps `npx`/`uvx` servers working behind
+ * corporate proxies, custom CAs and private registries.
+ */
+const PASSTHROUGH_ENV = [
+  "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "no_proxy", "all_proxy",
+  "NODE_EXTRA_CA_CERTS", "NODE_USE_ENV_PROXY", "SSL_CERT_FILE", "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE",
+  "npm_config_registry", "NPM_CONFIG_REGISTRY", "PIP_INDEX_URL", "UV_INDEX_URL", "UV_DEFAULT_INDEX",
+];
+
+export function networkEnv(env: NodeJS.ProcessEnv): Record<string, string> {
+  return Object.fromEntries(PASSTHROUGH_ENV.filter((k) => env[k]).map((k) => [k, env[k]!]));
+}
 const STDERR_LINES = 200;
 
 function fingerprint(config: McpServerConfig): string {
@@ -63,6 +104,7 @@ export class McpManager {
     private readonly bus: EventBus,
     private readonly env: NodeJS.ProcessEnv = process.env,
     private readonly resolveCommand?: CommandResolver,
+    private readonly hooks: McpClientHooks = {},
   ) {}
 
   states(): McpServerState[] {
@@ -118,8 +160,9 @@ export class McpManager {
       const started = Date.now();
       try {
         const transport = this.createTransport(conn);
-        const client = new Client(CLIENT_INFO, { capabilities: {} });
+        const client = this.createClient(config);
         client.onerror = (error) => {
+          if (error instanceof UnauthorizedError) return; // surfaced as the "auth" status instead
           this.bus.emit({ kind: "mcp.log", level: "error", title: `${config.name}: ${error.message}`, serverId: config.id });
         };
         client.onclose = () => {
@@ -145,11 +188,21 @@ export class McpManager {
           : [];
         state.status = "connected";
         state.error = undefined;
+        state.authUrl = undefined;
+        if (conn.provider) state.oauth = { signedIn: Boolean(await conn.provider.tokens()) };
         state.connectedAt = Date.now();
         this.emitStatus(conn, Date.now() - started);
       } catch (error) {
-        state.status = "error";
-        state.error = errorMessage(error);
+        const authUrl = conn.provider?.authorizationUrl;
+        if (authUrl && (error instanceof UnauthorizedError || /unauthori[sz]ed|401/i.test(errorMessage(error)))) {
+          state.status = "auth";
+          state.error = "Sign-in required";
+          state.authUrl = authUrl.toString();
+          state.oauth = { signedIn: false };
+        } else {
+          state.status = "error";
+          state.error = errorMessage(error);
+        }
         this.emitStatus(conn, Date.now() - started);
         await conn.client?.close().catch(() => {});
         await conn.transport?.close().catch(() => {});
@@ -159,6 +212,57 @@ export class McpManager {
       return state;
     })();
     return conn.pending;
+  }
+
+  /** A client that can answer elicitation and sampling requests when the host supports them. */
+  private createClient(config: McpServerConfig): Client {
+    const { interactions, sample } = this.hooks;
+    const capabilities: Record<string, object> = {};
+    if (interactions) capabilities.elicitation = { form: {}, url: {} };
+    if (interactions && sample && config.sampling !== "deny") capabilities.sampling = {};
+    const client = new Client(CLIENT_INFO, { capabilities });
+    if (capabilities.elicitation) {
+      client.setRequestHandler(ElicitRequestSchema, async (request, extra) => {
+        const params = request.params as any;
+        const url = params.mode === "url";
+        const answer = await interactions!.request(
+          {
+            kind: "elicitation",
+            serverId: config.id,
+            serverName: config.name,
+            message: params.message,
+            mode: url ? "url" : "form",
+            requestedSchema: url ? undefined : params.requestedSchema,
+            url: url ? params.url : undefined,
+          },
+          extra.signal,
+        );
+        if (answer.action !== "accept") return { action: answer.action };
+        return url ? { action: "accept" } : { action: "accept", content: (answer.content ?? {}) as Record<string, string | number | boolean | string[]> };
+      });
+    }
+    if (capabilities.sampling) {
+      client.setRequestHandler(CreateMessageRequestSchema, async (request, extra) => {
+        const params = request.params;
+        if (config.sampling !== "auto") {
+          const answer = await interactions!.request(
+            {
+              kind: "sampling",
+              serverId: config.id,
+              serverName: config.name,
+              messages: params.messages,
+              systemPrompt: params.systemPrompt,
+              maxTokens: params.maxTokens,
+              modelHint: params.modelPreferences?.hints?.[0]?.name,
+            },
+            extra.signal,
+          );
+          if (!answer.approved) throw new McpError(ErrorCode.InvalidRequest, "User rejected sampling request");
+        }
+        return sample!(params, config, extra.signal);
+      });
+    }
+    return client;
   }
 
   private async listAllTools(client: Client): Promise<McpTool[]> {
@@ -185,7 +289,7 @@ export class McpManager {
         const transport = new StdioClientTransport({
           command,
           args,
-          env: { ...getDefaultEnvironment(), ...resolveRecord(config.env, this.env) },
+          env: { ...getDefaultEnvironment(), ...networkEnv(this.env), ...resolveRecord(config.env, this.env) },
           cwd: config.cwd || undefined,
           stderr: "pipe",
         });
@@ -201,13 +305,17 @@ export class McpManager {
       }
       case "http": {
         if (!config.url) throw new Error("A URL is required for HTTP servers.");
-        return new StreamableHTTPClientTransport(new URL(resolveSecret(config.url, this.env)!), {
+        const url = new URL(resolveSecret(config.url, this.env)!);
+        return new StreamableHTTPClientTransport(url, {
           requestInit: { headers },
+          authProvider: this.oauthProvider(conn, url),
         });
       }
       case "sse": {
         if (!config.url) throw new Error("A URL is required for SSE servers.");
-        return new SSEClientTransport(new URL(resolveSecret(config.url, this.env)!), {
+        const url = new URL(resolveSecret(config.url, this.env)!);
+        return new SSEClientTransport(url, {
+          authProvider: this.oauthProvider(conn, url),
           requestInit: { headers },
           eventSourceInit: headers
             ? { fetch: (url, init) => fetch(url, { ...init, headers: { ...(init?.headers as any), ...headers } }) }
@@ -215,6 +323,37 @@ export class McpManager {
         });
       }
     }
+  }
+
+  private oauthProvider(conn: Connection, url: URL): MokaOAuthProvider | undefined {
+    const settings = oauthSettings(conn.config);
+    const redirect = this.hooks.oauth?.redirectUrl();
+    if (!settings || !redirect || !this.hooks.oauth) return undefined;
+    conn.provider = new MokaOAuthProvider(this.hooks.oauth.store, conn.config.id, url.toString(), redirect, resolveOAuth(settings, this.env));
+    return conn.provider;
+  }
+
+  /** Complete sign-in from the OAuth redirect (`?code&state`), then reconnect. */
+  async finishAuth(state: string, code: string): Promise<McpServerState> {
+    const oauth = this.hooks.oauth;
+    const redirect = oauth?.redirectUrl();
+    if (!oauth || !redirect) throw new Error("OAuth is not available");
+    const serverId = await oauth.store.byState(state);
+    const conn = serverId ? this.connections.get(serverId) : undefined;
+    if (!conn?.config.url) throw new Error("Unknown or expired sign-in request. Start again from Moka.");
+    const url = new URL(resolveSecret(conn.config.url, this.env)!);
+    const provider = new MokaOAuthProvider(oauth.store, conn.config.id, url.toString(), redirect, resolveOAuth(oauthSettings(conn.config) ?? {}, this.env));
+    const result = await auth(provider, { serverUrl: url, authorizationCode: code });
+    if (result !== "AUTHORIZED") throw new Error("Sign-in did not complete");
+    await oauth.store.update(conn.config.id, url.toString(), { state: undefined, codeVerifier: undefined });
+    this.bus.emit({ kind: "mcp.status", serverId: conn.config.id, title: `${conn.config.name}: signed in`, data: { status: "signed-in" } });
+    return this.reconnect(conn.config);
+  }
+
+  /** Forget OAuth tokens for a server and reconnect (it will ask to sign in again). */
+  async signOut(config: McpServerConfig): Promise<McpServerState> {
+    await this.hooks.oauth?.store.clear(config.id);
+    return this.reconnect(config);
   }
 
   /**
@@ -328,4 +467,8 @@ function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promi
       timer = setTimeout(() => reject(new Error(message)), ms);
     }),
   ]).finally(() => clearTimeout(timer));
+}
+
+function resolveOAuth(settings: { clientId?: string; clientSecret?: string; scopes?: string[] }, env: NodeJS.ProcessEnv) {
+  return { ...settings, clientId: resolveSecret(settings.clientId, env), clientSecret: resolveSecret(settings.clientSecret, env) };
 }

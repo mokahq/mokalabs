@@ -1,0 +1,37 @@
+---
+title: Chat, files & replay
+description: Attach images and files, pull in MCP resources and prompts, and replay chats offline.
+---
+
+import { Aside } from "@astrojs/starlight/components";
+
+## Attach files and images
+
+Click the paperclip, paste, or drag files onto the composer (up to 10 MB each):
+
+| File | Sent to the model as |
+|---|---|
+| Images | An image part (for vision models) |
+| Text, Markdown, JSON, CSV, code | Inline text wrapped in `<file name="…">` |
+| PDFs and other binaries | A file part (for models that accept files) |
+
+A2A agents receive attachments as FileParts. AG-UI agents get text and a note about the attachment.
+
+## MCP resources: **@**
+
+The **@** button lists every resource from the workspace's connected servers. Pick one and its contents are attached as `<resource uri="…">`, which is handy for feeding a doc, a schema or a log to the model.
+
+## MCP prompts: **/**
+
+Type **/** in an empty composer to see prompts from the workspace's servers. Picking one asks for its arguments (if any) and inserts the rendered prompt into the composer so you can edit it before sending. Try `/plan-a-trip` with the demo server.
+
+## Replay a chat
+
+Hover a chat in the sidebar and press **▶** to replay it: messages type out, tool cards run and UIs appear, all from the saved chat, **without calling any model or tool**. Use it for demos on bad Wi-Fi, or to walk someone through a flow at your own pace. **Stop** ends the replay and leaves the full chat in place.
+
+## Export & import
+
+- **⤓** next to a chat downloads it as JSON (messages, tool calls, UI and model history).
+- **⤒** at the top of the sidebar imports one, ready to replay or continue.
+
+<Aside type="tip">Record a demo chat once with a real model, export it, and ship it with your project. Anyone can import and replay it, even without API keys.</Aside>

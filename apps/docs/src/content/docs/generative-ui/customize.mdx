@@ -1,0 +1,68 @@
+---
+title: Customize the render tool
+description: Rename render_ui, choose its components, add instructions, theme it, and test it in the playground.
+---
+
+import { Aside } from "@astrojs/starlight/components";
+
+Every workspace gives the model a tool for [A2UI](/generative-ui/a2ui/). Out of the box it's called `render_ui` and knows the A2UI standard catalog. Everything about it can be changed per workspace, in **Settings → Workspaces → Generative UI** or in `moka.json`.
+
+```json title="moka.json (workspace)"
+{
+  "id": "bank",
+  "name": "Acme Bank demo",
+  "generativeUi": {
+    "toolName": "show_ui",
+    "catalogIds": ["banking"],
+    "deny": ["Slider", "Tabs"],
+    "instructions": "Prefer Cards for results. Only build forms when you need 3+ fields.",
+    "theme": { "primaryColor": "#0a5cff", "radius": 14, "font": "Inter", "agentDisplayName": "Acme Assistant" }
+  }
+}
+```
+
+`"generativeUi": false` still turns it off, and `true` (or leaving it out) keeps the defaults.
+
+## Options
+
+| Field | Default | What it does |
+|---|---|---|
+| `enabled` | `true` | Offer the tool at all |
+| `toolName` | `render_ui` | The name the model calls. Match your production agent so prompts transfer |
+| `standard` | `true` | Include the [A2UI standard catalog](/generative-ui/a2ui-components/) |
+| `catalogIds` | `[]` | [Custom catalogs](/generative-ui/catalogs/) to add |
+| `allow` | all | Only these component names |
+| `deny` | none | Never these component names |
+| `instructions` | | Appended to the tool description |
+| `description` | generated | Replace the whole tool description (advanced) |
+| `examples` | `true` | Put catalog examples into the description |
+| `repair` | `true` | Validate against the catalog and send errors back so the model fixes its UI |
+| `theme` | | `primaryColor`, `radius` (px), `font`, `density` (`compact`), `agentDisplayName`, `iconUrl` |
+
+The tool's input schema lists the allowed component names as an `enum`, so models that follow schemas closely only pick real components.
+
+## Self-repair
+
+With `repair` on, Moka checks every call against the active catalogs: unknown components, missing required props, wrong enum values or types, duplicate ids and dangling `child`/`children` references. If anything is wrong nothing is shown, and the model receives a message like this:
+
+```text
+Invalid UI, nothing was shown. Fix these problems and call show_ui again:
+- "acct" (AccountCard) is missing required prop "balance"
+- "size" uses unknown component "Dropdown". Allowed: Text, Image, …, AccountCard
+```
+
+Most models fix it on the next step. You'll see both attempts in the chat and the [inspector](/guides/inspector/).
+
+## Theme
+
+The theme is sent as the A2UI `createSurface.theme` and applied to that surface only: accent color (buttons, icons, selected choices), corner radius, font and density. `agentDisplayName` and `iconUrl` label the surface, which is handy when you demo a product's assistant.
+
+## The playground
+
+**Settings → Generative UI → Playground** is where you iterate on all of this:
+
+- **UI JSON**: edit `render_ui` input and see it render live, validated against the chosen workspace's catalogs.
+- **Ask a model**: send a prompt with *only* the render tool available and see what the model builds. It's a quick check of how well a model uses your catalog.
+- **What the model sees**: the exact tool name, description and JSON schema the workspace sends to the model, with a copy button.
+
+<Aside type="tip">Button presses in the playground show a toast with the resolved action instead of messaging the model, so you can check action contexts without a chat.</Aside>

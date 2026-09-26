@@ -1,7 +1,7 @@
-import { ClipboardPaste, Globe, LayoutGrid, Play, Plug, Plus, RefreshCw, Terminal, Trash2, Unplug, Wrench } from "lucide-react";
+import { ClipboardPaste, Globe, KeyRound, LayoutGrid, LogOut, Play, Plug, Plus, RefreshCw, ShieldCheck, Terminal, Trash2, Unplug, Wrench } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
-import { Badge, Button, Empty, Field, Input, JsonView, KeyValueEditor, Modal, StatusDot, Switch, Tabs, Textarea, cn } from "../components/ui";
+import { Badge, Button, Empty, Field, Input, JsonView, KeyValueEditor, Modal, Select, StatusDot, Switch, Tabs, Textarea, cn } from "../components/ui";
 import { useStore } from "../store";
 import type { McpServerConfig, McpServerState } from "../types";
 import { FormFooter, ListItem, MasterDetail, Section } from "./Settings";
@@ -296,7 +296,7 @@ function ServerForm({ initial, isNew, onCreated }: { initial: McpServerConfig; i
   const [argsText, setArgsText] = useState((initial.args ?? []).join("\n"));
   const [testState, setTestState] = useState<McpServerState>();
   const [testing, setTesting] = useState(false);
-  const [showAdvanced, setShowAdvanced] = useState(Boolean(initial.env || initial.cwd || initial.timeoutMs));
+  const [showAdvanced, setShowAdvanced] = useState(Boolean(initial.env || initial.cwd || initial.timeoutMs || typeof initial.oauth === "object" || initial.oauth === false || initial.sampling));
 
   const build = (): McpServerConfig => {
     const out: any = { ...draft, args: argsText.split("\n").map((a) => a.trim()).filter(Boolean) };
@@ -312,7 +312,7 @@ function ServerForm({ initial, isNew, onCreated }: { initial: McpServerConfig; i
     for (const k of Object.keys(out)) {
       const v = out[k];
       if (v === "" || v === undefined || (typeof v === "object" && !Array.isArray(v) && Object.keys(v).length === 0)) delete out[k];
-      if (Array.isArray(v) && v.length === 0 && k !== "args") delete out[k];
+      if (Array.isArray(v) && v.length === 0 && (k !== "args" || !initial.args)) delete out[k];
     }
     return out;
   };
@@ -357,6 +357,17 @@ function ServerForm({ initial, isNew, onCreated }: { initial: McpServerConfig; i
     );
   };
 
+  const effectiveApproval = (t: { name: string; annotations?: Record<string, unknown> }): "auto" | "ask" =>
+    initial.approval?.tools?.[t.name] ?? initial.approval?.default ?? (t.annotations?.destructiveHint === true && t.annotations?.readOnlyHint !== true ? "ask" : "auto");
+
+  const setToolApproval = async (tool: string, mode: "auto" | "ask") => {
+    const tools = { ...initial.approval?.tools, [tool]: mode };
+    await saveConfig({
+      ...config,
+      mcpServers: config.mcpServers.map((s) => (s.id === initial.id ? { ...s, approval: { ...s.approval, tools } } : s)),
+    });
+  };
+
   const toggleTool = async (tool: string, enabled: boolean) => {
     const disabled = new Set(initial.disabledTools ?? []);
     if (enabled) disabled.delete(tool);
@@ -391,6 +402,16 @@ function ServerForm({ initial, isNew, onCreated }: { initial: McpServerConfig; i
           </Field>
         </>
       )}
+      <Field label="Tool approval" className="sm:col-span-2" hint="Ask: the model waits for your OK before each call. Tools marked destructive by the server always ask unless you allow them.">
+        <Select
+          value={draft.approval?.default ?? ""}
+          onChange={(e) => patch({ approval: { ...draft.approval, default: (e.target.value || undefined) as any } })}
+        >
+          <option value="">Run automatically (ask for destructive tools)</option>
+          <option value="ask">Always ask before running a tool</option>
+          <option value="auto">Never ask</option>
+        </Select>
+      </Field>
       <div className="flex items-center gap-2 sm:col-span-2">
         <Switch checked={showAdvanced} onChange={setShowAdvanced} label="Advanced" />
         <span className="text-[12.5px] text-muted">Advanced options</span>
@@ -407,6 +428,60 @@ function ServerForm({ initial, isNew, onCreated }: { initial: McpServerConfig; i
               </Field>
             </>
           )}
+          {draft.transport !== "stdio" && (
+            <>
+              <Field label="OAuth sign-in" hint="When the server asks for it and no Authorization header is set, Moka signs you in in the browser.">
+                <Switch checked={draft.oauth !== false} onChange={(v) => patch({ oauth: v ? undefined : false })} />
+              </Field>
+              <Field label="OAuth scopes" hint="Optional, space separated.">
+                <Input
+                  mono
+                  disabled={draft.oauth === false}
+                  value={typeof draft.oauth === "object" ? (draft.oauth.scopes ?? []).join(" ") : ""}
+                  onChange={(e) => {
+                    const scopes = e.target.value.split(/\s+/).filter(Boolean);
+                    const base = typeof draft.oauth === "object" ? draft.oauth : {};
+                    const next = { ...base, scopes: scopes.length ? scopes : undefined };
+                    patch({ oauth: next.clientId || next.clientSecret || next.scopes ? next : undefined });
+                  }}
+                  placeholder="read write"
+                />
+              </Field>
+              <Field label="OAuth client id" hint="Only if the server has no dynamic registration.">
+                <Input
+                  mono
+                  disabled={draft.oauth === false}
+                  value={typeof draft.oauth === "object" ? (draft.oauth.clientId ?? "") : ""}
+                  onChange={(e) => {
+                    const base = typeof draft.oauth === "object" ? draft.oauth : {};
+                    const next = { ...base, clientId: e.target.value || undefined };
+                    patch({ oauth: next.clientId || next.clientSecret || next.scopes ? next : undefined });
+                  }}
+                  placeholder="(registered automatically)"
+                />
+              </Field>
+              <Field label="OAuth client secret" hint="Supports env:NAME.">
+                <Input
+                  mono
+                  type="password"
+                  disabled={draft.oauth === false}
+                  value={typeof draft.oauth === "object" ? (draft.oauth.clientSecret ?? "") : ""}
+                  onChange={(e) => {
+                    const base = typeof draft.oauth === "object" ? draft.oauth : {};
+                    const next = { ...base, clientSecret: e.target.value || undefined };
+                    patch({ oauth: next.clientId || next.clientSecret || next.scopes ? next : undefined });
+                  }}
+                />
+              </Field>
+            </>
+          )}
+          <Field label="Sampling requests" hint="When this server asks to use your model (MCP sampling).">
+            <Select value={draft.sampling ?? ""} onChange={(e) => patch({ sampling: (e.target.value || undefined) as any })}>
+              <option value="">Ask me each time</option>
+              <option value="auto">Allow automatically</option>
+              <option value="deny">Never (don't offer sampling)</option>
+            </Select>
+          </Field>
           <Field label="Timeout (ms)">
             <Input type="number" value={draft.timeoutMs ?? ""} onChange={(e) => patch({ timeoutMs: e.target.value ? Number(e.target.value) : undefined })} placeholder="30000" />
           </Field>
@@ -446,6 +521,21 @@ function ServerForm({ initial, isNew, onCreated }: { initial: McpServerConfig; i
           }
           right={
             <div className="flex gap-1.5">
+              {state?.status === "auth" && state.authUrl && (
+                <Button size="xs" variant="primary" icon={<KeyRound className="h-3 w-3" />} onClick={() => window.open(state.authUrl, "_blank", "popup,width=520,height=720")}>
+                  Sign in
+                </Button>
+              )}
+              {state?.oauth?.signedIn && (
+                <Button
+                  size="xs"
+                  variant="ghost"
+                  icon={<LogOut className="h-3 w-3" />}
+                  onClick={() => api(`/api/mcp/${initial.id}/signout`, { body: {} }).then(() => useStore.getState().refreshMcp())}
+                >
+                  Sign out
+                </Button>
+              )}
               {state?.status === "connected" ? (
                 <Button size="xs" variant="outline" icon={<Unplug className="h-3 w-3" />} onClick={() => api(`/api/mcp/${initial.id}/disconnect`, { body: {} }).then(() => useStore.getState().refreshMcp())}>
                   Disconnect
@@ -477,6 +567,17 @@ function ServerForm({ initial, isNew, onCreated }: { initial: McpServerConfig; i
                       <div className="font-mono text-[12.5px] font-medium">{t.name}</div>
                       {t.description && <div className="mt-0.5 line-clamp-2 text-[12px] text-muted">{t.description}</div>}
                     </div>
+                    <button
+                      title="Click to toggle: run automatically, or ask first"
+                      onClick={() => setToolApproval(t.name, effectiveApproval(t) === "ask" ? "auto" : "ask")}
+                      className={cn(
+                        "inline-flex h-7 items-center gap-1 rounded-md border px-1.5 text-[11px] font-medium",
+                        effectiveApproval(t) === "ask" ? "border-warn/40 bg-warn/10 text-warn" : "border-line text-subtle hover:text-fg",
+                      )}
+                    >
+                      <ShieldCheck className="h-3 w-3" />
+                      {effectiveApproval(t) === "ask" ? "asks" : "auto"}
+                    </button>
                     <Button
                       size="xs"
                       variant="ghost"
@@ -524,12 +625,23 @@ function StatePanel({ state }: { state?: McpServerState }) {
   if (!state) return null;
   const ok = state.status === "connected";
   return (
-    <div className={cn("rounded-xl border px-4 py-3 text-[13px]", ok ? "border-ok/30 bg-ok/5" : state.status === "connecting" ? "border-line" : "border-err/30 bg-err/5")}>
-      <div className="flex items-center gap-2 font-medium">
+    <div className={cn("rounded-xl border px-4 py-3 text-[13px]", ok ? "border-ok/30 bg-ok/5" : state.status === "connecting" ? "border-line" : state.status === "auth" ? "border-info/30 bg-info/5" : "border-err/30 bg-err/5")}>
+      {state.status === "auth" && (
+        <div className="flex items-center gap-2">
+          <KeyRound className="h-4 w-4 text-info" />
+          <span className="flex-1">This server needs you to sign in. Moka opens the provider's login page and stores the token in ~/.moka/oauth.json.</span>
+          {state.authUrl && (
+            <Button size="xs" variant="primary" onClick={() => window.open(state.authUrl, "_blank", "popup,width=520,height=720")}>
+              Sign in
+            </Button>
+          )}
+        </div>
+      )}
+      {state.status !== "auth" && <div className="flex items-center gap-2 font-medium">
         <StatusDot status={state.status} />
         {ok ? `Connected · ${state.tools.length} tools, ${state.resources.length} resources, ${state.prompts.length} prompts` : state.status === "connecting" ? "Connecting…" : "Could not connect"}
-      </div>
-      {state.error && <p className="mt-1 break-words text-muted">{state.error}</p>}
+      </div>}
+      {state.error && state.status !== "auth" && <p className="mt-1 break-words text-muted">{state.error}</p>}
       {ok && state.tools.length > 0 && (
         <div className="mt-2 flex flex-wrap gap-1">
           {state.tools.slice(0, 30).map((t) => (

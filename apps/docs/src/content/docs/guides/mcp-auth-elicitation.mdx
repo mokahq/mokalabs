@@ -1,0 +1,53 @@
+---
+title: Sign-in, elicitation & sampling
+description: OAuth for remote MCP servers, servers that ask the user for input, and servers that borrow your model.
+---
+
+import { Aside } from "@astrojs/starlight/components";
+
+## OAuth sign-in
+
+Many hosted MCP servers (GitHub, Linear, Notion, Atlassian, Sentry…) use the MCP authorization spec instead of API keys. Moka handles the whole flow:
+
+1. When a server answers `401`, the server shows **Sign in** (in the sidebar and in **Settings → MCP servers**).
+2. Moka discovers the authorization server, registers itself (dynamic client registration) and opens the login page with PKCE.
+3. The provider redirects back to `http://localhost:<port>/oauth/callback`, and Moka connects.
+
+Tokens are stored in `~/.moka/oauth.json` (readable only by you) and reused until they expire. **Sign out** forgets them.
+
+```json title="moka.json (optional settings)"
+{
+  "mcpServers": [
+    { "id": "linear", "name": "Linear", "transport": "http", "url": "https://mcp.linear.app/mcp" },
+    { "id": "corp", "name": "Corp tools", "transport": "http", "url": "https://mcp.corp.example/mcp",
+      "oauth": { "clientId": "moka-dev", "clientSecret": "env:CORP_MCP_SECRET", "scopes": ["tools:read", "tools:write"] } },
+    { "id": "no-oauth", "name": "Static token", "transport": "http", "url": "https://…",
+      "headers": { "Authorization": "Bearer ${TOKEN}" } }
+  ]
+}
+```
+
+- OAuth is used automatically for `http`/`sse` servers **without** an `Authorization` header. Set `"oauth": false` to turn it off.
+- Use `clientId` (and `clientSecret`) when the server has no dynamic registration, and `scopes` to request specific scopes.
+
+<Aside type="caution">The redirect URL includes Moka's port. If you run Moka behind a proxy or on another host, set `MOKA_PUBLIC_URL` (e.g. `https://moka.internal.example`) so providers redirect to the right place.</Aside>
+
+## Elicitation: servers that ask the user
+
+A tool can pause and ask the user for input with `elicitation/create`. Moka shows a form built from the server's schema (text, numbers, booleans, single and multi-select enums, email/URL/date formats) and sends back the answer, or `decline` / `cancel`. URL-mode elicitation (e.g. "finish checkout in your browser") opens the link.
+
+Try it with the demo server: *"Order me a coffee"*. The `order_coffee` tool asks for your drink, size and milk.
+
+## Sampling: servers that borrow your model
+
+With `sampling/createMessage`, a server asks the client to run a completion. Moka shows the request (system prompt, messages, token limit) and, once you approve, runs it with the active workspace's model. The call appears in the inspector as `llm.request` / `llm.response` for that server.
+
+Try it: *"Brainstorm names for a dino café"* calls the demo server's `brainstorm` tool, which samples your model.
+
+| `sampling` (per server) | |
+|---|---|
+| *(unset)* | Ask each time |
+| `"auto"` | Allow without asking |
+| `"deny"` | Don't advertise sampling to this server |
+
+Both requests go through the same queue as [tool approvals](/guides/approvals/). They're cancelled if you stop the chat, and appear in the inspector as `interaction.request` / `interaction.resolved`.

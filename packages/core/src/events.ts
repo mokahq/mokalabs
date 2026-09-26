@@ -18,6 +18,11 @@ export type MokaEventKind =
   | "skill.load"
   | "ui.rpc"
   | "ui.action"
+  | "interaction.request"
+  | "interaction.resolved"
+  | "agent.request"
+  | "agent.event"
+  | "agent.response"
   | "log";
 
 export interface MokaEvent {

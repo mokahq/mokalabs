@@ -1,0 +1,92 @@
+---
+title: Remote agents (A2A & AG-UI)
+description: Chat with an agent you already built (LangGraph, CopilotKit, ADK, anything that speaks A2A or AG-UI) and get Moka's UI, generative UI and inspector.
+---
+
+import { Aside, Steps, Tabs, TabItem } from "@astrojs/starlight/components";
+
+Moka doesn't have to call a model directly. Point a workspace at an **agent** and Moka becomes its front end: streaming chat, A2UI rendering, tool cards, approvals and a full event trace in the inspector.
+
+| Protocol | Good for | Conversation state |
+|---|---|---|
+| **[A2A](https://a2a-protocol.org)** (Agent2Agent) | Agents that publish an agent card: Google ADK, A2A SDK agents, many enterprise agents | Kept by the agent (Moka sends `contextId` / `taskId`) |
+| **[AG-UI](https://docs.ag-ui.com)** | LangGraph, CopilotKit, Mastra, Pydantic AI, CrewAI… | Sent by Moka every turn (full history + agent state) |
+
+## Try it in a minute
+
+<Steps>
+1. Start the bundled demo agent. It speaks both protocols:
+
+   ```bash
+   npx @mokalabs/sandbox demo-agent        # A2A card on :4100, AG-UI at /agui
+   ```
+
+2. In Moka, open **Settings → Agents → Connect an agent** and pick **Moka demo agent · A2A** (or AG-UI).
+3. Choose it in the model menu in the top bar (agents are listed under the models), and ask *"book a tasting"*.
+</Steps>
+
+You'll get an A2UI booking form from the agent. Pressing **Book it** sends the action back to the agent, which confirms the booking.
+
+## Configure
+
+```json title="moka.json"
+{
+  "agents": [
+    { "id": "support", "name": "Support agent", "protocol": "a2a",
+      "url": "https://agents.example.com/support/.well-known/agent-card.json",
+      "headers": { "Authorization": "Bearer ${SUPPORT_AGENT_TOKEN}" } },
+    { "id": "research", "name": "Research graph", "protocol": "ag-ui",
+      "url": "http://localhost:8000/agent", "shareTools": true }
+  ],
+  "workspaces": [
+    { "id": "demo", "name": "Support demo", "agentId": "support", "mcpServerIds": [], "skillIds": [] }
+  ]
+}
+```
+
+| Field | |
+|---|---|
+| `protocol` | `a2a` or `ag-ui` |
+| `url` | **A2A:** the agent card URL (Moka reads the endpoint from it) or the JSON-RPC endpoint itself. **AG-UI:** the URL you POST `RunAgentInput` to |
+| `headers` | Extra request headers; values support `env:NAME` and `${NAME}` |
+| `shareTools` | AG-UI only: offer the workspace's MCP tools and render tool as frontend tools (below) |
+
+A workspace uses its `agentId` instead of `llmId`. **Test** in the agent form shows the agent card (skills, streaming, A2UI support) or a short AG-UI run.
+
+<Tabs>
+<TabItem label="A2A">
+Moka sends `message/stream` (SSE), or `message/send` when the card says the agent doesn't stream, and renders:
+
+- **Text** from agent messages, status updates and streamed artifacts.
+- **A2UI** from DataParts (`mimeType: application/json+a2ui`). Moka activates the A2UI extension with the `X-A2A-Extensions` header when the card declares it.
+- **Other data parts** as expandable JSON cards, and **file parts** as links.
+
+Button presses on A2UI surfaces go back as a DataPart: `{ "version": "v0.9", "action": {…}, "userAction": {…} }`. Attachments are sent as FileParts. The `contextId` (and `taskId` while a task is `input-required`) is carried across turns automatically.
+</TabItem>
+<TabItem label="AG-UI">
+Moka POSTs `RunAgentInput` (thread id, full message history, agent state, tools) and reads the event stream:
+
+- `TEXT_MESSAGE_*` → streaming text, `THINKING_*` / `REASONING_*` → reasoning
+- `TOOL_CALL_*` and `TOOL_CALL_RESULT` → tool cards
+- `STATE_SNAPSHOT` / `STATE_DELTA` → agent state, sent back on the next turn
+- `CUSTOM`, `ACTIVITY_SNAPSHOT` or `RAW` events that carry A2UI → rendered surfaces
+- `RUN_ERROR` → an error in the chat
+
+A2UI button presses arrive as a `[ui action] {…}` user message.
+</TabItem>
+</Tabs>
+
+## Give an AG-UI agent your MCP tools
+
+With `shareTools`, the workspace's MCP tools (and the [render tool](/generative-ui/customize/)) are sent as AG-UI **frontend tools**. When the agent calls one:
+
+1. Moka runs it against the MCP server, with [approvals](/guides/approvals/) if they apply.
+2. The result is added to the history as a tool message, and the run continues automatically.
+
+So a LangGraph agent in development can use GitHub, your filesystem or your company's MCP servers without any wiring in the agent.
+
+<Aside type="tip">Compare works with agents too. Put your agent in one lane and a raw model in another to see what your orchestration adds.</Aside>
+
+## Inspector
+
+Agent runs show up as `agent.request` (what Moka sent), `agent.event` (each A2A result or AG-UI event) and `agent.response`, plus the usual `tool.*` events for frontend tools.

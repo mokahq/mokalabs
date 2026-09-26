@@ -1,0 +1,44 @@
+---
+title: Corporate networks
+description: Proxies, custom CAs and curated package registries.
+---
+
+import { Aside } from "@astrojs/starlight/components";
+
+## HTTP(S) proxy
+
+Set the usual variables and Moka routes model providers, HTTP MCP servers and catalog URLs through the proxy:
+
+```bash
+export HTTPS_PROXY=http://proxy.corp.example:8080
+export NO_PROXY=.corp.example,10.0.0.0/8
+npx @mokalabs/sandbox
+# or: npx @mokalabs/sandbox --proxy http://proxy.corp.example:8080
+```
+
+Moka prints `Proxy: …` at startup when it's active. `localhost`, `127.0.0.1` and `::1` always bypass the proxy, so Ollama, LM Studio and the UI keep working.
+
+<Aside type="caution">This uses Node's built-in proxy support, which needs **Node 22.21+ or 24+**. On older versions Moka starts, but warns that it can't use the proxy.</Aside>
+
+stdio MCP servers inherit `HTTP(S)_PROXY`, `NO_PROXY`, `NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`, `npm_config_registry`, `PIP_INDEX_URL` and `UV_INDEX_URL`, so `npx` and `uvx` servers can download and connect from behind the proxy too.
+
+## Custom certificate authorities
+
+If your company intercepts TLS, point Node at the corporate root certificate:
+
+```bash
+export NODE_EXTRA_CA_CERTS=/path/to/corp-root.pem
+```
+
+## Curated registries (Artifactory, Nexus, …)
+
+`@mokalabs/sandbox` bundles all of its code and has **zero runtime dependencies**, so `npx` installs exactly one package from your registry.
+
+Many companies quarantine packages for a number of days after they're published (a "minimum release age" or curation policy). If your registry says it can't find `@mokalabs/sandbox`, the latest release is probably still in quarantine. Pin a version that has cleared it:
+
+```bash
+npm view @mokalabs/sandbox time --json     # publish dates per version
+npx @mokalabs/sandbox@0.2.0                 # any version older than your policy
+```
+
+The Moka repo applies the same rule to its own dependencies: `pnpm-workspace.yaml` sets `minimumReleaseAge: 20160` (14 days), so everything bundled into a release was public for at least two weeks.

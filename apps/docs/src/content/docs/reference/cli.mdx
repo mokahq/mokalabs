@@ -16,6 +16,7 @@ moka [config.json] [options]            # after npm install -g @mokalabs/sandbox
 | `moka path/to/moka.json` | Start with a specific config file |
 | `moka init [file]` | Write a starter `moka.json` (detected models + demo server + guide skill) |
 | `moka demo-server` | Run the bundled demo MCP server on stdio (use it from any MCP client) |
+| `moka demo-agent [--port 4100]` | Run a demo agent that speaks A2A and AG-UI (with A2UI). See [Remote agents](/guides/agents/) |
 
 ## Options
 
@@ -27,6 +28,7 @@ moka [config.json] [options]            # after npm install -g @mokalabs/sandbox
 | `--token <token>` | random or `$MOKA_TOKEN` | Fixed access token |
 | `--no-auth` | off | Disable the access token (trusted machines only) |
 | `--no-open` | off | Don't open a browser (also `$MOKA_NO_OPEN=1` or `CI`) |
+| `--proxy <url>` | `$HTTPS_PROXY` / `$HTTP_PROXY` | Route outbound traffic through an HTTP(S) proxy. See [corporate networks](/deploy/corporate-networks/) |
 | `-v, --version` | | Print the version |
 | `-h, --help` | | Show help |
 

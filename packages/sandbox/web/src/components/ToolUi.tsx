@@ -29,6 +29,6 @@ export function ToolUi({ part, interactive = true }: { part: ToolPart; interacti
 
   const ui = part.ui;
   if (!ui) return null;
-  if (ui.kind === "a2ui") return <A2uiSurfaces messages={ui.messages} onAction={onAction} header={part.tool !== "render_ui"} />;
+  if (ui.kind === "a2ui") return <A2uiSurfaces messages={ui.messages} onAction={onAction} header={part.source !== "generative UI"} />;
   return <McpAppFrame ui={ui} toolName={part.tool} input={part.input} raw={part.raw} running={part.status === "running"} />;
 }

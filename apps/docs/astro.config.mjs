@@ -41,12 +41,16 @@ export default defineConfig({
           label: "Guides",
           items: [
             { label: "Models & providers", slug: "guides/models" },
+            { label: "Remote agents (A2A & AG-UI)", slug: "guides/agents" },
+            { label: "Chat, files & replay", slug: "guides/chat" },
             { label: "MCP servers", slug: "guides/mcp-servers" },
+            { label: "Sign-in, elicitation & sampling", slug: "guides/mcp-auth-elicitation" },
             { label: "Skills", slug: "guides/skills" },
             { label: "Workspaces & demos", slug: "guides/workspaces" },
             { label: "Inspector", slug: "guides/inspector" },
             { label: "Compare models", slug: "guides/compare" },
             { label: "Tool runner", slug: "guides/tool-runner" },
+            { label: "Tool approvals", slug: "guides/approvals" },
             { label: "Export to code", slug: "guides/export" },
           ],
         },
@@ -59,6 +63,8 @@ export default defineConfig({
             { label: "Build an MCP App", slug: "generative-ui/build-an-mcp-app" },
             { label: "A2UI", slug: "generative-ui/a2ui" },
             { label: "A2UI component catalog", slug: "generative-ui/a2ui-components" },
+            { label: "Customize the render tool", slug: "generative-ui/customize" },
+            { label: "Custom catalogs", slug: "generative-ui/catalogs" },
           ],
         },
         {
@@ -67,6 +73,7 @@ export default defineConfig({
             { label: "Docker", slug: "deploy/docker" },
             { label: "Sharing demos", slug: "deploy/sharing" },
             { label: "Security", slug: "deploy/security" },
+            { label: "Corporate networks", slug: "deploy/corporate-networks" },
           ],
         },
         {

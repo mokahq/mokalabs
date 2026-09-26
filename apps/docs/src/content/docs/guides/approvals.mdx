@@ -1,0 +1,51 @@
+---
+title: Tool approvals
+description: Make the model ask before it runs a tool, per tool, per server or for a whole workspace.
+---
+
+import { Aside } from "@astrojs/starlight/components";
+
+When a tool can change things (send email, merge a PR, delete a file), you probably want to see the call before it runs, especially during a live demo. With approvals the model waits: the tool card shows its arguments and **Approve / Deny** buttons.
+
+## Who asks
+
+From most to least specific:
+
+1. **Per tool**: in **Settings → MCP servers → a server → Tools**, click the `auto` / `asks` pill next to a tool.
+2. **Per workspace**: **Settings → Workspaces → Ask before every tool call** puts every MCP tool in the workspace in "ask" mode, which is handy as a safe mode for demos. Tools you explicitly set to `auto` still run.
+3. **Per server**: **Tool approval** in the server form: run automatically, always ask, or never ask.
+4. **Default**: tools the server annotates with `destructiveHint: true` ask. Everything else runs.
+
+```json title="moka.json"
+{
+  "mcpServers": [
+    { "id": "gh", "name": "GitHub", "transport": "http", "url": "https://api.githubcopilot.com/mcp/",
+      "approval": { "default": "ask", "tools": { "search_code": "auto", "get_file_contents": "auto" } } }
+  ],
+  "workspaces": [{ "id": "live", "name": "Live demo", "requireApproval": true }]
+}
+```
+
+## Answering
+
+| Button | Effect |
+|---|---|
+| **Approve** | Run this call |
+| **Allow for session** | Run it, and don't ask again for this tool until Moka restarts |
+| **Always** | Run it and save `"tool": "auto"` to `moka.json` |
+| **Deny** | Don't run it. The model is told the user declined and should ask how to proceed |
+
+Pressing **Stop** cancels any pending approval. Approvals show up in the [inspector](/guides/inspector/) as `interaction.request` / `interaction.resolved` events.
+
+<Aside>Approvals apply to calls the **model** makes. Calls you make yourself from the [tool runner](/guides/tool-runner/), and calls an MCP App makes from its own UI, run immediately.</Aside>
+
+## From code
+
+With [`@mokalabs/core`](/reference/core/), pending approvals are published on the event bus. Answer them with `engine.respond(id, { approved: true })`, or pass `onInteraction` to decide programmatically:
+
+```ts
+const engine = new MokaEngine({
+  config,
+  onInteraction: async (request) => (request.kind === "tool-approval" ? { approved: request.tool !== "delete_repository" } : { action: "decline" }),
+});
+```

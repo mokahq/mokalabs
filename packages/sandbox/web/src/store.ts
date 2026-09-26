@@ -2,7 +2,10 @@ import { create } from "zustand";
 import { api, subscribeEvents } from "./api";
 import { runTurn, uid } from "./runner";
 import type {
+  Attachment,
   Bootstrap,
+  Interaction,
+  LoadedCatalog,
   LoadedSkill,
   McpServerState,
   MokaConfig,
@@ -14,7 +17,7 @@ import type {
 } from "./types";
 
 export type View = "chat" | "compare" | "tools";
-export type SettingsTab = "models" | "mcp" | "skills" | "workspaces" | "config";
+export type SettingsTab = "models" | "agents" | "mcp" | "skills" | "genui" | "workspaces" | "config";
 
 interface Toast {
   id: string;
@@ -42,6 +45,10 @@ interface State {
   env: Record<string, boolean>;
   mcp: Record<string, McpServerState>;
   skills: LoadedSkill[];
+  catalogs: LoadedCatalog[];
+  /** Pending approvals / elicitation / sampling requests, by id. */
+  interactions: Record<string, Interaction>;
+  respond: (id: string, response: Record<string, unknown>) => Promise<void>;
 
   events: MokaEvent[];
   eventIds: Set<string>;
@@ -71,11 +78,15 @@ interface State {
   saveConfig: (next: MokaConfig, message?: string) => Promise<boolean>;
   workspace: () => Workspace;
   setActiveWorkspace: (id: string) => Promise<void>;
-  setWorkspaceModel: (llmId: string) => Promise<void>;
+  /** Pick a model (`llm:<id>` or a bare id) or a remote agent (`agent:<id>`) for the current workspace. */
+  setWorkspaceModel: (target: string) => Promise<void>;
   connectServer: (id: string, force?: boolean) => Promise<McpServerState | undefined>;
 
   /** `display` replaces what the chat shows (e.g. a UI action chip); the model still gets `text`. */
-  send: (text: string, options?: { display?: string; via?: "a2ui" | "mcp-app" }) => Promise<void>;
+  send: (
+    text: string,
+    options?: { display?: string; via?: "a2ui" | "mcp-app"; attachments?: Attachment[]; /** Retry: resend this exact model content and UI parts. */ replay?: { content: unknown; parts: UiMessage["parts"] } },
+  ) => Promise<void>;
   /** Extra context an MCP App asked to add to the model's next turn (ui/update-model-context). */
   appContext?: string;
   stop: () => void;
@@ -83,6 +94,11 @@ interface State {
   newChat: () => void;
   openSession: (id: string) => Promise<void>;
   deleteSession: (id: string) => Promise<void>;
+  /** Play a saved chat back with typing animation, no model needed (offline demos). */
+  replay: (id: string, options?: { speed?: number }) => Promise<void>;
+  replaying: boolean;
+  exportSession: (id: string) => Promise<void>;
+  importSession: (file: File) => Promise<void>;
   loadSessions: () => Promise<void>;
 
   set: (patch: Partial<State>) => void;
@@ -123,17 +139,20 @@ export const useStore = create<State>((set, get) => ({
   authError: false,
   version: "",
   configPath: "",
-  config: { version: 1, llms: [], mcpServers: [], skills: [], workspaces: [] },
+  config: { version: 1, llms: [], mcpServers: [], skills: [], agents: [], catalogs: [], workspaces: [] },
   presets: [],
   env: {},
   mcp: {},
   skills: [],
+  catalogs: [],
+  interactions: {},
 
   events: [],
   eventIds: new Set(),
   eventsConnected: false,
 
   sessions: [],
+  replaying: false,
   session: freshSession(),
   streaming: false,
 
@@ -175,6 +194,16 @@ export const useStore = create<State>((set, get) => ({
           events.push(event);
           return { events };
         });
+        if (event.kind === "interaction.request") {
+          const interaction = event.data as Interaction;
+          set((s) => ({ interactions: { ...s.interactions, [interaction.id]: interaction } }));
+        } else if (event.kind === "interaction.resolved") {
+          const id = (event.data as { id: string }).id;
+          set((s) => {
+            const { [id]: _gone, ...rest } = s.interactions;
+            return { interactions: rest };
+          });
+        }
         if (event.kind === "mcp.status") {
           clearTimeout(refreshTimer);
           refreshTimer = setTimeout(() => void get().refreshMcp(), 150);
@@ -197,7 +226,21 @@ export const useStore = create<State>((set, get) => ({
       env: boot.env,
       mcp: Object.fromEntries(boot.mcp.map((s) => [s.id, s])),
       skills: boot.skills,
+      catalogs: boot.catalogs ?? [],
+      interactions: Object.fromEntries((boot.interactions ?? []).map((i) => [i.id, i])),
     });
+  },
+
+  respond: async (id, response) => {
+    set((s) => {
+      const { [id]: _gone, ...rest } = s.interactions;
+      return { interactions: rest };
+    });
+    try {
+      await api(`/api/interactions/${encodeURIComponent(id)}`, { body: { response } });
+    } catch (error: any) {
+      get().toast(error?.message ?? "Could not send your answer", "error");
+    }
   },
 
   refreshMcp: async () => {
@@ -232,12 +275,18 @@ export const useStore = create<State>((set, get) => ({
     for (const sid of get().workspace().mcpServerIds) void get().connectServer(sid);
   },
 
-  setWorkspaceModel: async (llmId) => {
+  setWorkspaceModel: async (target) => {
     const { config } = get();
     const ws = get().workspace();
+    const agentId = target.startsWith("agent:") ? target.slice(6) : undefined;
+    const llmId = agentId ? ws.llmId : target.replace(/^llm:/, "");
     await get().saveConfig({
       ...config,
-      workspaces: config.workspaces.map((w) => (w.id === ws.id ? { ...w, llmId } : w)),
+      workspaces: config.workspaces.map((w) => {
+        if (w.id !== ws.id) return w;
+        const { agentId: _old, ...rest } = w;
+        return { ...rest, llmId, ...(agentId ? { agentId } : {}) };
+      }),
     });
   },
 
@@ -255,7 +304,8 @@ export const useStore = create<State>((set, get) => ({
 
   send: async (text, options) => {
     let content = text.trim();
-    if (!content || get().streaming) return;
+    const attachments = options?.attachments ?? [];
+    if ((!content && attachments.length === 0 && !options?.replay) || get().streaming) return;
     const shown = options?.display ?? content;
     const appContext = get().appContext;
     if (appContext) {
@@ -264,9 +314,17 @@ export const useStore = create<State>((set, get) => ({
     }
     const controller = new AbortController();
     const base = get().session;
-    const user: UiMessage = { id: uid("u"), role: "user", parts: [{ type: "text", text: shown }], meta: options?.via ? { via: options.via } : undefined };
-    const modelMessages = [...base.modelMessages, { role: "user", content }];
-    const title = base.messages.length === 0 ? shown.slice(0, 60) : base.title;
+    const user: UiMessage = {
+      id: uid("u"),
+      role: "user",
+      parts: options?.replay?.parts ?? [
+        ...(shown ? [{ type: "text" as const, text: shown }] : []),
+        ...attachments.map((a) => ({ type: "attachment" as const, attachment: { ...a, text: undefined, dataUrl: a.kind === "image" ? a.dataUrl : undefined } })),
+      ],
+      meta: options?.via ? { via: options.via } : undefined,
+    };
+    const modelMessages = [...base.modelMessages, { role: "user", content: options?.replay ? options.replay.content : attachments.length ? toModelContent(content, attachments) : content }];
+    const title = base.messages.length === 0 ? (shown || attachments[0]?.name || "Chat").slice(0, 60) : base.title;
     set({
       streaming: true,
       controller,
@@ -306,6 +364,7 @@ export const useStore = create<State>((set, get) => ({
 
   stop: () => {
     get().controller?.abort();
+    if (get().replaying) set({ replaying: false });
   },
 
   retry: async () => {
@@ -322,6 +381,7 @@ export const useStore = create<State>((set, get) => ({
         break;
       }
     }
+    const content = (session.modelMessages[cut] as any)?.content ?? text;
     set({
       session: {
         ...session,
@@ -329,11 +389,12 @@ export const useStore = create<State>((set, get) => ({
         modelMessages: session.modelMessages.slice(0, cut),
       },
     });
-    await get().send(text);
+    await get().send(text, { via: lastUser.meta?.via, replay: { content, parts: lastUser.parts } });
   },
 
   newChat: () => {
     get().controller?.abort();
+    set({ replaying: false });
     set({ session: freshSession(get().config.activeWorkspaceId), view: "chat", streaming: false });
   },
 
@@ -362,6 +423,100 @@ export const useStore = create<State>((set, get) => ({
     await api(`/api/sessions/${id}`, { method: "DELETE" });
     if (get().session.id === id) get().newChat();
     await get().loadSessions();
+  },
+
+  replay: async (id, options) => {
+    get().controller?.abort();
+    let full: Session;
+    try {
+      const { session } = await api<{ session: any }>(`/api/sessions/${id}`);
+      full = {
+        id: session.id,
+        title: session.title,
+        workspaceId: session.workspaceId,
+        createdAt: session.createdAt,
+        messages: session.data?.messages ?? [],
+        modelMessages: session.data?.modelMessages ?? [],
+      };
+    } catch (error: any) {
+      get().toast(error?.message ?? "Could not open chat", "error");
+      return;
+    }
+    const speed = options?.speed ?? 1;
+    const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms / speed));
+    const alive = () => get().replaying && get().session.id === full.id;
+    set({ view: "chat", replaying: true, streaming: true, session: { ...full, messages: [] } });
+    const push = (m: UiMessage) => set((s) => ({ session: { ...s.session, messages: [...s.session.messages, m] } }));
+    const replaceLast = (m: UiMessage) => set((s) => ({ session: { ...s.session, messages: [...s.session.messages.slice(0, -1), m] } }));
+    for (const message of full.messages) {
+      if (!alive()) break;
+      if (message.role === "user") {
+        await sleep(500);
+        push(message);
+        await sleep(400);
+        continue;
+      }
+      const shown: UiMessage = { ...message, parts: [], meta: {} };
+      push(shown);
+      await sleep(350);
+      for (const part of message.parts) {
+        if (!alive()) break;
+        if (part.type === "text" || part.type === "reasoning") {
+          const step = Math.max(3, Math.ceil(part.text.length / 120));
+          for (let i = step; i < part.text.length + step && alive(); i += step) {
+            shown.parts = [...shown.parts.filter((_, idx) => idx < shown.parts.length - (i === step ? 0 : 1)), { ...part, text: part.text.slice(0, i) }];
+            replaceLast({ ...shown });
+            await sleep(16);
+          }
+        } else if (part.type === "tool") {
+          shown.parts = [...shown.parts, { ...part, status: "running", output: undefined, ui: undefined, durationMs: undefined }];
+          replaceLast({ ...shown });
+          await sleep(Math.min(Math.max(part.durationMs ?? 600, 400), 1500));
+          shown.parts = [...shown.parts.slice(0, -1), part];
+          replaceLast({ ...shown });
+          await sleep(250);
+        } else {
+          shown.parts = [...shown.parts, part];
+          replaceLast({ ...shown });
+        }
+      }
+      replaceLast(message);
+    }
+    if (get().session.id === full.id) set({ session: full });
+    set({ replaying: false, streaming: false });
+  },
+
+  exportSession: async (id) => {
+    try {
+      const { session } = await api<{ session: any }>(`/api/sessions/${id}`);
+      const file = { format: "moka-session", version: 1, exportedAt: new Date().toISOString(), session };
+      const blob = new Blob([JSON.stringify(file, null, 2)], { type: "application/json" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `moka-chat-${String(session.title ?? "chat").toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 40) || "chat"}.json`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    } catch (error: any) {
+      get().toast(error?.message ?? "Could not export chat", "error");
+    }
+  },
+
+  importSession: async (file) => {
+    try {
+      const parsed = JSON.parse(await file.text());
+      const session = parsed?.format === "moka-session" ? parsed.session : parsed;
+      if (!Array.isArray(session?.data?.messages)) throw new Error("Not a Moka chat export");
+      const id = uid("s");
+      await api(`/api/sessions/${id}`, {
+        method: "PUT",
+        body: { ...session, id, title: session.title ?? file.name, createdAt: session.createdAt ?? Date.now(), messageCount: session.data.messages.length },
+      });
+      await get().loadSessions();
+      await get().openSession(id);
+      get().toast("Chat imported. Use ▶ in the sidebar to replay it.", "success");
+    } catch (error: any) {
+      get().toast(error?.message ?? "Could not import chat", "error");
+    }
   },
 
   loadSessions: async () => {
@@ -421,4 +576,17 @@ async function persist(session: Session) {
   } catch {
     // non-fatal
   }
+}
+
+/** Text + attachments → AI SDK user content parts. */
+function toModelContent(text: string, attachments: Attachment[]): unknown[] {
+  const parts: unknown[] = [];
+  for (const a of attachments) {
+    if (a.kind === "image" && a.dataUrl) parts.push({ type: "image", image: a.dataUrl, mediaType: a.mediaType });
+    else if (a.kind === "file" && a.dataUrl) parts.push({ type: "file", data: a.dataUrl, mediaType: a.mediaType, filename: a.name });
+    else if (a.kind === "resource") parts.push({ type: "text", text: `<resource uri="${a.uri}" server="${a.serverId}">\n${a.text ?? ""}\n</resource>` });
+    else parts.push({ type: "text", text: `<file name="${a.name}">\n${a.text ?? ""}\n</file>` });
+  }
+  if (text) parts.push({ type: "text", text });
+  return parts;
 }

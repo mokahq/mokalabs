@@ -38,7 +38,12 @@ export async function runTurn(options: {
 
   try {
     for await (const chunk of streamChat(
-      { messages: options.modelMessages, workspaceId: options.workspaceId, llmId: options.llmId },
+      {
+        messages: options.modelMessages,
+        workspaceId: options.workspaceId,
+        // Compare lanes can target remote agents as "agent:<id>".
+        ...(options.llmId?.startsWith("agent:") ? { agentId: options.llmId.slice(6) } : { llmId: options.llmId }),
+      },
       options.signal,
     )) {
       switch (chunk.type) {

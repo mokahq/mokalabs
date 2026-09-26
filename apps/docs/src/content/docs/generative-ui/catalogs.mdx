@@ -1,0 +1,141 @@
+---
+title: Custom catalogs
+description: Give the model your own components, as JSON templates or sandboxed HTML, without a build step.
+---
+
+import { Aside, Tabs, TabItem } from "@astrojs/starlight/components";
+
+A **catalog** is the set of components a model may use in [A2UI](/generative-ui/a2ui/). Moka ships the standard catalog. Add your own to demo your product's real building blocks, such as an `AccountCard`, a `FlightSegment` or a `PriceChart`, with any model.
+
+## Add a catalog
+
+In **Settings → Generative UI → Add**, paste JSON, point at a file, or use a URL. Then enable it for a workspace (on the catalog page, or under **Workspaces → Generative UI**). In `moka.json`:
+
+```json title="moka.json"
+{
+  "catalogs": [
+    { "id": "banking", "path": "./catalogs/banking.json" },
+    { "id": "charts", "url": "https://example.com/moka/charts.json" },
+    { "id": "inline", "catalog": { "name": "Inline", "components": { } } }
+  ],
+  "workspaces": [
+    { "id": "bank", "name": "Bank demo", "generativeUi": { "catalogIds": ["banking", "charts"] } }
+  ]
+}
+```
+
+Paths resolve relative to `moka.json`. URL catalogs are fetched when a chat starts and cached for a minute.
+
+## Catalog format
+
+```json title="catalogs/banking.json"
+{
+  "catalogId": "https://acme.example/a2ui/banking/v1",
+  "name": "Banking",
+  "description": "Acme Bank components",
+  "instructions": "Always show balances with AccountCard.",
+  "components": {
+    "AccountCard": {
+      "description": "An account and its balance",
+      "props": {
+        "name": { "type": "string" },
+        "balance": { "type": "string" },
+        "tone": { "type": "string", "enum": ["normal", "overdrawn"], "default": "normal" }
+      },
+      "required": ["name", "balance"],
+      "template": [
+        { "id": "root", "component": "Card", "child": "col" },
+        { "id": "col", "component": "Column", "children": ["name", "balance"] },
+        { "id": "name", "component": "Text", "text": "{{name}}", "variant": "caption" },
+        { "id": "balance", "component": "Text", "text": "{{balance}}", "variant": "h2" }
+      ],
+      "example": { "name": "Savings", "balance": "$10,000" }
+    }
+  },
+  "examples": [
+    { "prompt": "what's my balance?", "components": [{ "id": "root", "component": "AccountCard", "name": "Everyday", "balance": "$2,480" }] }
+  ]
+}
+```
+
+| Field | |
+|---|---|
+| `catalogId` | Stable id. MCP servers reference it in `createSurface.catalogId` (defaults to the config id) |
+| `name`, `description` | Shown to the model and in the catalog browser |
+| `instructions` | Added to the tool description whenever this catalog is active |
+| `components` | Component name → definition (names must not clash with standard components) |
+| `examples` | Up to three are included in the tool description as few-shot examples |
+
+Each component has a `description`, `props` (JSON Schema per prop), `required`, an optional `example` (sample props for the catalog browser), and **either** a `template` **or** `html`/`htmlFile`.
+
+## Template components
+
+A template is a small tree of existing components. The one with id `root` becomes the component itself, and `{{prop}}` placeholders are filled in:
+
+- **Whole-value placeholders** such as `"text": "{{name}}"` pass the prop through as is, so a model can bind it to data (`"name": {"path": "/user/name"}`) and it stays live.
+- **Inline placeholders** such as `"Balance: {{balance}}"` are string interpolation, for literal values.
+- Missing optional props use the schema `default`, or are dropped.
+- Template ids are namespaced per instance (`acct__balance`), so the same component can appear many times.
+- Templates can use other custom components, up to eight levels deep.
+
+Templates are expanded before rendering, so they get theming, data binding and Button actions automatically. They're also safe: the output is plain A2UI.
+
+## HTML components
+
+For anything the standard catalog can't draw (charts, maps, gauges), give a component `html` (inline) or `htmlFile` (a path next to the catalog file):
+
+```json
+"Gauge": {
+  "description": "A progress meter from 0 to 100",
+  "props": { "value": { "type": "number" }, "label": { "type": "string" } },
+  "required": ["value"],
+  "height": 40,
+  "htmlFile": "gauge.html"
+}
+```
+
+```html title="catalogs/gauge.html"
+<div id="label" style="font-size:12px;color:var(--moka-muted)"></div>
+<div style="height:10px;border-radius:99px;background:var(--moka-panel-2);overflow:hidden">
+  <div id="bar" style="height:100%;width:0;background:var(--moka-accent);transition:width .4s"></div>
+</div>
+<script>
+  moka.onProps((p) => {
+    document.getElementById("label").textContent = `${p.label ?? ""} ${p.value ?? 0}%`;
+    document.getElementById("bar").style.width = `${Math.max(0, Math.min(100, p.value))}%`;
+  });
+</script>
+```
+
+The snippet runs in a sandboxed iframe with an opaque origin and a strict Content-Security-Policy (no network by default), and resizes to its content. Inside it, `window.moka` gives you:
+
+| API | |
+|---|---|
+| `moka.props` | Current props, with data bindings already resolved |
+| `moka.onProps(fn)` | Called now and whenever props or bound data change |
+| `moka.action(name, context)` | Send an action to the agent, like a Button (`[ui action] …`) |
+| `moka.update(prop, value)` | Write back to the data path the prop is bound to (two-way binding) |
+
+Theme variables are set on `:root`: `--moka-fg`, `--moka-muted`, `--moka-accent`, `--moka-accent-fg`, `--moka-panel`, `--moka-panel-2`, `--moka-line`, `--moka-radius` and `--moka-font`. They follow the surface theme and light or dark mode.
+
+To load a library from a CDN, allow its origin:
+
+```json
+"csp": { "resourceDomains": ["https://cdn.jsdelivr.net"], "connectDomains": [] }
+```
+
+## Catalogs from MCP servers
+
+MCP servers can use custom components too. Return A2UI whose `createSurface.catalogId` matches a catalog in Moka's config, **or** serve the catalog yourself as an MCP resource and use its URI as the `catalogId`:
+
+```js
+server.registerResource("catalog", "catalog://acme/banking", { mimeType: "application/json" }, async (uri) => ({
+  contents: [{ uri: uri.href, text: JSON.stringify(bankingCatalog) }],
+}));
+// …then in a tool result:
+{ version: "v0.9", createSurface: { surfaceId: "acct", catalogId: "catalog://acme/banking" } }
+```
+
+Moka reads the resource, caches it for a minute, and expands the components, so the server ships its UI vocabulary with it.
+
+<Aside>The catalog browser (**Settings → Generative UI → a catalog**) previews every component with its `example` props. **Send to playground** copies it into the [playground](/generative-ui/customize/#the-playground) so you can experiment.</Aside>

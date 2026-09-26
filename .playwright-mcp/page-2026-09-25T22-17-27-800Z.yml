@@ -1,0 +1,25 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - link "Park Pilot" [ref=e3] [cursor=pointer]:
+      - /url: /
+    - generic [ref=e13]:
+      - generic [ref=e14]:
+        - generic [ref=e15]: Welcome back
+        - generic [ref=e16]: Sign in to your Park Pilot account.
+      - generic [ref=e17]:
+        - generic [ref=e18]:
+          - generic [ref=e19]:
+            - text: Email
+            - textbox "Email" [ref=e20]
+          - generic [ref=e21]:
+            - text: Password
+            - textbox "Password" [ref=e22]
+        - generic [ref=e23]:
+          - button "Sign in" [ref=e24] [cursor=pointer]
+          - paragraph [ref=e25]:
+            - text: No account?
+            - link "Create one" [ref=e26] [cursor=pointer]:
+              - /url: /signup
+    - paragraph [ref=e27]: Real-time waits Powered by Queue-Times.com. Not affiliated with any park operator.
+  - region "Notifications alt+T"
+  - alert [ref=e28]
