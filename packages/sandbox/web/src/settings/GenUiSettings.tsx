@@ -4,7 +4,7 @@ import { api } from "../api";
 import { A2uiSurfaces, type A2uiAction } from "../components/A2uiSurface";
 import { Badge, Button, CopyButton, Empty, Field, Input, JsonView, Select, Spinner, Tabs, Textarea, cn, formatMs } from "../components/ui";
 import { useStore } from "../store";
-import type { CatalogComponent, CatalogConfig, LoadedCatalog } from "../types";
+import type { CatalogComponent, CatalogConfig, LoadedCatalog, MokaConfig, Workspace } from "../types";
 import { FormFooter, ListItem, MasterDetail, Section } from "./Settings";
 
 type Selection = { kind: "playground" } | { kind: "catalog"; id: string } | { kind: "new" };
@@ -29,9 +29,90 @@ const playgroundDraft = {
   prompt: "A booking form for a coffee tasting: name, date, party size and a confirm button",
 };
 
+/** Turn a catalog on or off for a workspace (standard = "standard"). */
+function withWorkspaceCatalog(config: MokaConfig, workspaceId: string, catalogId: string, on: boolean): MokaConfig {
+  return {
+    ...config,
+    workspaces: config.workspaces.map((w) => {
+      if (w.id !== workspaceId) return w;
+      const gen = typeof w.generativeUi === "object" ? w.generativeUi : w.generativeUi === false ? { enabled: false } : {};
+      if (catalogId === "standard") return { ...w, generativeUi: { ...gen, standard: on ? undefined : false } };
+      const ids = new Set(gen.catalogIds ?? []);
+      if (on) ids.add(catalogId);
+      else ids.delete(catalogId);
+      return { ...w, generativeUi: { ...gen, catalogIds: [...ids] } };
+    }),
+  };
+}
+
+function workspaceUsesCatalog(ws: Workspace | undefined, catalogId: string): boolean {
+  const gen = typeof ws?.generativeUi === "object" ? ws.generativeUi : undefined;
+  return catalogId === "standard" ? gen?.standard !== false : Boolean(gen?.catalogIds?.includes(catalogId));
+}
+
+/** Which catalogs the playground's workspace uses, with one-click enable. */
+function CatalogBar({ workspaceId }: { workspaceId: string }) {
+  const config = useStore((s) => s.config);
+  const catalogs = useStore((s) => s.catalogs);
+  const saveConfig = useStore((s) => s.saveConfig);
+  const ws = config.workspaces.find((w) => w.id === workspaceId);
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 border-b border-line bg-panel-2/40 px-5 py-2 text-[12px]">
+      <span className="mr-1 text-muted">Catalogs in {ws?.name}:</span>
+      {catalogs.map((c) => {
+        const on = workspaceUsesCatalog(ws, c.id);
+        return (
+          <button
+            key={c.id}
+            title={on ? "Click to turn off for this workspace" : "Click to enable for this workspace"}
+            onClick={() => saveConfig(withWorkspaceCatalog(config, workspaceId, c.id, !on), `${c.name} ${on ? "disabled" : "enabled"} for ${ws?.name}`)}
+            className={cn("inline-flex items-center gap-1 rounded-full border px-2 py-0.5 transition-colors", on ? "border-accent bg-accent-soft text-accent" : "border-dashed border-line-strong text-muted hover:text-fg")}
+          >
+            {on ? <CheckCircle2 className="h-3 w-3" /> : <Plus className="h-3 w-3" />}
+            {c.name}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Problems list; unknown components that live in a disabled catalog get an "Enable" shortcut. */
+function Problems({ problems, workspaceId }: { problems: string[]; workspaceId: string }) {
+  const config = useStore((s) => s.config);
+  const catalogs = useStore((s) => s.catalogs);
+  const saveConfig = useStore((s) => s.saveConfig);
+  const ws = config.workspaces.find((w) => w.id === workspaceId);
+  return (
+    <ul className="mb-4 space-y-1.5 rounded-lg border border-warn/30 bg-warn/5 px-3 py-2 text-[12.5px] text-muted">
+      {problems.map((p, i) => {
+        const unknown = /uses unknown component "([^"]+)"/.exec(p)?.[1];
+        const home = unknown ? catalogs.find((c) => c.components[unknown] && !workspaceUsesCatalog(ws, c.id)) : undefined;
+        return (
+          <li key={i}>
+            {home ? (
+              <span className="flex flex-wrap items-center gap-2">
+                <span>
+                  • <b className="font-mono text-fg">{unknown}</b> is in <b className="text-fg">{home.name}</b>, which isn't enabled for {ws?.name}.
+                </span>
+                <Button size="xs" variant="primary" onClick={() => saveConfig(withWorkspaceCatalog(config, workspaceId, home.id, true), `${home.name} enabled for ${ws?.name}`)}>
+                  Enable it
+                </Button>
+              </span>
+            ) : (
+              <>• {p}</>
+            )}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
 export function GenUiSettings() {
   const catalogs = useStore((s) => s.catalogs);
   const [selected, setSelected] = useState<Selection>({ kind: "playground" });
+  const [playgroundKey, setPlaygroundKey] = useState(0);
   const current = selected.kind === "catalog" ? catalogs.find((c) => c.id === selected.id) : undefined;
 
   return (
@@ -70,11 +151,19 @@ export function GenUiSettings() {
       }
       detail={
         selected.kind === "playground" ? (
-          <Playground />
+          <Playground key={playgroundKey} />
         ) : selected.kind === "new" ? (
           <NewCatalog onCreated={(id) => setSelected({ kind: "catalog", id })} />
         ) : current ? (
-          <CatalogView key={current.id} catalog={current} onRemoved={() => setSelected({ kind: "playground" })} />
+          <CatalogView
+            key={current.id}
+            catalog={current}
+            onRemoved={() => setSelected({ kind: "playground" })}
+            onSendToPlayground={() => {
+              setPlaygroundKey((k) => k + 1);
+              setSelected({ kind: "playground" });
+            }}
+          />
         ) : (
           <Empty icon={<LayoutTemplate className="h-5 w-5" />} title="Catalog not found" />
         )
@@ -113,7 +202,8 @@ function Playground() {
   const [result, setResult] = useState<PreviewResult>();
   const [parseError, setParseError] = useState<string>();
   const [generating, setGenerating] = useState(false);
-  const [generated, setGenerated] = useState<{ model?: string; durationMs?: number }>();
+  const [generated, setGenerated] = useState<{ model?: string; durationMs?: number; attempts?: number }>();
+  const [llmId, setLlmId] = useState<string>("");
   const [tool, setTool] = useState<{ name: string; description: string; inputSchema: unknown; components: string[]; enabled: boolean }>();
   const onAction = useActionToast();
   const ws = config.workspaces.find((w) => w.id === workspaceId);
@@ -150,9 +240,9 @@ function Playground() {
     setGenerating(true);
     setGenerated(undefined);
     try {
-      const res = await api<PreviewResult>("/api/ui/generate", { body: { prompt, workspaceId } });
+      const res = await api<PreviewResult & { attempts?: number }>("/api/ui/generate", { body: { prompt, workspaceId, llmId: llmId || undefined } });
       if (res.input) setText(JSON.stringify(res.input, null, 2));
-      setGenerated({ model: res.model, durationMs: res.durationMs });
+      setGenerated({ model: res.model, durationMs: res.durationMs, attempts: res.attempts });
       setTab("json");
     } catch (e: any) {
       useStore.getState().toast(e?.message ?? "Generation failed", "error");
@@ -186,6 +276,8 @@ function Playground() {
         </Select>
       </div>
 
+      <CatalogBar workspaceId={workspaceId} />
+
       {tab === "tool" ? (
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-5">
           {!tool ? (
@@ -212,7 +304,17 @@ function Playground() {
           <div className="flex min-h-0 flex-col border-b border-line lg:border-r lg:border-b-0">
             {tab === "model" ? (
               <div className="space-y-3 p-5">
-                <Field label="Prompt" hint={`Uses ${ws?.llmId ? config.llms.find((l) => l.id === ws.llmId)?.name ?? "the workspace model" : "the first model"} with only the render tool, so you can see how well it uses your catalog.`}>
+                <Field label="Model" hint="Try the same prompt on different models to see which ones use your catalog well.">
+                  <Select value={llmId} onChange={(e) => setLlmId(e.target.value)}>
+                    <option value="">Workspace model ({config.llms.find((l) => l.id === ws?.llmId)?.name ?? config.llms[0]?.name ?? "none"})</option>
+                    {config.llms.map((l) => (
+                      <option key={l.id} value={l.id}>
+                        {l.name} · {l.model}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+                <Field label="Prompt" hint="The model only gets the render tool. Invalid UI is sent back to it with the errors, up to 3 tries, just like in chat.">
                   <Textarea rows={5} value={prompt} onChange={(e) => setPrompt(e.target.value)} />
                 </Field>
                 <Button variant="primary" size="sm" loading={generating} disabled={!prompt.trim() || config.llms.length === 0} icon={<Sparkles className="h-3.5 w-3.5" />} onClick={generate}>
@@ -243,16 +345,11 @@ function Playground() {
               {generated?.model && (
                 <span className="text-subtle">
                   generated by {generated.model} in {formatMs(generated.durationMs)}
+                  {generated.attempts && generated.attempts > 1 ? ` · ${generated.attempts} tries` : ""}
                 </span>
               )}
             </div>
-            {problems.length > 0 && (
-              <ul className="mb-4 space-y-1 rounded-lg border border-warn/30 bg-warn/5 px-3 py-2 text-[12.5px] text-muted">
-                {problems.map((p, i) => (
-                  <li key={i}>• {p}</li>
-                ))}
-              </ul>
-            )}
+            {problems.length > 0 && <Problems problems={problems} workspaceId={workspaceId} />}
             {result && result.messages.length > 0 ? (
               <A2uiSurfaces messages={result.messages} onAction={onAction} header={false} />
             ) : (
@@ -278,7 +375,7 @@ function signature(component: CatalogComponent): string {
     .join(", ");
 }
 
-function CatalogView({ catalog, onRemoved }: { catalog: LoadedCatalog; onRemoved: () => void }) {
+function CatalogView({ catalog, onRemoved, onSendToPlayground }: { catalog: LoadedCatalog; onRemoved: () => void; onSendToPlayground: () => void }) {
   const config = useStore((s) => s.config);
   const saveConfig = useStore((s) => s.saveConfig);
   const entry = config.catalogs.find((c) => c.id === catalog.id);
@@ -366,7 +463,7 @@ function CatalogView({ catalog, onRemoved }: { catalog: LoadedCatalog; onRemoved
           <Section title={`Components · ${Object.keys(catalog.components).length}`}>
             <div className="grid gap-3 xl:grid-cols-2">
               {Object.entries(catalog.components).map(([name, component]) => (
-                <ComponentCard key={name} catalogId={catalog.id} name={name} component={component} />
+                <ComponentCard key={name} catalogId={catalog.id} name={name} component={component} onSendToPlayground={onSendToPlayground} />
               ))}
             </div>
           </Section>
@@ -387,7 +484,7 @@ function CatalogView({ catalog, onRemoved }: { catalog: LoadedCatalog; onRemoved
   );
 }
 
-function ComponentCard({ catalogId, name, component }: { catalogId: string; name: string; component: CatalogComponent }) {
+function ComponentCard({ catalogId, name, component, onSendToPlayground }: { catalogId: string; name: string; component: CatalogComponent; onSendToPlayground: () => void }) {
   const [preview, setPreview] = useState<PreviewResult>();
   const [open, setOpen] = useState(false);
   const onAction = useActionToast();
@@ -430,7 +527,7 @@ function ComponentCard({ catalogId, name, component }: { catalogId: string; name
                 icon={<FlaskConical className="h-3 w-3" />}
                 onClick={() => {
                   playgroundDraft.text = JSON.stringify(preview.input, null, 2);
-                  useStore.getState().toast("Copied into the playground", "success");
+                  onSendToPlayground();
                 }}
               >
                 Send to playground

@@ -1,4 +1,5 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { SubscribeRequestSchema, UnsubscribeRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
@@ -293,6 +294,56 @@ export function createDemoServer(version: string): McpServer {
         },
       ],
     }),
+  );
+
+  // A live resource that changes every few seconds, for trying subscriptions.
+  const BREW_URI = "moka://brew/status";
+  const stages = ["grinding beans", "blooming", "pouring", "steeping", "ready ☕"];
+  let tick = 0;
+  const brewStatus = () => {
+    const stage = stages[tick % stages.length]!;
+    return JSON.stringify({ stage, cup: Math.floor(tick / stages.length) + 1, temperatureC: 88 + (tick % 5), updatedAt: new Date().toISOString() }, null, 2);
+  };
+  server.registerResource(
+    "brew-status",
+    BREW_URI,
+    { title: "Live brew status", description: "Changes every 3 seconds. Subscribe to watch it update.", mimeType: "application/json" },
+    async (uri) => ({ contents: [{ uri: uri.href, mimeType: "application/json", text: brewStatus() }] }),
+  );
+  const subscribed = new Set<string>();
+  server.server.registerCapabilities({ resources: { subscribe: true, listChanged: true } });
+  server.server.setRequestHandler(SubscribeRequestSchema, async (request) => {
+    subscribed.add(request.params.uri);
+    return {};
+  });
+  server.server.setRequestHandler(UnsubscribeRequestSchema, async (request) => {
+    subscribed.delete(request.params.uri);
+    return {};
+  });
+  const timer = setInterval(() => {
+    tick++;
+    if (subscribed.has(BREW_URI)) void server.server.sendResourceUpdated({ uri: BREW_URI }).catch(() => {});
+  }, 3000);
+  timer.unref();
+
+  // A resource template: one resource per drink.
+  const DRINKS: Record<string, { caffeineMg: number; milk: boolean; note: string }> = {
+    espresso: { caffeineMg: 63, milk: false, note: "Short and intense." },
+    "flat-white": { caffeineMg: 130, milk: true, note: "Velvety microfoam." },
+    cappuccino: { caffeineMg: 130, milk: true, note: "Equal parts espresso, milk and foam." },
+    "cold-brew": { caffeineMg: 200, milk: false, note: "Steeped 16 hours." },
+  };
+  server.registerResource(
+    "drink",
+    new ResourceTemplate("moka://drinks/{drink}", {
+      list: async () => ({ resources: Object.keys(DRINKS).map((d) => ({ uri: `moka://drinks/${d}`, name: d, title: `Drink: ${d}` })) }),
+      complete: { drink: (value) => Object.keys(DRINKS).filter((d) => d.startsWith(value)) },
+    }),
+    { title: "Coffee drinks", description: "Details for a drink, e.g. moka://drinks/espresso", mimeType: "application/json" },
+    async (uri, { drink }) => {
+      const info = DRINKS[String(drink)];
+      return { contents: [{ uri: uri.href, mimeType: "application/json", text: JSON.stringify(info ? { drink, ...info } : { error: `Unknown drink "${drink}". Try: ${Object.keys(DRINKS).join(", ")}` }, null, 2) }] };
+    },
   );
 
   server.registerPrompt(

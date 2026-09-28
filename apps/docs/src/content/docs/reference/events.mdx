@@ -18,6 +18,7 @@ Each event has `id`, `ts` (ms), `kind`, `title`, and optionally `runId`, `server
 | `run.error` | A turn fails or is stopped | error name, message, HTTP status, response body |
 | `mcp.status` | A server connects, fails or disconnects | `status`, `error`, `serverInfo`, `tools` count |
 | `mcp.rpc` | Any JSON-RPC message to/from a server | the raw message |
+| `resource.updated` | A subscribed resource changed (`notifications/resources/updated`) | `uri` |
 | `mcp.log` | A stdio server writes to stderr, or the client errors | the line |
 | `ui.rpc` | An MCP App message crosses the iframe boundary | the raw JSON-RPC (or MCP-UI) message |
 | `ui.action` | An A2UI button is pressed | the resolved action |

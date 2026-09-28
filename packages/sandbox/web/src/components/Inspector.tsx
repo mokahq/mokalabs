@@ -11,6 +11,7 @@ import {
   Flag,
   PauseCircle,
   PlayCircle,
+  RefreshCw,
   Plug,
   ScrollText,
   Search,
@@ -31,7 +32,7 @@ const FILTERS: Record<Filter, (e: MokaEvent) => boolean> = {
   llm: (e) => e.kind.startsWith("llm.") || e.kind.startsWith("run.") || e.kind.startsWith("agent."),
   tools: (e) => e.kind.startsWith("tool.") || e.kind === "skill.load" || e.kind.startsWith("ui.") || e.kind.startsWith("interaction."),
   rpc: (e) => e.kind === "mcp.rpc",
-  logs: (e) => e.kind === "mcp.log" || e.kind === "mcp.status" || e.kind === "log" || e.level === "error",
+  logs: (e) => e.kind === "mcp.log" || e.kind === "mcp.status" || e.kind === "resource.updated" || e.kind === "log" || e.level === "error",
 };
 
 function meta(e: MokaEvent): { icon: React.ReactNode; tone: string } {
@@ -67,6 +68,8 @@ function meta(e: MokaEvent): { icon: React.ReactNode; tone: string } {
         : { icon: <ArrowDownLeft className={i} />, tone: "text-muted bg-panel-2" };
     case "mcp.status":
       return { icon: <Plug className={i} />, tone: "text-warn bg-warn/10" };
+    case "resource.updated":
+      return { icon: <RefreshCw className={i} />, tone: "text-info bg-info/10" };
     default:
       return { icon: <ScrollText className={i} />, tone: "text-subtle bg-panel-2" };
   }

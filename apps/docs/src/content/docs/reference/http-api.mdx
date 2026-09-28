@@ -61,6 +61,7 @@ curl -N -H "x-moka-token: $TOKEN" -H 'content-type: application/json' \
 | `POST /api/mcp/:id/disconnect` | |
 | `POST /api/mcp/:id/call` | `{tool, args}` → `{result, durationMs}` |
 | `POST /api/mcp/:id/resource` | `{uri}` → `resources/read` result |
+| `POST /api/mcp/:id/subscribe` | `{uri, subscribe?: false}` → `{subscriptions}`: subscribe to (or unsubscribe from) resource updates |
 | `POST /api/mcp/:id/signout` | Forget OAuth tokens and reconnect |
 | `GET /oauth/callback` | OAuth redirect target (no token needed) |
 | `POST /api/agents/test` | `{agent}` → `{ok, latencyMs, card?, events?, text?, error?}` |

@@ -441,6 +441,13 @@ export function Composer({
   const resources = servers.flatMap((s) => s.resources.map((r) => ({ ...r, serverId: s.id, serverName: s.name })));
   const prompts: PromptInfo[] = servers.flatMap((s) => s.prompts.map((p) => ({ ...p, serverId: s.id, serverName: s.name })));
   const slash = rich && /^\/[\w.-]*$/.test(text) ? text.slice(1).toLowerCase() : undefined;
+  // Typing "@" (at the start or after a space) opens the resource picker, filtered by what follows.
+  const mention = rich ? /(^|\s)@([^\s@]*)$/.exec(text) : null;
+  const resourceQuery = mention?.[2]?.toLowerCase() ?? "";
+  const resourceMenuOpen = menu === "resources" || mention !== null;
+  const shownResources = resourceQuery
+    ? resources.filter((r) => `${r.title ?? ""} ${r.name ?? ""} ${r.uri}`.toLowerCase().includes(resourceQuery))
+    : resources;
   const promptMatches = slash !== undefined ? prompts.filter((p) => p.name.toLowerCase().includes(slash)) : [];
 
   useEffect(() => {
@@ -479,6 +486,7 @@ export function Composer({
 
   const attachResource = async (r: (typeof resources)[number]) => {
     setMenu(undefined);
+    if (mention) setText(text.slice(0, mention.index + mention[1]!.length));
     try {
       const { result } = await api<{ result: any }>(`/api/mcp/${encodeURIComponent(r.serverId)}/resource`, { body: { uri: r.uri } });
       const content = (result?.contents ?? []).map((c: any) => c.text ?? (c.blob ? `[binary ${c.mimeType ?? ""}]` : "")).join("\n");
@@ -518,6 +526,10 @@ export function Composer({
     if ((!text.trim() && attachments.length === 0) || streaming || !hasModel) return;
     if (slash !== undefined && promptMatches.length) {
       pickPrompt(promptMatches[0]!);
+      return;
+    }
+    if (mention && shownResources.length) {
+      void attachResource(shownResources[0]!);
       return;
     }
     if (onSend) onSend(text);
@@ -577,11 +589,21 @@ export function Composer({
             </Button>
           </form>
         )}
-        {menu === "resources" && (
+        {resourceMenuOpen && (
           <div className="absolute right-0 bottom-full left-0 z-20 mb-2 max-h-72 overflow-y-auto rounded-xl border border-line bg-elev p-1 shadow-soft">
-            <div className="px-2.5 pt-1 pb-1 text-[11px] font-medium text-subtle uppercase">Attach an MCP resource</div>
-            {resources.length === 0 && <p className="px-2.5 py-2 text-[12.5px] text-muted">No resources on this workspace's servers.</p>}
-            {resources.map((r) => (
+            <div className="px-2.5 pt-1 pb-1 text-[11px] font-medium text-subtle uppercase">
+              Attach an MCP resource{resourceQuery ? ` · “${resourceQuery}”` : ""}
+            </div>
+            {resources.length === 0 ? (
+              <p className="px-2.5 py-2 text-[12.5px] text-muted">
+                {servers.length === 0
+                  ? "No connected MCP servers in this workspace. Add or connect one in Settings → MCP servers."
+                  : "The servers in this workspace don't expose any resources."}
+              </p>
+            ) : shownResources.length === 0 ? (
+              <p className="px-2.5 py-2 text-[12.5px] text-muted">No resources match “{resourceQuery}”.</p>
+            ) : null}
+            {shownResources.map((r) => (
               <button key={`${r.serverId}/${r.uri}`} onClick={() => attachResource(r)} className="flex w-full items-start gap-2 rounded-lg px-2.5 py-1.5 text-left hover:bg-panel-2">
                 <Database className="mt-0.5 h-3.5 w-3.5 text-info" />
                 <span className="min-w-0 flex-1">
@@ -633,13 +655,14 @@ export function Composer({
               if (e.key === "Escape") {
                 setMenu(undefined);
                 setPrompt(undefined);
+                if (mention) setText(text.slice(0, mention.index + mention[1]!.length));
               }
               if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
                 e.preventDefault();
                 submit();
               }
             }}
-            placeholder={disabledReason ?? (hasModel ? placeholder ?? (rich && prompts.length ? "Message Moka… (/ for prompts)" : "Message Moka…") : "Add a model in Settings to start chatting")}
+            placeholder={disabledReason ?? (hasModel ? placeholder ?? (rich ? `Message Moka… (@ for resources${prompts.length ? ", / for prompts" : ""})` : "Message Moka…") : "Add a model in Settings to start chatting")}
             className="block w-full resize-none bg-transparent px-4 pt-3.5 pb-1 text-[15px] leading-relaxed placeholder:text-subtle focus:outline-none"
           />
           <div className="flex items-center gap-1 px-3 pb-2.5">
@@ -649,11 +672,9 @@ export function Composer({
                 <IconButton label="Attach files or images" className="h-7 w-7" disabled={!hasModel} onClick={() => fileInput.current?.click()}>
                   <Paperclip className="h-3.5 w-3.5" />
                 </IconButton>
-                {resources.length > 0 && (
-                  <IconButton label="Attach an MCP resource" className="h-7 w-7" active={menu === "resources"} onClick={() => setMenu(menu ? undefined : "resources")}>
-                    <AtSign className="h-3.5 w-3.5" />
-                  </IconButton>
-                )}
+                <IconButton label="Attach an MCP resource (or type @)" className="h-7 w-7" active={resourceMenuOpen} onClick={() => setMenu(menu ? undefined : "resources")}>
+                  <AtSign className="h-3.5 w-3.5" />
+                </IconButton>
               </>
             )}
             <span className="ml-1 hidden text-[11px] text-subtle sm:inline">

@@ -1,12 +1,13 @@
-import { Braces, FileText, MessageSquareText, Play, Plug, RefreshCw, Wrench } from "lucide-react";
+import { Braces, Eye, EyeOff, FileText, FileCode2, MessageSquareText, Play, Plug, RefreshCw, Wrench } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
 import { McpAppFrame } from "./McpAppFrame";
 import { useStore } from "../store";
+import { expandTemplate, templateVariables } from "../uriTemplate";
 import type { JsonSchema, McpTool } from "../types";
 import { Badge, Button, Empty, Field, Input, JsonView, Select, StatusDot, Switch, Tabs, Textarea, cn, formatMs } from "./ui";
 
-type Item = { kind: "tool"; name: string } | { kind: "resource"; uri: string } | { kind: "prompt"; name: string };
+type Item = { kind: "tool"; name: string } | { kind: "resource"; uri: string } | { kind: "template"; uriTemplate: string } | { kind: "prompt"; name: string };
 
 export function ToolRunner() {
   const config = useStore((s) => s.config);
@@ -80,7 +81,26 @@ export function ToolRunner() {
           </Group>
           <Group title="Resources" count={state?.resources.length}>
             {state?.resources.map((r) => (
-              <Row key={r.uri} active={item?.kind === "resource" && item.uri === r.uri} onClick={() => setItem({ kind: "resource", uri: r.uri })} icon={<FileText className="h-3.5 w-3.5" />} title={r.name ?? r.uri} subtitle={r.uri} />
+              <Row
+                key={r.uri}
+                active={item?.kind === "resource" && item.uri === r.uri}
+                onClick={() => setItem({ kind: "resource", uri: r.uri })}
+                icon={state?.subscriptions?.includes(r.uri) ? <Eye className="h-3.5 w-3.5 text-info" /> : <FileText className="h-3.5 w-3.5" />}
+                title={r.title ?? r.name ?? r.uri}
+                subtitle={r.uri}
+              />
+            ))}
+          </Group>
+          <Group title="Resource templates" count={state?.resourceTemplates?.length}>
+            {state?.resourceTemplates?.map((t) => (
+              <Row
+                key={t.uriTemplate}
+                active={item?.kind === "template" && item.uriTemplate === t.uriTemplate}
+                onClick={() => setItem({ kind: "template", uriTemplate: t.uriTemplate })}
+                icon={<FileCode2 className="h-3.5 w-3.5" />}
+                title={t.title ?? t.name ?? t.uriTemplate}
+                subtitle={t.uriTemplate}
+              />
             ))}
           </Group>
           <Group title="Prompts" count={state?.prompts.length}>
@@ -99,6 +119,8 @@ export function ToolRunner() {
           <ToolForm key={`${serverId}/${tool.name}`} serverId={serverId} tool={tool} />
         ) : item.kind === "resource" ? (
           <ResourceView key={item.uri} serverId={serverId} uri={item.uri} />
+        ) : item.kind === "template" ? (
+          <TemplateView key={item.uriTemplate} serverId={serverId} uriTemplate={item.uriTemplate} onOpen={(uri) => setItem({ kind: "resource", uri })} />
         ) : item.kind === "prompt" ? (
           <PromptView key={item.name} serverId={serverId} name={item.name} />
         ) : null}
@@ -343,18 +365,87 @@ function ToolForm({ serverId, tool }: { serverId: string; tool: McpTool }) {
 }
 
 function ResourceView({ serverId, uri }: { serverId: string; uri: string }) {
+  const state = useStore((s) => s.mcp[serverId]);
+  const toast = useStore((s) => s.toast);
+  const events = useStore((s) => s.events);
+  const updates = useMemo(
+    () => events.filter((e) => e.kind === "resource.updated" && e.serverId === serverId && (e.data as { uri?: string })?.uri === uri),
+    [events, serverId, uri],
+  );
   const [result, setResult] = useState<any>();
   const [error, setError] = useState<string>();
+  const [loadedAt, setLoadedAt] = useState<number>();
+  const [flash, setFlash] = useState(false);
+  const watching = Boolean(state?.subscriptions?.includes(uri));
+  const meta = state?.resources.find((r) => r.uri === uri);
+  const lastUpdate = updates.at(-1);
+
+  const load = async (highlight = false) => {
+    try {
+      const r = await api(`/api/mcp/${serverId}/resource`, { body: { uri } });
+      setResult(r.result);
+      setError(undefined);
+      setLoadedAt(Date.now());
+      if (highlight) {
+        setFlash(true);
+        setTimeout(() => setFlash(false), 900);
+      }
+    } catch (e: any) {
+      setError(e?.message);
+    }
+  };
+
   useEffect(() => {
-    api(`/api/mcp/${serverId}/resource`, { body: { uri } })
-      .then((r) => setResult(r.result))
-      .catch((e) => setError(e?.message));
+    void load();
   }, [serverId, uri]);
+
+  // Re-read whenever the server says this resource changed.
+  useEffect(() => {
+    if (lastUpdate && watching) void load(true);
+  }, [lastUpdate?.id]);
+
+  const toggleWatch = async () => {
+    try {
+      await api(`/api/mcp/${encodeURIComponent(serverId)}/subscribe`, { body: { uri, subscribe: !watching } });
+      await useStore.getState().refreshMcp();
+      toast(watching ? "Stopped watching" : "Watching for updates", "success");
+    } catch (e: any) {
+      toast(e?.message ?? "Could not change subscription", "error");
+    }
+  };
+
   return (
     <div className="mx-auto max-w-3xl p-6">
-      <h2 className="font-mono text-[15px] font-semibold break-all">{uri}</h2>
-      <div className="mt-4">
-        {error ? <JsonView value={error} /> : result ? (
+      <div className="flex items-start gap-3">
+        <div className="min-w-0 flex-1">
+          {meta?.title || meta?.name ? <div className="text-[15px] font-semibold">{meta.title ?? meta.name}</div> : null}
+          <h2 className="font-mono text-[13px] break-all text-muted">{uri}</h2>
+          {meta?.description && <p className="mt-1 text-[13px] text-muted">{meta.description}</p>}
+        </div>
+        <Button size="sm" variant="ghost" icon={<RefreshCw className="h-3.5 w-3.5" />} onClick={() => load(true)}>
+          Reload
+        </Button>
+        {state?.canSubscribe ? (
+          <Button size="sm" variant={watching ? "primary" : "outline"} icon={watching ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />} onClick={toggleWatch}>
+            {watching ? "Watching" : "Watch"}
+          </Button>
+        ) : (
+          <span className="pt-1.5 text-[11.5px] text-subtle" title="The server doesn't advertise resources.subscribe">
+            no live updates
+          </span>
+        )}
+      </div>
+      {watching && (
+        <div className="mt-3 flex items-center gap-2 text-[12px] text-muted">
+          <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-info" />
+          Subscribed · {updates.length} update{updates.length === 1 ? "" : "s"} received
+          {lastUpdate ? ` · last ${new Date(lastUpdate.ts).toLocaleTimeString()}` : ""}
+        </div>
+      )}
+      <div className={cn("mt-4 rounded-xl transition-shadow duration-700", flash && "ring-2 ring-info/60")}>
+        {error ? (
+          <JsonView value={error} />
+        ) : result ? (
           <div className="space-y-2">
             {(result.contents ?? []).map((c: any, i: number) => (
               <JsonView key={i} value={c.text ?? c} maxHeight="70vh" />
@@ -364,6 +455,65 @@ function ResourceView({ serverId, uri }: { serverId: string; uri: string }) {
           <p className="text-[13px] text-muted">Loading…</p>
         )}
       </div>
+      {loadedAt && <p className="mt-2 text-[11px] text-subtle">Read at {new Date(loadedAt).toLocaleTimeString()}</p>}
+    </div>
+  );
+}
+
+function TemplateView({ serverId, uriTemplate, onOpen }: { serverId: string; uriTemplate: string; onOpen: (uri: string) => void }) {
+  const meta = useStore((s) => s.mcp[serverId]?.resourceTemplates?.find((t) => t.uriTemplate === uriTemplate));
+  const names = useMemo(() => templateVariables(uriTemplate), [uriTemplate]);
+  const [values, setValues] = useState<Record<string, string>>({});
+  const [result, setResult] = useState<{ uri: string; data?: any; error?: string }>();
+  const [loading, setLoading] = useState(false);
+  const uri = expandTemplate(uriTemplate, values);
+  const complete = names.every((n) => values[n]);
+
+  const read = async () => {
+    setLoading(true);
+    try {
+      const r = await api(`/api/mcp/${serverId}/resource`, { body: { uri } });
+      setResult({ uri, data: r.result });
+    } catch (e: any) {
+      setResult({ uri, error: e?.message });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="mx-auto max-w-3xl p-6">
+      {(meta?.title || meta?.name) && <div className="text-[15px] font-semibold">{meta?.title ?? meta?.name}</div>}
+      <h2 className="font-mono text-[13px] break-all text-muted">{uriTemplate}</h2>
+      {meta?.description && <p className="mt-1 text-[13px] text-muted">{meta.description}</p>}
+      <form
+        className="mt-5 space-y-4 rounded-xl border border-line bg-panel p-4"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (complete) void read();
+        }}
+      >
+        {names.map((name, i) => (
+          <Field key={name} label={name}>
+            <Input autoFocus={i === 0} value={values[name] ?? ""} onChange={(e) => setValues((v) => ({ ...v, [name]: e.target.value }))} />
+          </Field>
+        ))}
+        <div className="rounded-lg bg-panel-2/60 px-3 py-2 font-mono text-[12px] break-all">{uri}</div>
+        <div className="flex gap-2">
+          <Button type="submit" variant="primary" size="sm" loading={loading} disabled={!complete} icon={<Play className="h-3.5 w-3.5" />}>
+            Read resource
+          </Button>
+          <Button type="button" variant="outline" size="sm" disabled={!complete} icon={<Eye className="h-3.5 w-3.5" />} onClick={() => onOpen(uri)}>
+            Open (and watch)
+          </Button>
+        </div>
+      </form>
+      {result && (
+        <div className="animate-in mt-5 space-y-2">
+          <div className="font-mono text-[12px] text-muted">{result.uri}</div>
+          {result.error ? <JsonView value={result.error} /> : (result.data?.contents ?? []).map((c: any, i: number) => <JsonView key={i} value={c.text ?? c} maxHeight="60vh" />)}
+        </div>
+      )}
     </div>
   );
 }

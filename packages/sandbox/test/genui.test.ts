@@ -212,3 +212,36 @@ describe("tool approvals", () => {
     expect((await call("/api/interactions/nope", { body: { response: { approved: true } } })).status).toBe(404);
   });
 });
+
+describe("playground generation", () => {
+  it("sends validation errors back and accepts the model's fixed UI", async () => {
+    const { createServer } = await import("node:http");
+    const bodies: any[] = [];
+    const server = createServer(async (req, res) => {
+      let raw = "";
+      for await (const chunk of req) raw += chunk;
+      const body = JSON.parse(raw || "{}");
+      bodies.push(body);
+      const retry = (body.messages ?? []).some((m: any) => m.role === "tool");
+      const args = retry
+        ? { components: [{ id: "root", component: "AccountCard", name: "Main", balance: "$1" }] }
+        : { components: [{ id: "root", component: "AccountCard", name: "Main" }] };
+      res.setHeader("content-type", "application/json");
+      res.end(JSON.stringify({ id: "x", object: "chat.completion", created: 0, model: "m", choices: [{ index: 0, finish_reason: "tool_calls", message: { role: "assistant", content: null, tool_calls: [{ id: `c${bodies.length}`, type: "function", function: { name: "show_ui", arguments: JSON.stringify(args) } }] } }], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } }));
+    });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+    const port = (server.address() as any).port;
+    await patchConfig((c) => c.llms.push({ id: "fixer", name: "Fixer", provider: "openai-compatible", model: "fixer-1", baseURL: `http://127.0.0.1:${port}/v1` }));
+    const res = (await call("/api/ui/generate", { body: { prompt: "balance card", workspaceId: "w", llmId: "fixer" } })).json();
+    server.close();
+    expect(res.model).toBe("fixer-1");
+    expect(res.attempts).toBe(2);
+    expect(res.problems).toEqual([]);
+    expect(res.messages[1].updateComponents.components[1].text).toBe("Main: $1");
+    const retryMessages = JSON.stringify(bodies[1].messages);
+    expect(retryMessages).toContain('missing required prop \\"balance\\"');
+    // The schema sent to the model declares component props (Gemini drops undeclared ones).
+    const tool = bodies[0].tools[0].function;
+    expect(Object.keys(tool.parameters.properties.components.items.properties)).toEqual(expect.arrayContaining(["name", "balance", "text", "children"]));
+  }, 30_000);
+});

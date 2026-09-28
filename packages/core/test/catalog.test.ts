@@ -94,6 +94,16 @@ describe("tool definition", () => {
     const schema: any = buildRenderUiSchema(registry);
     expect(schema.properties.components.items.properties.component.enum).toContain("AccountCard");
   });
+
+  it("declares every component prop so strict providers (Gemini) keep them", () => {
+    const item: any = (buildRenderUiSchema(registry) as any).properties.components.items;
+    for (const prop of ["children", "child", "text", "variant", "action", "options", "value", "label", "name", "balance"]) {
+      expect(item.properties[prop], prop).toBeDefined();
+    }
+    expect(item.properties.text.anyOf.map((s: any) => s.type)).toEqual(["string", "object"]);
+    expect(item.properties.value.properties.path.type).toBe("string");
+    expect(item.properties.variant.enum).toEqual(expect.arrayContaining(["h1", "primary", "shortText"]));
+  });
 });
 
 describe("validation", () => {

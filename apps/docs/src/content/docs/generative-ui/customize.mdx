@@ -39,7 +39,7 @@ Every workspace gives the model a tool for [A2UI](/generative-ui/a2ui/). Out of 
 | `repair` | `true` | Validate against the catalog and send errors back so the model fixes its UI |
 | `theme` | | `primaryColor`, `radius` (px), `font`, `density` (`compact`), `agentDisplayName`, `iconUrl` |
 
-The tool's input schema lists the allowed component names as an `enum`, so models that follow schemas closely only pick real components.
+The tool's input schema lists the allowed component names as an `enum` and declares every component prop (merged by name, with literal-or-`{"path"}` types). Models that follow schemas closely only pick real components, and providers that drop undeclared arguments, such as Gemini, keep every prop.
 
 ## Self-repair
 
@@ -62,7 +62,9 @@ The theme is sent as the A2UI `createSurface.theme` and applied to that surface 
 **Settings → Generative UI → Playground** is where you iterate on all of this:
 
 - **UI JSON**: edit `render_ui` input and see it render live, validated against the chosen workspace's catalogs.
-- **Ask a model**: send a prompt with *only* the render tool available and see what the model builds. It's a quick check of how well a model uses your catalog.
+- **Ask a model**: pick any configured model and send a prompt with *only* the render tool available. Invalid UI goes back to the model with the errors (up to 3 tries, like in chat), and you see how many tries it took. It's a quick way to compare how well Gemini, GPT, Claude or a local model use your catalog.
 - **What the model sees**: the exact tool name, description and JSON schema the workspace sends to the model, with a copy button.
+
+The bar under the tabs lists every catalog and shows which ones the chosen workspace uses. Click one to turn it on or off for that workspace. If your UI uses a component from a catalog the workspace doesn't use, the error (`uses unknown component "Meter"`) names the catalog and has an **Enable it** button. **Send to playground** on any catalog component opens the playground with that component loaded.
 
 <Aside type="tip">Button presses in the playground show a toast with the resolved action instead of messaging the model, so you can check action contexts without a chat.</Aside>
