@@ -2,7 +2,8 @@ name: Release
 
 # On every push to main, Changesets either:
 #   1. opens/updates a "Version packages" PR (when there are pending changesets), or
-#   2. publishes any unpublished versions to npm, tags them, and creates GitHub Releases.
+#   2. publishes any unpublished versions to npm; then scripts/github-release.mjs
+#      tags them (vX.Y.Z) and creates GitHub Releases from the CHANGELOG.
 # When @mokalabs/sandbox is published, the Docker image is pushed to GHCR too.
 
 on:
@@ -22,8 +23,7 @@ jobs:
   release:
     runs-on: ubuntu-latest
     outputs:
-      published: ${{ steps.changesets.outputs.published }}
-      packages: ${{ steps.changesets.outputs.publishedPackages }}
+      published: ${{ steps.github-release.outputs.published }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -45,16 +45,26 @@ jobs:
           publish: pnpm changeset publish
           commit: "chore: version packages"
           title: "chore: version packages"
-          createGithubReleases: true
+          # Our own script does this: the action can't detect @changesets/cli v3 publishes.
+          createGithubReleases: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           NPM_CONFIG_PROVENANCE: "true"
+      - name: GitHub Releases
+        id: github-release
+        # Tags vX.Y.Z and creates a release (notes from the CHANGELOG) for every
+        # version on npm without one. Also backfills older versions.
+        if: steps.changesets.outputs.hasChangesets == 'false'
+        run: node scripts/github-release.mjs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WAIT_FOR_NPM: "true"
 
   docker:
     needs: release
-    if: needs.release.outputs.published == 'true' && contains(needs.release.outputs.packages, '"@mokalabs/sandbox"')
+    if: needs.release.outputs.published == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
