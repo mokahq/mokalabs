@@ -555,7 +555,7 @@ export const useStore = create<State>((set, get) => ({
 
 function emptyState(id: string, config: MokaConfig): McpServerState {
   const name = config.mcpServers.find((s) => s.id === id)?.name ?? id;
-  return { id, name, status: "idle", tools: [], prompts: [], resources: [], stderr: [] };
+  return { id, name, status: "idle", tools: [], prompts: [], resources: [], resourceTemplates: [], subscriptions: [], stderr: [] };
 }
 
 async function persist(session: Session) {

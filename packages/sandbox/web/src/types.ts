@@ -186,6 +186,9 @@ export interface McpServerState {
   tools: McpTool[];
   prompts: Array<{ name: string; description?: string; arguments?: Array<{ name: string; description?: string; required?: boolean }> }>;
   resources: Array<{ uri: string; name?: string; title?: string; description?: string; mimeType?: string }>;
+  resourceTemplates?: Array<{ uriTemplate: string; name?: string; title?: string; description?: string; mimeType?: string }>;
+  canSubscribe?: boolean;
+  subscriptions?: string[];
   stderr: string[];
 }
 

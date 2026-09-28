@@ -7,6 +7,10 @@ import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import {
   CreateMessageRequestSchema,
   ElicitRequestSchema,
+  PromptListChangedNotificationSchema,
+  ResourceListChangedNotificationSchema,
+  ResourceUpdatedNotificationSchema,
+  ToolListChangedNotificationSchema,
   ErrorCode,
   McpError,
   type CreateMessageRequest,
@@ -40,6 +44,12 @@ export interface McpServerState {
   tools: McpTool[];
   prompts: Array<{ name: string; description?: string; arguments?: unknown[] }>;
   resources: Array<{ uri: string; name?: string; title?: string; description?: string; mimeType?: string }>;
+  /** Parameterised resources (`resources/templates/list`), e.g. `file:///{path}`. */
+  resourceTemplates: Array<{ uriTemplate: string; name?: string; title?: string; description?: string; mimeType?: string }>;
+  /** The server supports `resources/subscribe`. */
+  canSubscribe?: boolean;
+  /** Resource URIs Moka is subscribed to. */
+  subscriptions: string[];
   stderr: string[];
   connectedAt?: number;
   /** OAuth sign-in URL when status is "auth". */
@@ -99,6 +109,8 @@ function fingerprint(config: McpServerConfig): string {
  */
 export class McpManager {
   private connections = new Map<string, Connection>();
+  /** serverId → subscribed resource URIs; survives reconnects. */
+  private subscriptions = new Map<string, Set<string>>();
 
   constructor(
     private readonly bus: EventBus,
@@ -118,6 +130,7 @@ export class McpManager {
   /** Drop connections for servers that no longer exist in config. */
   async prune(keepIds: Iterable<string>): Promise<void> {
     const keep = new Set(keepIds);
+    for (const id of [...this.subscriptions.keys()]) if (!keep.has(id)) this.subscriptions.delete(id);
     await Promise.all(
       [...this.connections.keys()].filter((id) => !keep.has(id)).map((id) => this.disconnect(id)),
     );
@@ -150,6 +163,8 @@ export class McpManager {
       tools: [],
       prompts: [],
       resources: [],
+      resourceTemplates: [],
+      subscriptions: [],
       stderr: [],
     };
     const conn: Connection = { config, fingerprint: fingerprint(config), state };
@@ -171,6 +186,7 @@ export class McpManager {
           state.error = "Connection closed";
           this.emitStatus(conn);
         };
+        this.listen(conn, client);
         const timeout = config.timeoutMs ?? 30_000;
         this.tap(conn, transport);
         conn.client = client;
@@ -183,9 +199,17 @@ export class McpManager {
         state.instructions = client.getInstructions();
         state.tools = caps.tools ? await this.listAllTools(client) : [];
         state.prompts = caps.prompts ? ((await client.listPrompts().catch(() => ({ prompts: [] }))).prompts as any) : [];
-        state.resources = caps.resources
-          ? ((await client.listResources().catch(() => ({ resources: [] }))).resources as any)
-          : [];
+        if (caps.resources) {
+          state.resources = await this.listAllResources(client);
+          state.resourceTemplates = await this.listAllTemplates(client);
+          state.canSubscribe = Boolean((caps.resources as { subscribe?: boolean }).subscribe);
+          // Keep subscriptions across reconnects.
+          const wanted = [...(this.subscriptions.get(config.id) ?? [])];
+          if (state.canSubscribe) {
+            await Promise.all(wanted.map((uri) => client.subscribeResource({ uri }).catch(() => undefined)));
+            state.subscriptions = wanted;
+          }
+        }
         state.status = "connected";
         state.error = undefined;
         state.authUrl = undefined;
@@ -263,6 +287,61 @@ export class McpManager {
       });
     }
     return client;
+  }
+
+  /** React to server-pushed notifications: resource updates and list changes. */
+  private listen(conn: Connection, client: Client): void {
+    const { config, state } = conn;
+    client.setNotificationHandler(ResourceUpdatedNotificationSchema, (notification) => {
+      const uri = notification.params.uri;
+      this.bus.emit({ kind: "resource.updated", serverId: config.id, title: `${config.name}: ${uri} updated`, data: { uri } });
+    });
+    const refresh = async (what: string, load: () => Promise<void>) => {
+      try {
+        await load();
+        this.bus.emit({ kind: "mcp.status", serverId: config.id, title: `${config.name}: ${what} changed`, data: { status: state.status, changed: what } });
+      } catch {
+        // the next reconnect will pick it up
+      }
+    };
+    client.setNotificationHandler(ResourceListChangedNotificationSchema, () =>
+      refresh("resources", async () => {
+        state.resources = await this.listAllResources(client);
+        state.resourceTemplates = await this.listAllTemplates(client);
+      }),
+    );
+    client.setNotificationHandler(ToolListChangedNotificationSchema, () =>
+      refresh("tools", async () => {
+        state.tools = await this.listAllTools(client);
+      }),
+    );
+    client.setNotificationHandler(PromptListChangedNotificationSchema, () =>
+      refresh("prompts", async () => {
+        state.prompts = (await client.listPrompts()).prompts as any;
+      }),
+    );
+  }
+
+  private async listAllResources(client: Client): Promise<McpServerState["resources"]> {
+    const out: McpServerState["resources"] = [];
+    let cursor: string | undefined;
+    do {
+      const page = await client.listResources(cursor ? { cursor } : undefined).catch(() => ({ resources: [], nextCursor: undefined }));
+      out.push(...(page.resources as any));
+      cursor = page.nextCursor;
+    } while (cursor);
+    return out;
+  }
+
+  private async listAllTemplates(client: Client): Promise<McpServerState["resourceTemplates"]> {
+    const out: McpServerState["resourceTemplates"] = [];
+    let cursor: string | undefined;
+    do {
+      const page = await client.listResourceTemplates(cursor ? { cursor } : undefined).catch(() => ({ resourceTemplates: [], nextCursor: undefined }));
+      out.push(...(page.resourceTemplates as any));
+      cursor = page.nextCursor;
+    } while (cursor);
+    return out;
   }
 
   private async listAllTools(client: Client): Promise<McpTool[]> {
@@ -405,6 +484,28 @@ export class McpManager {
     const conn = this.connections.get(serverId);
     if (!conn?.client) throw new Error("Server not connected");
     return conn.client.readResource({ uri });
+  }
+
+  /** Subscribe to `notifications/resources/updated` for a resource (kept across reconnects). */
+  async subscribe(serverId: string, uri: string): Promise<string[]> {
+    const conn = this.connections.get(serverId);
+    if (!conn?.client) throw new Error("Server not connected");
+    if (!conn.state.canSubscribe) throw new Error(`${conn.config.name} does not support resource subscriptions`);
+    await conn.client.subscribeResource({ uri });
+    const set = this.subscriptions.get(serverId) ?? new Set<string>();
+    set.add(uri);
+    this.subscriptions.set(serverId, set);
+    conn.state.subscriptions = [...set];
+    return conn.state.subscriptions;
+  }
+
+  async unsubscribe(serverId: string, uri: string): Promise<string[]> {
+    const conn = this.connections.get(serverId);
+    const set = this.subscriptions.get(serverId);
+    set?.delete(uri);
+    if (conn?.client && conn.state.canSubscribe) await conn.client.unsubscribeResource({ uri }).catch(() => undefined);
+    if (conn) conn.state.subscriptions = [...(set ?? [])];
+    return conn?.state.subscriptions ?? [];
   }
 
   async getPrompt(serverId: string, name: string, args: Record<string, string> = {}): Promise<unknown> {

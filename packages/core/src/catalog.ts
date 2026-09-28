@@ -349,18 +349,83 @@ export function buildRenderUiDescription(settings: ResolvedGenerativeUi, registr
   return sections.join("\n\n");
 }
 
-/** JSON schema for the render_ui tool, with the allowed component names enumerated. */
+const BINDING_SCHEMA: JsonSchema = {
+  type: "object",
+  description: 'Data binding: {"path": "/pointer"}',
+  properties: { path: { type: "string" } },
+  required: ["path"],
+};
+
+const literalOrBinding = (type: string): JsonSchema => ({ anyOf: [{ type }, BINDING_SCHEMA] });
+
+/** One schema for a prop name, merged across every component that declares it. */
+function mergedPropSchema(name: string, schemas: JsonSchema[]): JsonSchema {
+  switch (name) {
+    case "children":
+      return {
+        anyOf: [
+          { type: "array", items: { type: "string" }, description: "child component ids" },
+          { type: "object", description: "repeat a template per item", properties: { componentId: { type: "string" }, path: { type: "string" } }, required: ["componentId", "path"] },
+        ],
+      };
+    case "child":
+      return { type: "string", description: "child component id" };
+    case "action":
+      return {
+        type: "object",
+        properties: {
+          event: {
+            type: "object",
+            properties: { name: { type: "string" }, context: { type: "object", description: 'values or {"path": "/x"} bindings' } },
+            required: ["name"],
+          },
+        },
+        required: ["event"],
+      };
+    case "options":
+      return { type: "array", items: { type: "object", properties: { label: { type: "string" }, value: { type: "string" } }, required: ["label", "value"] } };
+    case "tabs":
+      return { type: "array", items: { type: "object", properties: { title: { type: "string" }, child: { type: "string" } }, required: ["title", "child"] } };
+  }
+  if (schemas.every((sc) => Array.isArray(sc?.enum) && sc.enum.length)) {
+    return { type: "string", enum: [...new Set(schemas.flatMap((sc) => sc.enum.map(String)))] };
+  }
+  if (schemas.some((sc) => sc?.description === binding.description)) return BINDING_SCHEMA;
+  const types = new Set(schemas.map((sc) => sc?.type).filter((t): t is string => typeof t === "string"));
+  if (types.size === 1) {
+    const [type] = [...types];
+    if (type === "array") return { type: "array", items: schemas.find((sc) => sc?.items)?.items ?? { type: "string" } };
+    if (type === "object") return schemas.find((sc) => sc?.type === "object")!;
+    return literalOrBinding(type!);
+  }
+  return literalOrBinding("string");
+}
+
+/**
+ * JSON schema for the render_ui tool. Every prop of every allowed component is
+ * declared (merged by name): some providers, notably Gemini, drop arguments
+ * that aren't in the schema.
+ */
 export function buildRenderUiSchema(registry: ComponentRegistry): Record<string, unknown> {
+  const byProp = new Map<string, JsonSchema[]>();
+  for (const [, { component }] of registry.components) {
+    for (const [prop, schema] of Object.entries(component.props ?? {})) {
+      if (prop === "id" || prop === "component") continue;
+      byProp.set(prop, [...(byProp.get(prop) ?? []), schema]);
+    }
+  }
+  const props: Record<string, JsonSchema> = { weight: { type: "number", description: "flex grow inside a Row/Column" } };
+  for (const [prop, schemas] of byProp) props[prop] = mergedPropSchema(prop, schemas);
   return {
     type: "object",
     properties: {
       surfaceId: { type: "string", description: "Stable id for this UI. Reuse it to update a UI you rendered earlier." },
       components: {
         type: "array",
-        description: 'Flat list of components. Exactly one must have id "root". Each item: {"id": string, "component": TypeName, ...props}.',
+        description: 'Flat list of components. Exactly one must have id "root". Each item: {"id": string, "component": TypeName, ...that component\'s props}.',
         items: {
           type: "object",
-          properties: { id: { type: "string" }, component: { type: "string", enum: registry.names() } },
+          properties: { id: { type: "string" }, component: { type: "string", enum: registry.names() }, ...props },
           required: ["id", "component"],
         },
       },

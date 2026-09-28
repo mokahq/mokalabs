@@ -256,6 +256,20 @@ export function createApp(options: ServerOptions): Hono {
     return c.json({ result: await engine.mcp.readResource(server.id, uri) });
   });
 
+  app.post("/api/mcp/:id/subscribe", async (c) => {
+    const server = serverOr404(c);
+    if (!server) return c.json({ error: "Unknown server" }, 404);
+    const { uri, subscribe = true } = await body<{ uri: string; subscribe?: boolean }>(c);
+    if (!uri) return badRequest(c, "uri is required");
+    await engine.mcp.ensure(server);
+    try {
+      const subscriptions = subscribe ? await engine.mcp.subscribe(server.id, uri) : await engine.mcp.unsubscribe(server.id, uri);
+      return c.json({ subscriptions });
+    } catch (error: any) {
+      return badRequest(c, error?.message ?? String(error));
+    }
+  });
+
   app.post("/api/mcp/:id/prompt", async (c) => {
     const server = serverOr404(c);
     if (!server) return c.json({ error: "Unknown server" }, 404);

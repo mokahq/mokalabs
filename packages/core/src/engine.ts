@@ -1,4 +1,4 @@
-import { dynamicTool, generateText, jsonSchema, type ModelMessage } from "ai";
+import { dynamicTool, generateText, jsonSchema, stepCountIs, type ModelMessage } from "ai";
 import path from "node:path";
 import { activeWorkspace, parseConfig, type AgentConfig, type LlmProfile, type McpServerConfig, type MokaConfig, type Workspace } from "./config.js";
 import { runAgent, type ChatChunk, type ToolAuthorization } from "./agent.js";
@@ -212,15 +212,22 @@ export class MokaEngine {
     return { ...renderUi(input, { fallbackId: `preview-${name}`, registry: new ComponentRegistry(catalogs), theme: catalog.theme }), input };
   }
 
-  /** Ask a model for a UI with only the render tool available (catalog playground). */
-  async generateUi(prompt: string, options: { workspaceId?: string; llmId?: string; signal?: AbortSignal } = {}) {
+  /**
+   * Ask a model for a UI with only the render tool available (catalog
+   * playground). Invalid UI is sent back to the model, like in chat, for up to
+   * `maxAttempts` tries.
+   */
+  async generateUi(prompt: string, options: { workspaceId?: string; llmId?: string; signal?: AbortSignal; maxAttempts?: number } = {}) {
     const workspace = this.workspace(options.workspaceId);
     const llm = this.llm(options.llmId ?? workspace.llmId);
     if (!llm) throw new Error("No model configured. Add one in Settings → Models.");
     const settings = { ...resolveGenerativeUi(workspace), enabled: true };
     const registry = workspaceRegistry(settings, await this.loadCatalogs());
+    const maxAttempts = options.maxAttempts ?? 3;
     const started = Date.now();
-    let captured: unknown;
+    const attempts: Array<{ input: unknown; problems: string[] }> = [];
+    let accepted: ReturnType<typeof renderUi> | undefined;
+    let acceptedInput: unknown;
     const result = await generateText({
       model: createModel(llm, this.env),
       system: workspace.systemPrompt,
@@ -230,17 +237,33 @@ export class MokaEngine {
           description: buildRenderUiDescription(settings, registry),
           inputSchema: jsonSchema(buildRenderUiSchema(registry) as any),
           execute: async (input) => {
-            captured = input;
-            return "ok";
+            const rendered = renderUi(input, { fallbackId: "generated", registry, theme: settings.theme });
+            attempts.push({ input, problems: rendered.problems });
+            if (rendered.problems.length === 0) {
+              accepted = rendered;
+              acceptedInput = input;
+              return "UI rendered.";
+            }
+            return `Invalid UI, nothing was shown. Fix these problems and call ${settings.toolName} again:\n- ${rendered.problems.join("\n- ")}`;
           },
         }),
       },
       toolChoice: "required",
+      stopWhen: [stepCountIs(maxAttempts), () => accepted !== undefined],
       maxRetries: 1,
       abortSignal: options.signal ?? AbortSignal.timeout(120_000),
     });
-    const rendered = captured ? renderUi(captured, { fallbackId: "generated", registry, theme: settings.theme }) : { messages: [], problems: ["The model did not call the render tool"] };
-    return { ...rendered, input: captured, model: llm.model, durationMs: Date.now() - started, usage: result.totalUsage };
+    const last = attempts.at(-1);
+    const rendered = accepted ?? (last ? renderUi(last.input, { fallbackId: "generated", registry, theme: settings.theme }) : { messages: [], problems: ["The model did not call the render tool"] });
+    return {
+      ...rendered,
+      input: acceptedInput ?? last?.input,
+      attempts: attempts.length,
+      model: llm.model,
+      llmId: llm.id,
+      durationMs: Date.now() - started,
+      usage: result.totalUsage,
+    };
   }
 
   /** The render tool definition a workspace exposes (for the playground and docs). */
