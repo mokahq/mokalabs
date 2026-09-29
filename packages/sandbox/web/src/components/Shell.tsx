@@ -1,6 +1,8 @@
 import {
   Check,
   ChevronDown,
+  BookOpen,
+  Bug,
   Code2,
   Command,
   Cpu,
@@ -19,6 +21,7 @@ import {
   Search,
   Settings2,
   Sparkles,
+  Star,
   Sun,
   Trash2,
   Upload,
@@ -27,6 +30,7 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { api } from "../api";
+import { DOCS_URL, ISSUES_URL, REPO_URL } from "../links";
 import { useStore, type View } from "../store";
 import { Button, CopyButton, IconButton, Kbd, Modal, StatusDot, Tabs, cn } from "./ui";
 
@@ -486,6 +490,9 @@ export function CommandPalette() {
       { id: "presenter", label: "Toggle presenter mode", hint: "⌘.", icon: <Presentation className={i} />, run: () => s.set({ presenter: !s.presenter }) },
       { id: "inspector", label: "Toggle inspector", hint: "⌘I", icon: <PanelRight className={i} />, run: () => s.set({ inspectorOpen: !s.inspectorOpen }) },
       { id: "theme", label: "Toggle theme", icon: <Monitor className={i} />, run: s.toggleTheme },
+      { id: "star", label: "Star Moka on GitHub", icon: <Star className={i} />, run: () => window.open(REPO_URL, "_blank", "noopener") },
+      { id: "docs", label: "Open the docs", icon: <BookOpen className={i} />, run: () => window.open(DOCS_URL, "_blank", "noopener") },
+      { id: "issue", label: "Report an issue or ask for a feature", icon: <Bug className={i} />, run: () => window.open(ISSUES_URL, "_blank", "noopener") },
     ];
     for (const w of s.config.workspaces) list.push({ id: `ws:${w.id}`, label: `Switch workspace: ${w.name}`, icon: <Layers className={i} />, run: () => void s.setActiveWorkspace(w.id) });
     for (const l of s.config.llms) list.push({ id: `llm:${l.id}`, label: `Use model: ${l.name} · ${l.model}`, icon: <Cpu className={i} />, run: () => void s.setWorkspaceModel(l.id) });

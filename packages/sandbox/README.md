@@ -1,10 +1,12 @@
 # @mokalabs/sandbox
 
-**Any LLM. Any MCP server. Any skill. One command.**
+**See every MCP message.** Chat with any LLM, plug in any MCP server, agent or skill, and inspect every call.
 
 ```bash
 npx @mokalabs/sandbox
 ```
+
+![Moka: MCP tool calls and the inspector's raw JSON-RPC](https://raw.githubusercontent.com/mokahq/mokalabs/main/docs/assets/inspector.gif)
 
 Moka is a local web sandbox for chatting with any model (OpenAI, Anthropic, Gemini, Azure, Ollama, OpenRouter, Groq, or any OpenAI-compatible gateway) while plugging in MCP servers (stdio, Streamable HTTP, SSE) and Agent Skills. A live inspector shows every LLM step, tool call and raw JSON-RPC message.
 
@@ -23,3 +25,5 @@ moka demo-server   # run the bundled demo MCP server on stdio
 Docker: `docker run --rm -p 4000:4000 -e OPENAI_API_KEY ghcr.io/mokahq/moka`
 
 Full docs: https://github.com/mokahq/mokalabs
+
+⭐ If Moka saves you time, [star it on GitHub](https://github.com/mokahq/mokalabs) so other people can find it.

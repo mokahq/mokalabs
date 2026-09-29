@@ -18,6 +18,7 @@ Each event has `id`, `ts` (ms), `kind`, `title`, and optionally `runId`, `server
 | `run.error` | A turn fails or is stopped | error name, message, HTTP status, response body |
 | `mcp.status` | A server connects, fails or disconnects | `status`, `error`, `serverInfo`, `tools` count |
 | `mcp.rpc` | Any JSON-RPC message to/from a server | the raw message |
+| `mcp.http` | An HTTP request to a remote server fails (4xx/5xx or no response) | `method`, `url`, `status` or `error`, masked `requestHeaders`, `responseHeaders` (e.g. `www-authenticate`), `configured` |
 | `resource.updated` | A subscribed resource changed (`notifications/resources/updated`) | `uri` |
 | `mcp.log` | A stdio server writes to stderr, or the client errors | the line |
 | `ui.rpc` | An MCP App message crosses the iframe boundary | the raw JSON-RPC (or MCP-UI) message |
@@ -25,7 +26,7 @@ Each event has `id`, `ts` (ms), `kind`, `title`, and optionally `runId`, `server
 | `interaction.request` | A tool approval, elicitation or sampling request is waiting for the user | the request, with its `id` and `kind` |
 | `interaction.resolved` | That request was answered or cancelled | `id`, `kind`, `outcome`, `response` |
 | `agent.request` | Moka sends a turn to a remote agent | A2A JSON-RPC body or AG-UI `RunAgentInput` |
-| `agent.event` | An A2A result or AG-UI event arrives | the raw event |
+| `agent.event` | An A2A result or AG-UI event arrives | the raw event; AG-UI `RAW` events are collapsed into one `count`/`events` entry per run |
 | `agent.response` | The agent's turn is done | |
 | `log` | Warnings, e.g. a server skipped because it couldn't connect | |
 

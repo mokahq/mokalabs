@@ -8,6 +8,7 @@ export * from "./ui.js";
 export * from "./catalog.js";
 export * from "./interactions.js";
 export * from "./oauth.js";
+export * from "./http-trace.js";
 export * from "./remote-agent.js";
 export * from "./interop.js";
 export * from "./store.js";

@@ -20,6 +20,7 @@ import type { InteractionBroker } from "./interactions.js";
 import { MokaOAuthProvider, oauthSettings, type OAuthStore } from "./oauth.js";
 import { resolveRecord, resolveSecret, type McpServerConfig } from "./config.js";
 import type { EventBus } from "./events.js";
+import { tracingFetch, type HttpExchange } from "./http-trace.js";
 
 /** "auth" = the server needs the user to sign in (OAuth); see `authUrl`. */
 export type McpStatus = "idle" | "connecting" | "connected" | "error" | "auth";
@@ -56,6 +57,8 @@ export interface McpServerState {
   authUrl?: string;
   /** Present for OAuth-capable servers. */
   oauth?: { signedIn: boolean };
+  /** HTTP/SSE servers: the latest exchange with the endpoint, secret values masked. */
+  http?: HttpExchange;
 }
 
 interface Connection {
@@ -226,6 +229,10 @@ export class McpManager {
         } else {
           state.status = "error";
           state.error = errorMessage(error);
+          // The SDK's message is often empty ("Error POSTing to endpoint: "); say what the server answered.
+          const http = state.http;
+          if (http?.status && http.status >= 400 && !state.error.includes(String(http.status))) state.error += ` (HTTP ${http.status})`;
+          else if (http?.error && !state.error.includes(http.error)) state.error += ` (${http.error})`;
         }
         this.emitStatus(conn, Date.now() - started);
         await conn.client?.close().catch(() => {});
@@ -355,6 +362,31 @@ export class McpManager {
     return tools;
   }
 
+  /** Record what each HTTP request to the server actually carried. */
+  private traceFetch(conn: Connection, endpoint: URL, headers: Record<string, string> | undefined, sameOrigin = false) {
+    const { config, state } = conn;
+    return tracingFetch({
+      endpoint,
+      sameOrigin,
+      configured: headers,
+      onExchange: (exchange) => {
+        if (this.connections.get(config.id) !== conn) return;
+        state.http = exchange;
+        if (exchange.error || (exchange.status ?? 0) >= 400) {
+          const path = new URL(exchange.url).pathname;
+          this.bus.emit({
+            kind: "mcp.http",
+            level: "error",
+            title: `${config.name}: ${exchange.error ? `${exchange.method} ${path} failed` : `HTTP ${exchange.status} on ${exchange.method} ${path}`}`,
+            serverId: config.id,
+            durationMs: exchange.durationMs,
+            data: exchange,
+          });
+        }
+      },
+    });
+  }
+
   private createTransport(conn: Connection): Transport {
     const { config } = conn;
     const headers = resolveRecord(config.headers, this.env);
@@ -388,16 +420,19 @@ export class McpManager {
         return new StreamableHTTPClientTransport(url, {
           requestInit: { headers },
           authProvider: this.oauthProvider(conn, url),
+          fetch: this.traceFetch(conn, url, headers),
         });
       }
       case "sse": {
         if (!config.url) throw new Error("A URL is required for SSE servers.");
         const url = new URL(resolveSecret(config.url, this.env)!);
+        const traced = this.traceFetch(conn, url, headers, true);
         return new SSEClientTransport(url, {
           authProvider: this.oauthProvider(conn, url),
           requestInit: { headers },
+          fetch: traced,
           eventSourceInit: headers
-            ? { fetch: (url, init) => fetch(url, { ...init, headers: { ...(init?.headers as any), ...headers } }) }
+            ? { fetch: (url, init) => traced(url, { ...init, headers: { ...(init?.headers as any), ...headers } }) }
             : undefined,
         });
       }

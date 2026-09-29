@@ -15,6 +15,7 @@ export type MokaEventKind =
   | "mcp.status"
   | "mcp.rpc"
   | "mcp.log"
+  | "mcp.http"
   | "resource.updated"
   | "skill.load"
   | "ui.rpc"

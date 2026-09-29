@@ -4,11 +4,11 @@
 
 # Moka
 
-**Any LLM. Any MCP server. Any skill. One command.**
+**See every MCP message.**
+
+Chat with any LLM, plug in any MCP server, agent or skill, and inspect every call: raw JSON-RPC, tool calls, tokens and timings. One command, zero config.
 
 *Tiny arms. Strong brew.* ☕
-
-A local sandbox to chat with any model, plug in MCP servers and Agent Skills, and see every call in a live inspector.
 
 [![npm](https://img.shields.io/npm/v/@mokalabs/sandbox?color=c2703d&label=%40mokalabs%2Fsandbox)](https://www.npmjs.com/package/@mokalabs/sandbox)
 [![CI](https://github.com/mokahq/mokalabs/actions/workflows/ci.yml/badge.svg)](https://github.com/mokahq/mokalabs/actions/workflows/ci.yml)
@@ -19,7 +19,9 @@ A local sandbox to chat with any model, plug in MCP servers and Agent Skills, an
 npx @mokalabs/sandbox
 ```
 
-<img src="docs/assets/chat.png" alt="Moka chat with tool calls and the live inspector" width="100%" />
+<img src="docs/assets/inspector.gif" alt="Moka: a chat with MCP tool calls, then the inspector's raw JSON-RPC request and response" width="100%" />
+
+<sub>⭐ If Moka saves you time, a star helps other people find it.</sub>
 
 </div>
 
@@ -83,7 +85,7 @@ API keys can be pasted directly or referenced as `env:OPENAI_API_KEY`. Reference
 - **Manual:** stdio (command, args, env, cwd) or HTTP/SSE (URL, headers). `${VAR}` expands from the environment.
 - **Paste JSON:** the `mcpServers` block from Claude Desktop, Claude Code, Cursor or Windsurf, or VS Code's `servers`.
 
-Once connected, you can switch individual tools on or off for the model, and call them manually from the **Tools** view.
+Once connected, you can switch individual tools on or off for the model, and call them manually from the **Tools** view. For HTTP servers, the **HTTP** section shows every header the last request actually carried (yours and the ones the client adds, secrets masked).
 
 ### Skills
 A skill is a folder containing a `SKILL.md` (YAML frontmatter with `name` and `description`, then instructions) plus optional reference files. Moka lists each skill's name and description in the system prompt. The model calls the built-in `load_skill` tool when a skill is relevant, and `read_skill_file` to read the skill's other files.
@@ -100,7 +102,9 @@ The right-hand panel streams everything Moka does:
 - `llm.request` / `llm.response`: per step, with provider request body, finish reason, usage and latency
 - `tool.call` / `tool.result` / `tool.error`: arguments, outputs and durations
 - `mcp.rpc`: raw JSON-RPC in both directions, including the `initialize` handshake
+- `mcp.http`: failed HTTP requests to remote servers (status, `WWW-Authenticate`, masked headers)
 - `mcp.status` / `mcp.log`: connections and server stderr
+- `agent.*`: A2A and AG-UI traffic (framework `RAW` events are collapsed into one entry per run)
 
 Click any event to see its full payload and the run's waterfall. **Download trace** exports everything as JSON.
 

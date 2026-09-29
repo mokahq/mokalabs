@@ -437,6 +437,9 @@ export function toAguiMessages(messages: ModelMessage[]): any[] {
   return out;
 }
 
+/** How many collapsed RAW events to keep for the inspector. */
+const RAW_KEEP = 200;
+
 async function* runAgui(options: RunRemoteAgentOptions): AsyncGenerator<ChatChunk> {
   const { agent, bus, runId, signal } = options;
   const env = options.env ?? process.env;
@@ -472,6 +475,18 @@ async function* runAgui(options: RunRemoteAgentOptions): AsyncGenerator<ChatChun
     let text = "";
     const calls = new Map<string, { name: string; args: string; done: boolean; result?: string }>();
     const order: string[] = [];
+    // Adapters like ag-ui-langgraph re-emit every framework event as RAW; show them as one entry.
+    const raw: unknown[] = [];
+    const flushRaw = () => {
+      if (raw.length === 0) return;
+      bus.emit({
+        kind: "agent.event",
+        runId,
+        title: `AG-UI RAW × ${raw.length} (collapsed)`,
+        data: { count: raw.length, events: raw.slice(0, RAW_KEEP), ...(raw.length > RAW_KEEP ? { truncated: raw.length - RAW_KEEP } : {}) },
+      });
+      raw.length = 0;
+    };
 
     for await (const event of readSse(res.body, signal)) {
       let e: any;
@@ -482,7 +497,11 @@ async function* runAgui(options: RunRemoteAgentOptions): AsyncGenerator<ChatChun
       }
       const type = String(e.type ?? event.event ?? "");
       const quiet = type === "TEXT_MESSAGE_CONTENT" || type === "TOOL_CALL_ARGS" || type.endsWith("_CHUNK") || type.includes("THINKING") || type.includes("REASONING");
-      if (!quiet) bus.emit({ kind: "agent.event", runId, title: `AG-UI ${type}${e.toolCallName ? ` · ${e.toolCallName}` : e.stepName ? ` · ${e.stepName}` : ""}`, data: e });
+      if (type === "RAW" && !parseA2ui(e.value ?? e.content ?? e.event)) raw.push(e);
+      else if (!quiet) {
+        if (type === "RUN_FINISHED" || type === "RUN_ERROR") flushRaw();
+        bus.emit({ kind: "agent.event", runId, title: `AG-UI ${type}${e.toolCallName ? ` · ${e.toolCallName}` : e.stepName ? ` · ${e.stepName}` : ""}`, data: e });
+      }
       switch (type) {
         case "TEXT_MESSAGE_CONTENT":
         case "TEXT_MESSAGE_CHUNK":
@@ -551,6 +570,7 @@ async function* runAgui(options: RunRemoteAgentOptions): AsyncGenerator<ChatChun
           break;
       }
     }
+    flushRaw();
 
     answer += text;
     // Frontend tool calls the agent expects us to run.

@@ -122,6 +122,14 @@ A2UI component catalogs. See [custom catalogs](/generative-ui/catalogs/).
 | `generativeUi` | boolean \| object? | `false` to turn off the render tool, or [settings](/generative-ui/customize/): `toolName`, `catalogIds`, `standard`, `allow`, `deny`, `instructions`, `description`, `examples`, `repair`, `theme`. Default on |
 | `requireApproval` | boolean? | Ask before every MCP tool call in this workspace |
 
+## `ui`
+
+App preferences, also under **Settings → Config file → Preferences**.
+
+| Field | Type | Description |
+|---|---|---|
+| `starLink` | boolean? | Show the small "Star it on GitHub" line on the empty chat screen and in the terminal banner. Default `true`; the line's **Hide** link sets it to `false` |
+
 ## Full example
 
 ```json title="moka.json"

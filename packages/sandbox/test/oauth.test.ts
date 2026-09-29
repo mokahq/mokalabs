@@ -119,6 +119,7 @@ describe("MCP OAuth", () => {
     expect(authUrl.searchParams.get("code_challenge_method")).toBe("S256");
     expect(authUrl.searchParams.get("redirect_uri")).toBe(`http://localhost:${sandbox.port}/oauth/callback`);
     expect(authUrl.searchParams.get("state")).toMatch(/^secure\./);
+    expect(state.http).toMatchObject({ status: 401, responseHeaders: { "www-authenticate": expect.stringContaining("resource_metadata=") } });
     expect(protectedServer.registrations[0]).toMatchObject({ client_name: "Moka", redirect_uris: [`http://localhost:${sandbox.port}/oauth/callback`] });
   }, 20_000);
 
@@ -134,6 +135,9 @@ describe("MCP OAuth", () => {
     const secure = servers.find((s: any) => s.id === "secure");
     expect(secure).toMatchObject({ status: "connected", oauth: { signedIn: true } });
     expect(secure.tools.map((t: any) => t.name)).toEqual(["whoami"]);
+    // The OAuth token the SDK added shows up masked, never in full.
+    expect(secure.http.requestHeaders.authorization).toBe("Bearer secr••• (12 chars)");
+    expect(JSON.stringify(secure)).not.toContain("secret-token");
     const call = await api("/api/mcp/secure/call", { tool: "whoami", args: {} });
     expect(call.result.content[0].text).toBe("you are signed in");
     // POSIX permissions only; Windows always reports 0o666 and relies on the user-profile ACL.

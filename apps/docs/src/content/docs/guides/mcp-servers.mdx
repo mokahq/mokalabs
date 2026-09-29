@@ -88,6 +88,14 @@ Tools that declare MCP Apps `visibility: ["app"]` are never shown to the model �
 - Server **instructions** (from the `initialize` result) are appended to the system prompt.
 - Every JSON-RPC message in both directions appears in the [Inspector](/guides/inspector/) under **RPC**, and stderr lines under **Logs**.
 
+## See the headers that were sent
+
+For Streamable HTTP and SSE servers, the server's page in **Settings → MCP servers** has an **HTTP** section showing the last request to the server: method, URL, status, timing, and **every header it actually carried**. That includes your configured headers (marked *your config*) and the ones the client adds itself, such as `Authorization` after OAuth sign-in, `mcp-session-id` and `mcp-protocol-version`. Useful response headers (`WWW-Authenticate`, `mcp-session-id`) are shown too.
+
+Secret values are masked (`X-API-Secret: very••• (21 chars)`), as are query-string values in the URL, so a screenshot is safe to share. If a configured header wasn't sent, it's listed as *configured but not sent*.
+
+When a request fails (a 4xx/5xx response or no response at all), the connection error names the status, e.g. `(HTTP 401)`, and an `mcp.http` event with the same details appears in the inspector.
+
 ## Troubleshooting
 
 | Symptom | Fix |
@@ -95,7 +103,7 @@ Tools that declare MCP Apps `visibility: ["app"]` are never shown to the model �
 | `spawn npx ENOENT` | Node isn't on the `PATH` Moka sees. Use an absolute path to `npx`, or add `PATH` under environment variables. |
 | `spawn uvx ENOENT` | Install [uv](https://docs.astral.sh/uv/) (`brew install uv`). |
 | Times out connecting | The first `npx -y` download can be slow; raise **Timeout (ms)** under Advanced. |
-| HTTP 401 / 403 | Check headers; remember `${VAR}` must be set in the environment Moka was started from. |
+| HTTP 401 / 403 | Open the server's **HTTP** section to see which headers were sent and what the server answered (`WWW-Authenticate`). Remember `${VAR}` must be set in the environment Moka was started from. |
 | Connects but no tools | The server may only expose resources/prompts — browse them in the Tools view. |
 
 More in [Troubleshooting](/help/troubleshooting/).

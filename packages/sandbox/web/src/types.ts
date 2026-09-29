@@ -141,6 +141,7 @@ export interface MokaConfig {
   agents: AgentConfig[];
   catalogs: CatalogConfig[];
   workspaces: Workspace[];
+  ui?: { starLink?: boolean };
 }
 
 export interface ProviderPreset {
@@ -190,6 +191,21 @@ export interface McpServerState {
   canSubscribe?: boolean;
   subscriptions?: string[];
   stderr: string[];
+  /** HTTP/SSE servers: the latest exchange with the endpoint, secret values masked. */
+  http?: HttpExchange;
+}
+
+export interface HttpExchange {
+  method: string;
+  url: string;
+  at: number;
+  durationMs?: number;
+  status?: number;
+  error?: string;
+  requestHeaders: Record<string, string>;
+  responseHeaders?: Record<string, string>;
+  /** Lower-cased names of headers that came from the server's config. */
+  configured: string[];
 }
 
 export interface LoadedSkill {

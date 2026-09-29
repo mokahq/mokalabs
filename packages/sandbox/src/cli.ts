@@ -190,6 +190,10 @@ async function main(): Promise<void> {
     console.log(`  ${dim(`   Listening on ${sandbox.host}:${sandbox.port}`)}`);
   }
   console.log("");
+  if (sandbox.engine.getConfig().ui?.starLink !== false) {
+    console.log(`  ${dim("⭐ Enjoying Moka? Star it: https://github.com/mokahq/mokalabs")}`);
+    console.log("");
+  }
 
   if (!values["no-open"] && !process.env.CI && process.env.MOKA_NO_OPEN !== "1") {
     try {
