@@ -16,6 +16,7 @@ import {
   Settings2,
   Sparkles,
   Square,
+  Star,
   Wrench,
   Zap,
 } from "lucide-react";
@@ -24,6 +25,7 @@ import { api } from "../api";
 import { uid } from "../runner";
 import { useStore } from "../store";
 import type { Attachment, Part, UiMessage } from "../types";
+import { REPO_URL } from "../links";
 import { Dino } from "./Dino";
 import { ApprovalBar, usePendingApproval } from "./Interactions";
 import { Markdown } from "./Markdown";
@@ -77,7 +79,9 @@ export function ChatView() {
 
 function EmptyChat() {
   const workspace = useStore((s) => s.workspace());
+  const presenter = useStore((s) => s.presenter);
   const config = useStore((s) => s.config);
+  const saveConfig = useStore((s) => s.saveConfig);
   const mcp = useStore((s) => s.mcp);
   const skills = useStore((s) => s.skills);
   const send = useStore((s) => s.send);
@@ -140,6 +144,22 @@ function EmptyChat() {
                 <span className="line-clamp-2">{prompt}</span>
               </button>
             ))}
+          </div>
+        )}
+        {!presenter && config.ui?.starLink !== false && (
+          <div className="mt-10 inline-flex items-center gap-2 text-[12px] text-subtle">
+            <a href={REPO_URL} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 transition-colors hover:text-accent">
+              <Star className="h-3.5 w-3.5" />
+              Enjoying Moka? Star it on GitHub
+            </a>
+            <span aria-hidden>·</span>
+            <button
+              title="Hide this line (turn it back on in Settings → Config file)"
+              className="transition-colors hover:text-fg"
+              onClick={() => saveConfig({ ...config, ui: { ...config.ui, starLink: false } }, "Star link hidden. Turn it back on in Settings → Config file.")}
+            >
+              Hide
+            </button>
           </div>
         )}
       </div>

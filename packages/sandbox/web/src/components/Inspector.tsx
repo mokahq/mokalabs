@@ -31,7 +31,7 @@ const FILTERS: Record<Filter, (e: MokaEvent) => boolean> = {
   all: () => true,
   llm: (e) => e.kind.startsWith("llm.") || e.kind.startsWith("run.") || e.kind.startsWith("agent."),
   tools: (e) => e.kind.startsWith("tool.") || e.kind === "skill.load" || e.kind.startsWith("ui.") || e.kind.startsWith("interaction."),
-  rpc: (e) => e.kind === "mcp.rpc",
+  rpc: (e) => e.kind === "mcp.rpc" || e.kind === "mcp.http",
   logs: (e) => e.kind === "mcp.log" || e.kind === "mcp.status" || e.kind === "resource.updated" || e.kind === "log" || e.level === "error",
 };
 

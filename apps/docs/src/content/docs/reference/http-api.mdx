@@ -54,7 +54,7 @@ curl -N -H "x-moka-token: $TOKEN" -H 'content-type: application/json' \
 | `POST /api/export` | `{target: "ai-sdk"\|"langgraph"\|"mcp-json"\|"moka", workspaceId}` → `{code}` |
 | `POST /api/llm/test` | `{profile}` → `{ok, latencyMs, text?, error?}` |
 | `POST /api/llm/models` | `{profile}` → `{models, error?}` |
-| `GET /api/mcp` | All server states |
+| `GET /api/mcp` | All server states. HTTP/SSE servers include `http`: the last request with masked headers |
 | `POST /api/mcp/test` | `{server}` → connect a draft config and report capabilities |
 | `POST /api/mcp/import` | `{json}` → parsed servers from Claude/Cursor/VS Code JSON |
 | `POST /api/mcp/:id/connect` | `{force?}` → connect or reconnect |

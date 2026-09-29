@@ -33,6 +33,12 @@ describe("config", () => {
     expect(config.activeWorkspaceId).toBe("a");
   });
 
+  it("keeps UI preferences", () => {
+    expect(parseConfig({}).ui).toBeUndefined();
+    expect(parseConfig({ ui: { starLink: false } }).ui).toEqual({ starLink: false });
+    expect(() => parseConfig({ ui: { starLink: "no" } })).toThrow();
+  });
+
   it("rejects unknown providers", () => {
     expect(() => parseConfig({ llms: [{ id: "x", name: "X", provider: "nope", model: "m" }] })).toThrow();
   });

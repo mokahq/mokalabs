@@ -188,6 +188,13 @@ export const mokaConfigSchema = z.object({
   /** A2UI component catalogs available to workspaces. */
   catalogs: z.array(catalogConfigSchema).default([]),
   workspaces: z.array(workspaceSchema).default([]),
+  /** App preferences. */
+  ui: z
+    .object({
+      /** Show the small "Star it on GitHub" line on the empty chat screen and in the terminal banner (default true). */
+      starLink: z.boolean().optional(),
+    })
+    .optional(),
 });
 export type MokaConfig = z.infer<typeof mokaConfigSchema>;
 

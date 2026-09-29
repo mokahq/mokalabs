@@ -1,7 +1,7 @@
 import { Download, FileJson, Upload } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
-import { Button, Textarea } from "../components/ui";
+import { Button, Switch, Textarea } from "../components/ui";
 import { useStore } from "../store";
 import type { MokaConfig } from "../types";
 import { Section } from "./Settings";
@@ -87,6 +87,19 @@ export function ConfigSettings() {
             Validate & save
           </Button>
         </div>
+      </Section>
+      <Section title="Preferences">
+        <label className="flex items-center justify-between gap-4 text-[13px]">
+          <span>
+            <span className="font-medium">Show the "Star it on GitHub" line</span>
+            <span className="block text-muted">On the empty chat screen and in the terminal when Moka starts.</span>
+          </span>
+          <Switch
+            checked={config.ui?.starLink !== false}
+            onChange={(on) => saveConfig({ ...config, ui: { ...config.ui, starLink: on } }, on ? "Star link shown" : "Star link hidden")}
+            label="Show the star link"
+          />
+        </label>
       </Section>
     </div>
   );

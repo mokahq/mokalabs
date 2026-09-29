@@ -1,4 +1,6 @@
 import { mkdtempSync, writeFileSync } from "node:fs";
+import { createServer, type Server } from "node:http";
+import type { AddressInfo } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -6,7 +8,26 @@ import { startDemoAgent, startSandbox, type DemoAgent, type RunningSandbox } fro
 
 let sandbox: RunningSandbox;
 let agent: DemoAgent;
+let noisy: Server;
 let base: string;
+
+/** An AG-UI agent that, like ag-ui-langgraph, re-emits every framework event as RAW. */
+async function startNoisyAgent(): Promise<string> {
+  noisy = createServer((req, res) => {
+    req.resume();
+    res.writeHead(200, { "content-type": "text/event-stream" });
+    const send = (e: unknown) => res.write(`data: ${JSON.stringify(e)}\n\n`);
+    send({ type: "RUN_STARTED", threadId: "t", runId: "r" });
+    for (let i = 0; i < 250; i++) send({ type: "RAW", event: { event: "on_chain_stream", seq: i } });
+    send({ type: "TEXT_MESSAGE_START", messageId: "m", role: "assistant" });
+    send({ type: "TEXT_MESSAGE_CONTENT", messageId: "m", delta: "hi" });
+    send({ type: "TEXT_MESSAGE_END", messageId: "m" });
+    send({ type: "RUN_FINISHED", threadId: "t", runId: "r" });
+    res.end();
+  });
+  await new Promise<void>((resolve) => noisy.listen(0, "127.0.0.1", resolve));
+  return `http://127.0.0.1:${(noisy.address() as AddressInfo).port}/agent`;
+}
 
 const post = async (pathname: string, body: unknown) => {
   const res = await fetch(`${base}${pathname}`, { method: "POST", headers: { "x-moka-token": "t", "content-type": "application/json" }, body: JSON.stringify(body) });
@@ -17,6 +38,7 @@ const textOf = (chunks: any[]) => chunks.filter((c) => c.type === "text").map((c
 
 beforeAll(async () => {
   agent = await startDemoAgent(0);
+  const noisyUrl = await startNoisyAgent();
   const home = mkdtempSync(path.join(os.tmpdir(), "moka-agents-"));
   const configPath = path.join(home, "moka.json");
   writeFileSync(
@@ -26,6 +48,7 @@ beforeAll(async () => {
       agents: [
         { id: "a2a", name: "Demo A2A", protocol: "a2a", url: agent.a2aUrl },
         { id: "agui", name: "Demo AG-UI", protocol: "ag-ui", url: agent.aguiUrl, shareTools: true },
+        { id: "noisy", name: "Noisy AG-UI", protocol: "ag-ui", url: noisyUrl },
       ],
       mcpServers: [{ id: "moka-demo", name: "Demo", transport: "stdio", command: "moka:demo" }],
       workspaces: [{ id: "w", name: "W", agentId: "a2a", mcpServerIds: ["moka-demo"], skillIds: [] }],
@@ -38,6 +61,7 @@ beforeAll(async () => {
 afterAll(async () => {
   await sandbox?.close();
   await agent?.close();
+  await new Promise<void>((r) => (noisy ? noisy.close(() => r()) : r()));
 });
 
 describe("A2A agents", () => {
@@ -103,4 +127,18 @@ describe("AG-UI agents", () => {
     const firstRun = sandbox.engine.bus.history().filter((e) => e.kind === "agent.request").at(-2)!.data as any;
     expect(firstRun.body.tools.map((t: any) => t.name)).toEqual(expect.arrayContaining(["moka-demo__get_time", "render_ui"]));
   }, 30_000);
+});
+
+describe("AG-UI RAW events", () => {
+  it("collapses them into one inspector entry before RUN_FINISHED", async () => {
+    const chunks = await chat({ agentId: "noisy", messages: [{ role: "user", content: "hi" }] });
+    expect(textOf(chunks)).toBe("hi");
+    const runId = sandbox.engine.bus.history().filter((e) => e.kind === "agent.request").at(-1)!.runId;
+    const titles = sandbox.engine.bus.history().filter((e) => e.runId === runId && e.kind === "agent.event").map((e) => e.title);
+    expect(titles.filter((t) => t.startsWith("AG-UI RAW"))).toEqual(["AG-UI RAW × 250 (collapsed)"]);
+    expect(titles.indexOf("AG-UI RAW × 250 (collapsed)")).toBe(titles.indexOf("AG-UI RUN_FINISHED") - 1);
+    const collapsed = sandbox.engine.bus.history().find((e) => e.runId === runId && e.title.startsWith("AG-UI RAW"))!.data as any;
+    expect(collapsed).toMatchObject({ count: 250, truncated: 50 });
+    expect(collapsed.events).toHaveLength(200);
+  });
 });

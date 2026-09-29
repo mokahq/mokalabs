@@ -329,15 +329,19 @@ export function KeyValueEditor({
     <div className="space-y-1.5">
       {rows.map(([k, v], i) => (
         <div key={i} className="flex gap-1.5">
-          <Input mono className="w-2/5" placeholder={keyPlaceholder} value={k} onChange={(e) => commit(rows.map((r, j) => (j === i ? [e.target.value, r[1]] : r)))} />
-          <Input
-            mono
-            className="flex-1"
-            placeholder={valuePlaceholder}
-            type={secretKeys.test(k) && !v.startsWith("env:") && !v.startsWith("${") ? "password" : "text"}
-            value={v}
-            onChange={(e) => commit(rows.map((r, j) => (j === i ? [r[0], e.target.value] : r)))}
-          />
+          {/* Widths live on wrappers: Input's own w-full would win over a width class. */}
+          <div className="w-2/5 shrink-0">
+            <Input mono placeholder={keyPlaceholder} value={k} onChange={(e) => commit(rows.map((r, j) => (j === i ? [e.target.value, r[1]] : r)))} />
+          </div>
+          <div className="min-w-0 flex-1">
+            <Input
+              mono
+              placeholder={valuePlaceholder}
+              type={secretKeys.test(k) && !v.startsWith("env:") && !v.startsWith("${") ? "password" : "text"}
+              value={v}
+              onChange={(e) => commit(rows.map((r, j) => (j === i ? [r[0], e.target.value] : r)))}
+            />
+          </div>
           <IconButton label="Remove" className="h-9 w-9 shrink-0" onClick={() => commit(rows.filter((_, j) => j !== i))}>
             <Trash2 className="h-3.5 w-3.5" />
           </IconButton>

@@ -1,9 +1,9 @@
 import { ClipboardPaste, Globe, KeyRound, LayoutGrid, LogOut, Play, Plug, Plus, RefreshCw, ShieldCheck, Terminal, Trash2, Unplug, Wrench } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
-import { Badge, Button, Empty, Field, Input, JsonView, KeyValueEditor, Modal, Select, StatusDot, Switch, Tabs, Textarea, cn } from "../components/ui";
+import { Badge, Button, Empty, Field, Input, JsonView, KeyValueEditor, Modal, Select, StatusDot, Switch, Tabs, Textarea, cn, formatMs } from "../components/ui";
 import { useStore } from "../store";
-import type { McpServerConfig, McpServerState } from "../types";
+import type { HttpExchange, McpServerConfig, McpServerState } from "../types";
 import { FormFooter, ListItem, MasterDetail, Section } from "./Settings";
 
 interface GalleryItem {
@@ -604,6 +604,11 @@ function ServerForm({ initial, isNew, onCreated }: { initial: McpServerConfig; i
             )}
           </Section>
         )}
+        {state?.status === "connected" && state.http && (
+          <Section title="HTTP" description="What the last request to this server actually carried. Secret values are masked.">
+            <HttpPanel http={state.http} />
+          </Section>
+        )}
       </div>
       <FormFooter>
         <Button variant="danger" size="sm" icon={<Trash2 className="h-3.5 w-3.5" />} onClick={remove}>
@@ -651,12 +656,64 @@ function StatePanel({ state }: { state?: McpServerState }) {
           ))}
         </div>
       )}
+      {!ok && state.http && (
+        <div className="mt-3">
+          <HttpPanel http={state.http} />
+        </div>
+      )}
       {!ok && state.stderr.length > 0 && (
         <div className="mt-2">
           <div className="mb-1 text-[11px] font-medium text-subtle uppercase">stderr</div>
           <JsonView value={state.stderr.slice(-30).join("\n")} maxHeight="10rem" />
         </div>
       )}
+    </div>
+  );
+}
+
+/** The latest request/response with the server: every header that was sent, masked. */
+export function HttpPanel({ http }: { http: HttpExchange }) {
+  const request = Object.entries(http.requestHeaders).sort(([a], [b]) => a.localeCompare(b));
+  const response = Object.entries(http.responseHeaders ?? {});
+  const missing = http.configured.filter((name) => !(name in http.requestHeaders));
+  const bad = Boolean(http.error) || (http.status ?? 0) >= 400;
+  return (
+    <div className="space-y-3 text-[12.5px]">
+      <div className="flex flex-wrap items-center gap-2 font-mono text-[12px]">
+        <Badge tone={bad ? "err" : "ok"}>{http.error ? "no response" : `HTTP ${http.status}`}</Badge>
+        <span className="font-medium">{http.method}</span>
+        <span className="min-w-0 truncate text-muted">{http.url}</span>
+        {http.durationMs !== undefined && <span className="text-subtle">{formatMs(http.durationMs)}</span>}
+      </div>
+      {http.error && <p className="text-err">{http.error}</p>}
+      <HeaderTable title={`Request headers · ${request.length}`} rows={request} configured={http.configured} />
+      {missing.length > 0 && (
+        <p className="text-warn">
+          Configured but not sent: <span className="font-mono">{missing.join(", ")}</span>
+        </p>
+      )}
+      {response.length > 0 && <HeaderTable title="Response headers" rows={response} />}
+    </div>
+  );
+}
+
+function HeaderTable({ title, rows, configured }: { title: string; rows: Array<[string, string]>; configured?: string[] }) {
+  return (
+    <div>
+      <div className="mb-1 text-[11px] font-medium tracking-wide text-subtle uppercase">{title}</div>
+      <div className="divide-y divide-line rounded-lg border border-line font-mono text-[12px]">
+        {rows.map(([name, value]) => (
+          <div key={name} className="flex items-start gap-3 px-3 py-1.5">
+            <span className="w-44 shrink-0 break-all text-muted">{name}</span>
+            <span className="min-w-0 flex-1 break-all">{value}</span>
+            {configured && (
+              <span className={cn("shrink-0 text-[10.5px]", configured.includes(name) ? "text-accent" : "text-subtle")}>
+                {configured.includes(name) ? "your config" : "added by client"}
+              </span>
+            )}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
