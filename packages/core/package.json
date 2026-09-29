@@ -1,6 +1,6 @@
 {
   "name": "@mokalabs/core",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Headless Moka engine: any LLM + MCP servers + skills, with a full event trace.",
   "license": "MIT",
   "type": "module",
