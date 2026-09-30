@@ -16,6 +16,7 @@ export type MokaEventKind =
   | "mcp.rpc"
   | "mcp.log"
   | "mcp.http"
+  | "mcp.unanswered"
   | "resource.updated"
   | "skill.load"
   | "ui.rpc"
@@ -38,7 +39,30 @@ export interface MokaEvent {
   /** "out" = sent by Moka, "in" = received. Only set for mcp.rpc. */
   direction?: "in" | "out";
   level?: "info" | "warn" | "error";
+  /** JSON-RPC correlation (mcp.rpc and mcp.unanswered). */
+  rpc?: RpcLink;
+  /** Parent event in a hierarchy, e.g. the AG-UI step (graph node) that emitted this event. */
+  parentId?: string;
   data?: unknown;
+}
+
+/**
+ * How a JSON-RPC message relates to the rest of the conversation. Responses,
+ * cancellations and unanswered markers point back at their request with `pairId`.
+ */
+export interface RpcLink {
+  /** The JSON-RPC id this message is about (as a string). */
+  id: string;
+  /** Method of the request this message belongs to. */
+  method?: string;
+  /** Event id of the request (on responses, cancellations and unanswered markers). */
+  pairId?: string;
+  /**
+   * ok / error: the response. cancelled: `notifications/cancelled` for the request.
+   * late: a response that arrived after the request was cancelled (the client ignores it).
+   * unanswered: the connection closed while the request was still open.
+   */
+  outcome?: "ok" | "error" | "cancelled" | "late" | "unanswered";
 }
 
 export type MokaEventInput = Omit<MokaEvent, "id" | "ts"> & { ts?: number };

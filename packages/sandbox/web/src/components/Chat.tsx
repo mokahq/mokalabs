@@ -350,6 +350,11 @@ export function ToolCard({ part }: { part: Extract<Part, { type: "tool" }> }) {
           {!open && inputPreview && <div className="truncate font-mono text-[11px] text-subtle">{inputPreview}</div>}
         </div>
         {approval && <Badge tone="warn">waiting for you</Badge>}
+        {part.duplicateOf && (
+          <span title="The model already made this exact call in this turn. If the tool writes something, it may have happened twice.">
+            <Badge tone="warn">same call again</Badge>
+          </span>
+        )}
         {part.durationMs !== undefined && <span className="font-mono text-[11px] text-subtle">{formatMs(part.durationMs)}</span>}
         <ChevronRight className={cn("h-3.5 w-3.5 text-subtle transition-transform", open && "rotate-90")} />
       </button>

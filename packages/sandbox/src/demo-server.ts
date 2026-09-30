@@ -2,6 +2,9 @@ import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mc
 import { SubscribeRequestSchema, UnsubscribeRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { randomUUID } from "node:crypto";
+import { appendFileSync, existsSync, readFileSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { z } from "zod";
 import { bookingFormA2ui, DICE_APP_HTML, DICE_APP_URI } from "./demo-apps.js";
 
@@ -102,6 +105,11 @@ function htmlToText(html: string): string {
 
 const text = (value: string) => ({ content: [{ type: "text" as const, text: value }] });
 
+/** Where `flaky_write` keeps notes, so they survive the crash it simulates. */
+const NOTES_FILE = path.join(os.tmpdir(), "moka-demo-notes.txt");
+/** True when running as its own process (`moka demo-server`), so crashing is safe. */
+let standalone = false;
+
 export function createDemoServer(version: string): McpServer {
   const server = new McpServer(
     { name: "moka-demo", version },
@@ -153,6 +161,7 @@ export function createDemoServer(version: string): McpServer {
         sides: z.number().int().min(2).max(1000).default(6),
         count: z.number().int().min(1).max(100).default(1),
       },
+      annotations: { readOnlyHint: true },
       _meta: { ui: { resourceUri: DICE_APP_URI } },
     },
     async ({ sides, count }) => {
@@ -196,6 +205,7 @@ export function createDemoServer(version: string): McpServer {
       title: "Generate UUIDs",
       description: "Generate random v4 UUIDs.",
       inputSchema: { count: z.number().int().min(1).max(50).default(1) },
+      annotations: { readOnlyHint: true },
     },
     async ({ count }) => text(Array.from({ length: count }, () => randomUUID()).join("\n")),
   );
@@ -279,6 +289,33 @@ export function createDemoServer(version: string): McpServer {
         return { ...text(`Sampling failed: ${error?.message ?? error}`), isError: true };
       }
     },
+  );
+
+  server.registerTool(
+    "flaky_write",
+    {
+      title: "Save a note (flaky)",
+      description:
+        "Save a note to the demo notebook. For testing interrupted calls: the server writes the note, then crashes before it can reply, like a flaky backend. Check the notebook (moka://notes) before retrying so you don't save it twice.",
+      inputSchema: { note: z.string().describe("The note to save") },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+    },
+    async ({ note }) => {
+      appendFileSync(NOTES_FILE, `${new Date().toISOString()}  ${note}\n`);
+      // The write happened; the reply never will.
+      if (standalone) setTimeout(() => process.exit(1), 50);
+      else setTimeout(() => void server.close(), 50);
+      return new Promise<never>(() => {});
+    },
+  );
+
+  server.registerResource(
+    "notes",
+    "moka://notes",
+    { title: "Demo notebook", description: "Notes saved by flaky_write (kept across server restarts)", mimeType: "text/plain" },
+    async (uri) => ({
+      contents: [{ uri: uri.href, mimeType: "text/plain", text: existsSync(NOTES_FILE) ? readFileSync(NOTES_FILE, "utf8") || "(empty)" : "(empty)" }],
+    }),
   );
 
   server.registerResource(
@@ -367,6 +404,7 @@ export function createDemoServer(version: string): McpServer {
 }
 
 export async function runDemoServer(version: string): Promise<void> {
+  standalone = true;
   const server = createDemoServer(version);
   await server.connect(new StdioServerTransport());
 }

@@ -1,5 +1,6 @@
 import {
   AlertCircle,
+  AlertTriangle,
   AppWindow,
   MousePointerClick,
   ArrowDownLeft,
@@ -31,13 +32,14 @@ const FILTERS: Record<Filter, (e: MokaEvent) => boolean> = {
   all: () => true,
   llm: (e) => e.kind.startsWith("llm.") || e.kind.startsWith("run.") || e.kind.startsWith("agent."),
   tools: (e) => e.kind.startsWith("tool.") || e.kind === "skill.load" || e.kind.startsWith("ui.") || e.kind.startsWith("interaction."),
-  rpc: (e) => e.kind === "mcp.rpc" || e.kind === "mcp.http",
+  rpc: (e) => e.kind === "mcp.rpc" || e.kind === "mcp.http" || e.kind === "mcp.unanswered",
   logs: (e) => e.kind === "mcp.log" || e.kind === "mcp.status" || e.kind === "resource.updated" || e.kind === "log" || e.level === "error",
 };
 
 function meta(e: MokaEvent): { icon: React.ReactNode; tone: string } {
   const i = "h-3.5 w-3.5";
   if (e.level === "error" || e.kind.endsWith(".error")) return { icon: <AlertCircle className={i} />, tone: "text-err bg-err/10" };
+  if (e.level === "warn") return { icon: <AlertTriangle className={i} />, tone: "text-warn bg-warn/10" };
   switch (e.kind) {
     case "run.start":
       return { icon: <PlayCircle className={i} />, tone: "text-accent bg-accent-soft" };
@@ -107,6 +109,22 @@ export function Inspector() {
   const visible = filtered.slice(-600);
   const selected = selectedId ? events.find((e) => e.id === selectedId) : undefined;
 
+  // Request → the events that answer it (response, cancellation, "no response"), and nesting depth.
+  const { answers, byId } = useMemo(() => {
+    const answers = new Map<string, MokaEvent[]>();
+    const byId = new Map<string, MokaEvent>();
+    for (const e of source) {
+      byId.set(e.id, e);
+      if (e.rpc?.pairId) answers.set(e.rpc.pairId, [...(answers.get(e.rpc.pairId) ?? []), e]);
+    }
+    return { answers, byId };
+  }, [source]);
+  const depth = (e: MokaEvent) => {
+    let d = 0;
+    for (let p = e.parentId && byId.get(e.parentId); p && d < 4; p = p.parentId ? byId.get(p.parentId) : undefined) d++;
+    return d;
+  };
+
   const stats = useMemo(() => {
     let tokens = 0;
     let tools = 0;
@@ -158,10 +176,14 @@ export function Inspector() {
             {selected.direction && <Meta label="Direction" value={selected.direction === "out" ? "client → server" : "server → client"} />}
             {selected.level && <Meta label="Level" value={selected.level} />}
           </div>
-          <div>
-            <div className="mb-1.5 text-[11px] font-medium tracking-wide text-subtle uppercase">Payload</div>
-            {selected.data === undefined ? <p className="text-[13px] text-muted">No payload</p> : <JsonView value={selected.data} maxHeight="60vh" />}
-          </div>
+          {selected.rpc ? (
+            <RpcPair selected={selected} byId={byId} answers={answers} onSelect={(id) => set({ selectedEventId: id })} />
+          ) : (
+            <div>
+              <div className="mb-1.5 text-[11px] font-medium tracking-wide text-subtle uppercase">Payload</div>
+              {selected.data === undefined ? <p className="text-[13px] text-muted">No payload</p> : <JsonView value={selected.data} maxHeight="60vh" />}
+            </div>
+          )}
           {related.length > 1 && (
             <div>
               <div className="mb-1.5 text-[11px] font-medium tracking-wide text-subtle uppercase">This run</div>
@@ -242,13 +264,16 @@ export function Inspector() {
                 {newRun && <div className="mx-3 my-1.5 border-t border-dashed border-line" />}
                 <button
                   onClick={() => set({ selectedEventId: e.id })}
-                  className="group flex w-full items-center gap-2 px-3 py-1.5 text-left transition-colors hover:bg-panel-2"
+                  className="group flex w-full items-center gap-2 py-1.5 pr-3 text-left transition-colors hover:bg-panel-2"
+                  style={{ paddingLeft: 12 + depth(e) * 16 }}
                 >
+                  {e.parentId && <span className="-ml-2 h-5 w-px shrink-0 bg-line" aria-hidden />}
                   <span className={cn("flex h-5 w-5 shrink-0 items-center justify-center rounded", m.tone)}>{m.icon}</span>
                   <span className={cn("min-w-0 flex-1 truncate text-[12.5px]", e.kind === "mcp.rpc" && "font-mono text-[11.5px] text-muted")}>
                     {e.kind === "mcp.rpc" && <span className="text-subtle">{serverName(e.serverId)} </span>}
                     {e.title}
                   </span>
+                  <RpcBadge event={e} answers={answers} />
                   {e.durationMs !== undefined && <span className="shrink-0 font-mono text-[10.5px] text-subtle">{formatMs(e.durationMs)}</span>}
                   <span className="hidden shrink-0 font-mono text-[10px] text-subtle group-hover:inline">{time(e.ts).slice(0, 8)}</span>
                 </button>
@@ -311,6 +336,96 @@ function Waterfall({ events, selectedId, onSelect }: { events: MokaEvent[]; sele
           </button>
         );
       })}
+    </div>
+  );
+}
+
+/** What happened to a request: latency, error, cancelled, no response, or still waiting. */
+function requestStatus(e: MokaEvent, answers: Map<string, MokaEvent[]>): { label: string; tone: string; title: string } | undefined {
+  if (!e.rpc || e.rpc.pairId || !e.rpc.method) return undefined;
+  const all = answers.get(e.id) ?? [];
+  const find = (o: string) => all.find((a) => a.rpc?.outcome === o);
+  const unanswered = find("unanswered");
+  const late = find("late");
+  const cancelled = find("cancelled");
+  const reply = find("ok") ?? find("error");
+  if (unanswered) return { label: "no response", tone: "border-err/30 bg-err/10 text-err", title: `The connection closed after ${formatMs(unanswered.durationMs)} with this request still open.` };
+  if (cancelled) return { label: late ? "cancelled · late reply" : "cancelled", tone: "border-warn/30 bg-warn/10 text-warn", title: `Cancelled after ${formatMs(cancelled.durationMs)}${late ? `; the server still replied after ${formatMs(late.durationMs)} (ignored)` : ""}.` };
+  if (reply?.rpc?.outcome === "error") return { label: `error · ${formatMs(reply.durationMs)}`, tone: "border-err/30 bg-err/10 text-err", title: "The server answered with a JSON-RPC error." };
+  if (reply) return { label: formatMs(reply.durationMs), tone: "border-line text-subtle", title: "Time until the response arrived" };
+  return { label: "waiting…", tone: "border-line text-subtle", title: "No response yet" };
+}
+
+function RpcBadge({ event, answers }: { event: MokaEvent; answers: Map<string, MokaEvent[]> }) {
+  const status = requestStatus(event, answers);
+  if (!status) return null;
+  return (
+    <span title={status.title} className={cn("shrink-0 rounded border px-1 font-mono text-[10px]", status.tone)}>
+      {status.label}
+    </span>
+  );
+}
+
+/** A request and what answered it, with their ids side by side. */
+function RpcPair({
+  selected,
+  byId,
+  answers,
+  onSelect,
+}: {
+  selected: MokaEvent;
+  byId: Map<string, MokaEvent>;
+  answers: Map<string, MokaEvent[]>;
+  onSelect: (id: string) => void;
+}) {
+  const request = selected.rpc?.pairId ? byId.get(selected.rpc.pairId) : selected.rpc?.method && !selected.rpc.pairId ? selected : undefined;
+  if (!request) {
+    return (
+      <div>
+        <div className="mb-1.5 text-[11px] font-medium tracking-wide text-subtle uppercase">Payload</div>
+        <JsonView value={selected.data} maxHeight="60vh" />
+      </div>
+    );
+  }
+  const all = answers.get(request.id) ?? [];
+  const reply = all.find((a) => a.rpc?.outcome === "ok" || a.rpc?.outcome === "error" || a.rpc?.outcome === "late");
+  const other = all.filter((a) => a !== reply);
+  const status = requestStatus(request, answers);
+  const Side = ({ label, event, empty }: { label: string; event?: MokaEvent; empty: string }) => (
+    <div className="min-w-0">
+      <div className="mb-1.5 flex items-center gap-2 text-[11px] font-medium tracking-wide text-subtle uppercase">
+        {label}
+        {event && event.id !== selected.id && (
+          <button className="normal-case tracking-normal text-accent hover:underline" onClick={() => onSelect(event.id)}>
+            open
+          </button>
+        )}
+      </div>
+      {event ? <JsonView value={event.data} maxHeight="40vh" /> : <p className="rounded-lg border border-dashed border-line px-3 py-2 text-[12.5px] text-muted">{empty}</p>}
+    </div>
+  );
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-1.5 rounded-lg border border-line bg-panel-2/60 px-2.5 py-2 font-mono text-[11.5px]">
+        <span className="rounded bg-panel px-1.5 py-0.5">{request.direction === "out" ? "→" : "←"} request #{request.rpc?.id}</span>
+        <span className="text-subtle">{request.rpc?.method}</span>
+        <span className="flex-1" />
+        {reply && <span className="rounded bg-panel px-1.5 py-0.5">{`${reply.direction === "out" ? "→" : "←"} response #${reply.rpc?.id}`}</span>}
+        {status && <span className={cn("rounded border px-1 text-[10px]", status.tone)}>{status.label}</span>}
+      </div>
+      {other.map((o) => (
+        <button key={o.id} onClick={() => onSelect(o.id)} className="flex w-full items-center gap-2 rounded-lg border border-warn/30 bg-warn/5 px-2.5 py-1.5 text-left text-[12px] text-warn">
+          <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+          <span className="min-w-0 flex-1 truncate">{o.title}</span>
+          {o.durationMs !== undefined && <span className="font-mono text-[10.5px]">{formatMs(o.durationMs)}</span>}
+        </button>
+      ))}
+      <Side label="Request" event={request} empty="" />
+      <Side
+        label={reply?.rpc?.outcome === "late" ? "Response (late, ignored by the client)" : "Response"}
+        event={reply}
+        empty={other.some((o) => o.rpc?.outcome === "unanswered") ? "No response: the connection closed first." : other.length ? "No response after the cancellation." : "No response yet."}
+      />
     </div>
   );
 }

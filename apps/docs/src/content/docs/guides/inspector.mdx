@@ -14,7 +14,7 @@ The inspector (right panel, <kbd>⌘</kbd> <kbd>I</kbd>) streams everything Moka
 | **All** | Everything |
 | **LLM** | Run start/finish and every model request/response step |
 | **Tools** | Tool calls, results, errors, skill loads, and generative UI traffic |
-| **RPC** | Raw MCP JSON-RPC messages, both directions, including the `initialize` handshake, plus failed HTTP requests (`mcp.http`) |
+| **RPC** | Raw MCP JSON-RPC messages, both directions, including the `initialize` handshake, plus failed HTTP requests (`mcp.http`) and requests that never got an answer (`mcp.unanswered`) |
 | **Logs** | Connection status changes, server stderr, warnings and errors |
 
 Use the search box to filter by title or payload content (e.g. a tool argument value).
@@ -27,6 +27,33 @@ Click any event to open it:
 - **This run** — a waterfall of every step in the same run, so you can spot where time went (slow tool vs. slow model).
 
 From a chat message, **Inspect run →** jumps straight to that run.
+
+## Requests and responses
+
+Moka matches every JSON-RPC response to its request by `id`, in both directions (so a server's own requests, like sampling or elicitation, pair up too). Each request in the list shows what happened to it:
+
+| Badge | Meaning |
+|---|---|
+| `17ms` | The response arrived after 17 ms |
+| `error · 17ms` | The server answered with a JSON-RPC error |
+| `cancelled` | Moka sent `notifications/cancelled` (you stopped the run, or the request timed out) |
+| `cancelled · late reply` | …and the server answered anyway, after the client had stopped listening |
+| `no response` | The connection closed while the request was still open |
+| `waiting…` | Still open |
+
+Click a request or response to see **both payloads with their ids side by side**, plus any cancellation or "no response" marker. Responses are titled after their request (`result #5 · tools/call`), so the list reads naturally.
+
+<Aside type="tip">
+Try it with the demo server's `flaky_write` tool. It saves a note, then crashes before answering, like a flaky backend: you'll see `tools/call` marked **no response**, the note in the `moka://notes` resource (the write *did* happen), and Moka reconnecting on the next call.
+</Aside>
+
+## Repeated writes
+
+When the model calls a tool that may change something (no `readOnlyHint`) twice in the same turn with the same arguments, the second call is flagged: **same call again** on the tool card in the chat, and a warning in the inspector (`data.duplicateOf` names the first call). Read-only tools are never flagged.
+
+## Agent graphs
+
+For AG-UI agents, events are nested under the step (graph node) that emitted them: tool calls, state deltas and messages sit under `STEP_STARTED · <node>`, and `STEP_FINISHED` shows how long the node took. See [Remote agents](/guides/agents/#inspector).
 
 ## Counters
 

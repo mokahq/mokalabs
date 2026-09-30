@@ -67,6 +67,7 @@ export async function runTurn(options: {
             source: chunk.source,
             input: chunk.input,
             status: "running",
+            ...(chunk.duplicateOf ? { duplicateOf: chunk.duplicateOf } : {}),
           });
           break;
         case "tool-result": {

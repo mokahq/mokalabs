@@ -101,7 +101,8 @@ The right-hand panel streams everything Moka does:
 - `run.start` / `run.finish`: system prompt, tool list, total tokens
 - `llm.request` / `llm.response`: per step, with provider request body, finish reason, usage and latency
 - `tool.call` / `tool.result` / `tool.error`: arguments, outputs and durations
-- `mcp.rpc`: raw JSON-RPC in both directions, including the `initialize` handshake
+- `mcp.rpc`: raw JSON-RPC in both directions, including the `initialize` handshake, with each response paired to its request (latency, errors, cancellations, late replies)
+- `mcp.unanswered`: requests still open when a connection closed
 - `mcp.http`: failed HTTP requests to remote servers (status, `WWW-Authenticate`, masked headers)
 - `mcp.status` / `mcp.log`: connections and server stderr
 - `agent.*`: A2A and AG-UI traffic (framework `RAW` events are collapsed into one entry per run)

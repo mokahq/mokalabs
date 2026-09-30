@@ -19,7 +19,7 @@ import {
 import type { InteractionBroker } from "./interactions.js";
 import { MokaOAuthProvider, oauthSettings, type OAuthStore } from "./oauth.js";
 import { resolveRecord, resolveSecret, type McpServerConfig } from "./config.js";
-import type { EventBus } from "./events.js";
+import type { EventBus, MokaEventInput } from "./events.js";
 import { tracingFetch, type HttpExchange } from "./http-trace.js";
 
 /** "auth" = the server needs the user to sign in (OAuth); see `authUrl`. */
@@ -478,9 +478,48 @@ export class McpManager {
   private tap(conn: Connection, transport: Transport): void {
     const { id } = conn.config;
     const bus = this.bus;
+    // Open requests, keyed by who sent them: "out:3" = Moka's request #3, "in:0" = the server's.
+    const open = new Map<string, { eventId: string; method: string; at: number; cancelled?: boolean }>();
+
+    const record = (direction: "in" | "out", message: any): void => {
+      const input: MokaEventInput = { kind: "mcp.rpc", direction, title: rpcTitle(message), serverId: id, data: message };
+      const other = direction === "out" ? "in" : "out";
+      const now = Date.now();
+      let request: string | undefined;
+      if (message?.method === "notifications/cancelled" && message.params?.requestId != null) {
+        // A cancellation refers to a request the *same* side sent earlier.
+        const target = open.get(`${direction}:${message.params.requestId}`);
+        if (target) {
+          target.cancelled = true;
+          // Most servers never answer a cancelled request; stop waiting for a late reply after a minute.
+          const key = `${direction}:${message.params.requestId}`;
+          setTimeout(() => open.get(key) === target && open.delete(key), 60_000).unref?.();
+          input.rpc = { id: String(message.params.requestId), method: target.method, pairId: target.eventId, outcome: "cancelled" };
+          input.durationMs = now - target.at;
+          input.title = `${message.method} → ${target.method} #${message.params.requestId}`;
+        }
+      } else if (message?.method && message.id != null) {
+        input.rpc = { id: String(message.id), method: message.method };
+        request = `${direction}:${message.id}`;
+      } else if (!message?.method && message?.id != null) {
+        const key = `${other}:${message.id}`;
+        const target = open.get(key);
+        const outcome = target?.cancelled ? "late" : message.error ? "error" : "ok";
+        input.rpc = { id: String(message.id), method: target?.method, pairId: target?.eventId, outcome };
+        if (target) {
+          input.durationMs = now - target.at;
+          input.title = `${outcome === "late" ? "late " : ""}${message.error ? "error" : "result"} #${message.id} · ${target.method}`;
+          if (outcome === "late") input.level = "warn";
+          open.delete(key);
+        }
+      }
+      const event = bus.emit(input);
+      if (request) open.set(request, { eventId: event.id, method: message.method, at: now });
+    };
+
     const send = transport.send.bind(transport);
     transport.send = async (message, options) => {
-      bus.emit({ kind: "mcp.rpc", direction: "out", title: rpcTitle(message), serverId: id, data: message });
+      record("out", message);
       return send(message, options);
     };
     let handler: Transport["onmessage"];
@@ -490,8 +529,37 @@ export class McpManager {
       set: (fn: Transport["onmessage"]) => {
         handler = fn
           ? (message, extra) => {
-              bus.emit({ kind: "mcp.rpc", direction: "in", title: rpcTitle(message), serverId: id, data: message });
+              record("in", message);
               fn(message, extra);
+            }
+          : fn;
+      },
+    });
+    // When the connection closes, whatever is still open will never be answered.
+    let onclose: Transport["onclose"];
+    Object.defineProperty(transport, "onclose", {
+      configurable: true,
+      get: () => onclose,
+      set: (fn: Transport["onclose"]) => {
+        onclose = fn
+          ? () => {
+              const now = Date.now();
+              for (const [key, request] of open) {
+                if (request.cancelled) continue;
+                const [direction, rpcId] = key.split(":") as ["in" | "out", string];
+                bus.emit({
+                  kind: "mcp.unanswered",
+                  level: "warn",
+                  direction,
+                  serverId: id,
+                  title: `${request.method} #${rpcId}: no response (connection closed after ${formatWait(now - request.at)})`,
+                  durationMs: now - request.at,
+                  rpc: { id: rpcId, method: request.method, pairId: request.eventId, outcome: "unanswered" },
+                  data: { id: rpcId, method: request.method, waitedMs: now - request.at, reason: "connection closed" },
+                });
+              }
+              open.clear();
+              fn();
             }
           : fn;
       },
@@ -577,6 +645,10 @@ export class McpManager {
       data: { status: state.status, error: state.error, serverInfo: state.serverInfo, tools: state.tools.length },
     });
   }
+}
+
+function formatWait(ms: number): string {
+  return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`;
 }
 
 function rpcTitle(message: any): string {
