@@ -12,6 +12,7 @@ Each event has `id`, `ts` (ms), `kind`, `title`, and optionally `runId`, `server
 | `llm.response` | Each model step ends | `finishReason`, `usage`, `response` (`id`, `modelId`) |
 | `tool.call` | The model (or you, or an app) calls a tool | `id`, `input`; `duplicateOf` when it repeats an earlier call that may write (level `warn`) |
 | `tool.result` | A tool returns | `id`, `output` |
+| `tool.progress` | A server reports `notifications/progress` for a tool call | `id` (tool call), `tool`, `progress`, `total`, `message` |
 | `tool.error` | A tool throws or returns `isError` | `id`, `error` |
 | `skill.load` | `load_skill` runs | `id` |
 | `run.finish` | A turn completes | usage totals |
@@ -38,6 +39,7 @@ Each event has `id`, `ts` (ms), `kind`, `title`, and optionally `runId`, `server
 | `rpc.id` / `rpc.method` | `mcp.rpc`, `mcp.unanswered` | The JSON-RPC id and the request's method |
 | `rpc.pairId` | responses, cancellations, `mcp.unanswered` | Event id of the request they belong to |
 | `rpc.outcome` | same | `ok`, `error`, `cancelled`, `late` (answered after cancellation) or `unanswered` |
+| `rpc.reason` | cancellations | `timeout` when the client gave up waiting |
 | `durationMs` | responses | Time since the request was sent |
 | `parentId` | `agent.event` | Event id of the AG-UI step (graph node) that emitted it |
 

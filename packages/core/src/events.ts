@@ -12,6 +12,7 @@ export type MokaEventKind =
   | "tool.call"
   | "tool.result"
   | "tool.error"
+  | "tool.progress"
   | "mcp.status"
   | "mcp.rpc"
   | "mcp.log"
@@ -55,6 +56,8 @@ export interface RpcLink {
   id: string;
   /** Method of the request this message belongs to. */
   method?: string;
+  /** Why a request was cancelled; "timeout" when the client gave up waiting. */
+  reason?: string;
   /** Event id of the request (on responses, cancellations and unanswered markers). */
   pairId?: string;
   /**

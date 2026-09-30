@@ -181,6 +181,10 @@ export class McpManager {
         const client = this.createClient(config);
         client.onerror = (error) => {
           if (error instanceof UnauthorizedError) return; // surfaced as the "auth" status instead
+          // The SDK handles a response before a notification queued just ahead of it, so a final
+          // progress update that arrives with the result finds its handler gone. Harmless: the
+          // update is still in the RPC log, and the call is done.
+          if (/progress notification for an unknown token/i.test(error.message)) return;
           this.bus.emit({ kind: "mcp.log", level: "error", title: `${config.name}: ${error.message}`, serverId: config.id });
         };
         client.onclose = () => {
@@ -491,12 +495,24 @@ export class McpManager {
         const target = open.get(`${direction}:${message.params.requestId}`);
         if (target) {
           target.cancelled = true;
+          const timedOut = /timed? ?out/i.test(String(message.params.reason ?? ""));
           // Most servers never answer a cancelled request; stop waiting for a late reply after a minute.
           const key = `${direction}:${message.params.requestId}`;
           setTimeout(() => open.get(key) === target && open.delete(key), 60_000).unref?.();
-          input.rpc = { id: String(message.params.requestId), method: target.method, pairId: target.eventId, outcome: "cancelled" };
+          input.rpc = { id: String(message.params.requestId), method: target.method, pairId: target.eventId, outcome: "cancelled", ...(timedOut ? { reason: "timeout" } : {}) };
           input.durationMs = now - target.at;
-          input.title = `${message.method} → ${target.method} #${message.params.requestId}`;
+          input.title = timedOut
+            ? `${direction === "out" ? "Moka" : "The server"} gave up on ${target.method} #${message.params.requestId} after ${formatWait(now - target.at)} (timeout)`
+            : `${message.method} → ${target.method} #${message.params.requestId}`;
+          if (timedOut) input.level = "warn";
+        }
+      } else if (message?.method === "notifications/progress" && message.params?.progressToken != null) {
+        // The SDK uses the request id as the progress token.
+        const target = open.get(`${other}:${message.params.progressToken}`);
+        if (target) {
+          const { progress, total } = message.params;
+          input.rpc = { id: String(message.params.progressToken), method: target.method, pairId: target.eventId };
+          input.title = `progress ${total ? `${Math.round((progress / total) * 100)}%` : progress} → ${target.method} #${message.params.progressToken}`;
         }
       } else if (message?.method && message.id != null) {
         input.rpc = { id: String(message.id), method: message.method };
@@ -570,17 +586,45 @@ export class McpManager {
     serverId: string,
     toolName: string,
     args: Record<string, unknown>,
-    options: { signal?: AbortSignal } = {},
+    options: { signal?: AbortSignal; runId?: string; callId?: string } = {},
   ): Promise<{ content: unknown[]; isError?: boolean; structuredContent?: unknown }> {
     const conn = this.connections.get(serverId);
     if (!conn?.client || conn.state.status !== "connected") {
       throw new Error(`MCP server "${conn?.config.name ?? serverId}" is not connected.`);
     }
-    const result = await conn.client.callTool({ name: toolName, arguments: args }, undefined, {
-      signal: options.signal,
-      timeout: conn.config.timeoutMs ?? 120_000,
-    });
-    return result as any;
+    const { config } = conn;
+    const timeout = toolTimeout(config);
+    let last = 0;
+    try {
+      const result = await conn.client.callTool({ name: toolName, arguments: args }, undefined, {
+        signal: options.signal,
+        timeout,
+        resetTimeoutOnProgress: config.resetTimeoutOnProgress ?? true,
+        maxTotalTimeout: config.maxTotalTimeoutMs,
+        // Passing a handler is what makes the SDK send a progressToken, so servers can report progress.
+        onprogress: ({ progress, total, message }) => {
+          const now = Date.now();
+          if (now - last < 200 && (total === undefined || progress < total)) return;
+          last = now;
+          const percent = total ? Math.round((progress / total) * 100) : undefined;
+          this.bus.emit({
+            kind: "tool.progress",
+            runId: options.runId,
+            serverId,
+            title: `${toolName} · ${percent !== undefined ? `${percent}%` : progress}${message ? ` · ${message}` : ""}`,
+            data: { id: options.callId, tool: toolName, progress, total, message },
+          });
+        },
+      });
+      return result as any;
+    } catch (error: any) {
+      if (error?.code === -32001) {
+        throw new Error(
+          `No answer from ${config.name} after ${formatWait(timeout)} (tool timeout), so Moka stopped waiting. The server may still be working; a late reply shows up in the inspector.`,
+        );
+      }
+      throw error;
+    }
   }
 
   async readResource(serverId: string, uri: string): Promise<unknown> {
@@ -645,6 +689,11 @@ export class McpManager {
       data: { status: state.status, error: state.error, serverInfo: state.serverInfo, tools: state.tools.length },
     });
   }
+}
+
+/** The tool-call timeout for a server. */
+export function toolTimeout(config: McpServerConfig): number {
+  return config.toolTimeoutMs ?? config.timeoutMs ?? 120_000;
 }
 
 function formatWait(ms: number): string {

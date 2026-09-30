@@ -373,7 +373,7 @@ function mcpToolToAiTool(mcpTool: McpTool, server: McpServerConfig, options: Run
         const allowed = await options.authorizeTool({ runId: options.runId, toolCallId, server, tool: mcpTool, input, signal: abortSignal });
         if (!allowed) throw new Error("The user declined to run this tool. Ask them how to proceed instead of retrying.");
       }
-      const result = await options.mcp.callTool(server.id, mcpTool.name, input ?? {}, { signal: abortSignal });
+      const result = await options.mcp.callTool(server.id, mcpTool.name, input ?? {}, { signal: abortSignal, runId: options.runId, callId: toolCallId });
       let ui: UiDescriptor | undefined = appUri ? { kind: "mcp-app", serverId: server.id, resourceUri: appUri } : detectResultUi(server.id, result);
       if (ui?.kind === "a2ui") ui = { kind: "a2ui", messages: await expandServerUi(ui.messages, server.id, options) };
       sideChannel.set(toolCallId, { ui, raw: { content: result.content, structuredContent: result.structuredContent, isError: result.isError } });

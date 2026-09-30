@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="brand/moka-dino.svg" width="140" height="140" alt="Moka the dino, holding a coffee" />
+<img src="brand/moka-puppy.svg" width="140" height="140" alt="Moka the puppy, holding a coffee" />
 
 # Moka
 
@@ -8,7 +8,7 @@
 
 Chat with any LLM, plug in any MCP server, agent or skill, and inspect every call: raw JSON-RPC, tool calls, tokens and timings. One command, zero config.
 
-*Tiny arms. Strong brew.* ☕
+*Good pup. Strong brew.* ☕
 
 [![npm](https://img.shields.io/npm/v/@mokalabs/sandbox?color=c2703d&label=%40mokalabs%2Fsandbox)](https://www.npmjs.com/package/@mokalabs/sandbox)
 [![CI](https://github.com/mokahq/mokalabs/actions/workflows/ci.yml/badge.svg)](https://github.com/mokahq/mokalabs/actions/workflows/ci.yml)
@@ -40,6 +40,7 @@ Getting an LLM talking to MCP tools usually means wiring up a client, a provider
 - **Built for demos.** Workspaces, starter prompts, presenter mode, side-by-side model comparison, and a ⌘K command palette.
 - **Generative UI.** Moka renders [MCP Apps](https://github.com/modelcontextprotocol/ext-apps) (the official MCP UI extension) in a secure sandbox, supports legacy MCP-UI, and lets *any* model answer with native [A2UI](https://github.com/google/A2UI) forms, cards and buttons through a built-in `render_ui` tool.
 - **Your own components.** Add A2UI catalogs of template or sandboxed-HTML components, rename and theme the render tool, and try it all in the Generative UI playground.
+- **Slow tools.** Progress bars from `notifications/progress`, per-server tool timeouts, a "60-second client" preset, and the exact moment a client gives up, in the inspector.
 - **Tool approvals.** Have the model ask before it runs a tool: per tool, per server, or a whole-workspace safe mode for live demos.
 - **Any agent, too.** Point a workspace at an A2A or AG-UI agent (LangGraph, CopilotKit, ADK…) and get the chat, A2UI and inspector for it. AG-UI agents can even call your MCP tools.
 - **Full MCP client.** OAuth sign-in for hosted servers, elicitation forms, sampling with your model, `@` resources and `/` prompts.

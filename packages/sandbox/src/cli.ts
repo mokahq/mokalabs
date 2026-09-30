@@ -190,7 +190,8 @@ async function main(): Promise<void> {
     console.log(`  ${dim(`   Listening on ${sandbox.host}:${sandbox.port}`)}`);
   }
   console.log("");
-  if (sandbox.engine.getConfig().ui?.starLink !== false) {
+  const ui = sandbox.engine.getConfig().ui;
+  if (ui?.starLink !== false && ui?.branding !== false) {
     console.log(`  ${dim("⭐ Enjoying Moka? Star it: https://github.com/mokahq/mokalabs")}`);
     console.log("");
   }

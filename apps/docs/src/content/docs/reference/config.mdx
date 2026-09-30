@@ -66,7 +66,10 @@ Missing variables resolve to an empty string.
 | `url` | string? | http/sse: endpoint |
 | `headers` | object? | http/sse: request headers |
 | `disabledTools` | string[]? | Tools hidden from the model |
-| `timeoutMs` | integer? | Connect timeout (default 30000). Tool calls time out after 120 s |
+| `timeoutMs` | integer? | Connect timeout (default 30000), and the tool-call timeout when `toolTimeoutMs` isn't set |
+| `toolTimeoutMs` | integer? | How long to wait for a tool call (default 120000) |
+| `resetTimeoutOnProgress` | boolean? | Progress notifications restart the tool timeout (default `true`; the MCP SDK's own default is `false`) |
+| `maxTotalTimeoutMs` | integer? | Hard limit for a tool call, even while progress keeps arriving |
 | `oauth` | boolean \| object? | http/sse: `false` disables OAuth sign-in; `{ clientId?, clientSecret?, scopes? }` for pre-registered clients. See [sign-in](/guides/mcp-auth-elicitation/) |
 | `sampling` | `ask` · `auto` · `deny`? | How to handle MCP sampling requests (default: ask) |
 | `approval` | object? | `{ default?: "auto" \| "ask", tools?: { [tool]: "auto" \| "ask" } }`. See [tool approvals](/guides/approvals/) |
@@ -128,6 +131,8 @@ App preferences, also under **Settings → Config file → Preferences**.
 
 | Field | Type | Description |
 |---|---|---|
+| `branding` | boolean? | Show Moka's branding: the puppy and name in the header, the puppy and "What are we brewing?" on the empty chat, "Message Moka…" in the composer, the tab title and the star line. Default `true`. Set it to `false` for a neutral chat when you demo your own product |
+| `animations` | boolean? | Animate the puppy on the empty chat: its eyes follow your cursor, and it plays peekaboo when clicked. Default `true`. The OS "reduce motion" setting also stops it |
 | `starLink` | boolean? | Show the small "Star it on GitHub" line on the empty chat screen and in the terminal banner. Default `true`; the line's **Hide** link sets it to `false` |
 
 ## Full example

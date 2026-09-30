@@ -36,6 +36,8 @@ describe("config", () => {
   it("keeps UI preferences", () => {
     expect(parseConfig({}).ui).toBeUndefined();
     expect(parseConfig({ ui: { starLink: false } }).ui).toEqual({ starLink: false });
+    expect(parseConfig({ ui: { animations: false } }).ui).toEqual({ animations: false });
+    expect(parseConfig({ ui: { branding: false } }).ui).toEqual({ branding: false });
     expect(() => parseConfig({ ui: { starLink: "no" } })).toThrow();
   });
 

@@ -1,13 +1,14 @@
 import { Download, FileJson, Upload } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
-import { Button, Switch, Textarea } from "../components/ui";
+import { Button, Switch, Textarea, cn } from "../components/ui";
 import { useStore } from "../store";
 import type { MokaConfig } from "../types";
 import { Section } from "./Settings";
 
 export function ConfigSettings() {
   const config = useStore((s) => s.config);
+  const branded = config.ui?.branding !== false;
   const configPath = useStore((s) => s.configPath);
   const saveConfig = useStore((s) => s.saveConfig);
   const [text, setText] = useState(() => JSON.stringify(config, null, 2));
@@ -89,12 +90,38 @@ export function ConfigSettings() {
         </div>
       </Section>
       <Section title="Preferences">
-        <label className="flex items-center justify-between gap-4 text-[13px]">
+        <label className="mb-4 flex items-center justify-between gap-4 text-[13px]">
+          <span>
+            <span className="font-medium">Moka branding</span>
+            <span className="block text-muted">
+              The puppy, the Moka name in the header, chat and tab title, and the star link. Turn it off for a neutral chat when you demo your own product.
+            </span>
+          </span>
+          <Switch
+            checked={branded}
+            onChange={(on) => saveConfig({ ...config, ui: { ...config.ui, branding: on } }, on ? "Moka branding on" : "Moka branding off")}
+            label="Moka branding"
+          />
+        </label>
+        <label className={cn("mb-4 flex items-center justify-between gap-4 text-[13px]", !branded && "opacity-50")}>
+          <span>
+            <span className="font-medium">Animate Moka</span>
+            <span className="block text-muted">The puppy on the empty chat watches your cursor, and plays peekaboo when clicked.</span>
+          </span>
+          <Switch
+            disabled={!branded}
+            checked={config.ui?.animations !== false}
+            onChange={(on) => saveConfig({ ...config, ui: { ...config.ui, animations: on } }, on ? "Moka animations on" : "Moka animations off")}
+            label="Animate Moka"
+          />
+        </label>
+        <label className={cn("flex items-center justify-between gap-4 text-[13px]", !branded && "opacity-50")}>
           <span>
             <span className="font-medium">Show the "Star it on GitHub" line</span>
             <span className="block text-muted">On the empty chat screen and in the terminal when Moka starts.</span>
           </span>
           <Switch
+            disabled={!branded}
             checked={config.ui?.starLink !== false}
             onChange={(on) => saveConfig({ ...config, ui: { ...config.ui, starLink: on } }, on ? "Star link shown" : "Star link hidden")}
             label="Show the star link"

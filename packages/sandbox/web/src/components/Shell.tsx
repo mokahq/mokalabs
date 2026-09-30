@@ -32,6 +32,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { api } from "../api";
 import { DOCS_URL, ISSUES_URL, REPO_URL } from "../links";
 import { useStore, type View } from "../store";
+import { Moka, useMokaBranding } from "./Moka";
 import { Button, CopyButton, IconButton, Kbd, Modal, StatusDot, Tabs, cn } from "./ui";
 
 /* ------------------------------------------------------------------ top bar */
@@ -45,6 +46,10 @@ export function TopBar() {
   const sidebarOpen = useStore((s) => s.sidebarOpen);
   const inspectorOpen = useStore((s) => s.inspectorOpen);
   const openSettings = useStore((s) => s.openSettings);
+  const branded = useMokaBranding();
+  useEffect(() => {
+    document.title = branded ? "Moka" : "Chat";
+  }, [branded]);
 
   return (
     <header className="relative z-30 flex h-12 shrink-0 items-center gap-2 border-b border-line bg-panel/80 px-3 backdrop-blur">
@@ -53,10 +58,12 @@ export function TopBar() {
           <PanelLeft className="h-4 w-4" />
         </IconButton>
       )}
-      <div className="flex items-center gap-1.5 pr-1">
-        <img src="/favicon.svg" alt="" className="h-6 w-6 rounded-md" />
-        <span className="text-[14px] font-semibold tracking-tight">moka</span>
-      </div>
+      {branded && (
+        <div className="flex items-center gap-1.5 pr-1">
+          <Moka mood="still" face className="h-7 w-8" />
+          <span className="text-[14px] font-semibold tracking-tight">moka</span>
+        </div>
+      )}
       <WorkspaceSwitcher />
       <ModelSwitcher />
       <span className="flex-1" />

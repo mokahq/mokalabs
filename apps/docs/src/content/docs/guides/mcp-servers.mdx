@@ -88,6 +88,20 @@ Tools that declare MCP Apps `visibility: ["app"]` are never shown to the model �
 - Server **instructions** (from the `initialize` result) are appended to the system prompt.
 - Every JSON-RPC message in both directions appears in the [Inspector](/guides/inspector/) under **RPC**, and stderr lines under **Logs**.
 
+## Slow tools, progress and timeouts
+
+Moka asks every tool call for progress (it sends a `progressToken`), so servers can report `notifications/progress`. While a tool runs, its card in the chat shows a progress bar with the server's message and a clock, and the updates appear in the [Inspector](/guides/inspector/) linked to their request.
+
+How long Moka waits is set per server under **Advanced → Slow tools**:
+
+- **Moka default**: wait up to 2 minutes, and every progress notification restarts the timer.
+- **Like clients on the MCP SDK defaults**: give up after 60 seconds even if progress arrives. Many clients behave like this, so it's the setting to test with if users say your tool "stops at a minute".
+- **Custom**: your own timeout, whether progress restarts it, and a hard limit.
+
+When Moka gives up, the tool card says so (*No answer from … after 60.0s (tool timeout)*), the request gets a **timed out** badge in the inspector, and a `Moka gave up on tools/call #7 after 60.0s (timeout)` marker shows the exact moment. If the server replies anyway, the reply is marked **late**.
+
+<Aside type="tip">Try it with the demo server's `slow_backtest` tool: it simulates a 90-second backtest and reports progress every second. Ask *"Backtest NVDA over 5 years"*.</Aside>
+
 ## See the headers that were sent
 
 For Streamable HTTP and SSE servers, the server's page in **Settings → MCP servers** has an **HTTP** section showing the last request to the server: method, URL, status, timing, and **every header it actually carried**. That includes your configured headers (marked *your config*) and the ones the client adds itself, such as `Authorization` after OAuth sign-in, `mcp-session-id` and `mcp-protocol-version`. Useful response headers (`WWW-Authenticate`, `mcp-session-id`) are shown too.
