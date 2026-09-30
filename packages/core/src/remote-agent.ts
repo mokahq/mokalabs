@@ -475,6 +475,8 @@ async function* runAgui(options: RunRemoteAgentOptions): AsyncGenerator<ChatChun
     let text = "";
     const calls = new Map<string, { name: string; args: string; done: boolean; result?: string }>();
     const order: string[] = [];
+    // Open AG-UI steps (graph nodes), innermost last.
+    const steps: Array<{ name: string; eventId: string; at: number }> = [];
     // Adapters like ag-ui-langgraph re-emit every framework event as RAW; show them as one entry.
     const raw: unknown[] = [];
     const flushRaw = () => {
@@ -500,7 +502,28 @@ async function* runAgui(options: RunRemoteAgentOptions): AsyncGenerator<ChatChun
       if (type === "RAW" && !parseA2ui(e.value ?? e.content ?? e.event)) raw.push(e);
       else if (!quiet) {
         if (type === "RUN_FINISHED" || type === "RUN_ERROR") flushRaw();
-        bus.emit({ kind: "agent.event", runId, title: `AG-UI ${type}${e.toolCallName ? ` · ${e.toolCallName}` : e.stepName ? ` · ${e.stepName}` : ""}`, data: e });
+        const title = `AG-UI ${type}${e.toolCallName ? ` · ${e.toolCallName}` : e.stepName ? ` · ${e.stepName}` : ""}`;
+        if (type === "STEP_STARTED") {
+          // Steps are graph nodes. One that starts while another is open is nested or parallel;
+          // AG-UI doesn't say which, so its events are grouped on a best-effort basis.
+          const outer = steps.at(-1);
+          const event = bus.emit({
+            kind: "agent.event",
+            runId,
+            title: outer ? `${title} · overlaps ${outer.name}` : title,
+            parentId: outer?.eventId,
+            data: e,
+          });
+          steps.push({ name: String(e.stepName ?? "step"), eventId: event.id, at: event.ts });
+        } else if (type === "STEP_FINISHED") {
+          const name = String(e.stepName ?? "step");
+          let index = steps.length - 1;
+          while (index >= 0 && steps[index]!.name !== name) index--;
+          const step = index >= 0 ? steps.splice(index, 1)[0] : undefined;
+          bus.emit({ kind: "agent.event", runId, title, parentId: step?.eventId, durationMs: step ? Date.now() - step.at : undefined, data: e });
+        } else {
+          bus.emit({ kind: "agent.event", runId, title, parentId: steps.at(-1)?.eventId, data: e });
+        }
       }
       switch (type) {
         case "TEXT_MESSAGE_CONTENT":

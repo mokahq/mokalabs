@@ -91,4 +91,6 @@ So a LangGraph agent in development can use GitHub, your filesystem or your comp
 
 Agent runs show up as `agent.request` (what Moka sent), `agent.event` (each A2A result or AG-UI event) and `agent.response`, plus the usual `tool.*` events for frontend tools.
 
+Events are **grouped by graph node**: everything between `STEP_STARTED` and `STEP_FINISHED` for a node (tool calls, state deltas, messages) is nested under it, and the finished step shows the node's duration. AG-UI doesn't tag events with a step id, so when a node starts while another is still running (parallel branches or a subgraph) Moka labels it `· overlaps <node>` and nests the following events under the most recent node: treat that grouping as best-effort.
+
 Some adapters re-emit every framework event as an AG-UI `RAW` event (`ag-ui-langgraph` does this by default, often dozens per run). Moka collapses them into a single **`AG-UI RAW × N (collapsed)`** entry just before `RUN_FINISHED`; click it to see the first 200. RAW events that carry A2UI are still rendered. To skip them at the source with LangGraph, pass `emit_raw_events=False` to `LangGraphAgent`.

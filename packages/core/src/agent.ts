@@ -24,7 +24,16 @@ export type ChatChunk =
   | { type: "start"; runId: string; model: string; profileId: string; tools: number }
   | { type: "text"; text: string }
   | { type: "reasoning"; text: string }
-  | { type: "tool-call"; id: string; name: string; tool: string; source: string; input: unknown }
+  | {
+      type: "tool-call";
+      id: string;
+      name: string;
+      tool: string;
+      source: string;
+      input: unknown;
+      /** An earlier call in this run with the same tool and arguments, for tools that may write. */
+      duplicateOf?: string;
+    }
   | { type: "tool-result"; id: string; output: unknown; isError: boolean; durationMs?: number; ui?: UiDescriptor; raw?: RawToolResult }
   | { type: "step"; usage: Usage; finishReason: string }
   | { type: "finish"; usage: Usage; durationMs: number; messages: ModelMessage[] }
@@ -66,6 +75,8 @@ interface ToolBinding {
   source: string;
   tool: string;
   serverId?: string;
+  /** The MCP tool says it only reads (`readOnlyHint`), so repeating it is harmless. */
+  readOnly?: boolean;
 }
 
 /** The untouched MCP result, forwarded to MCP Apps as `ui/notifications/tool-result`. */
@@ -139,7 +150,7 @@ export async function* runAgent(options: RunAgentOptions): AsyncGenerator<ChatCh
     for (const mcpTool of state.tools) {
       if (hidden.has(mcpTool.name) || !toolVisibleToModel(mcpTool)) continue;
       const key = toolKey(server.id, mcpTool.name);
-      bindings.set(key, { source: server.name, tool: mcpTool.name, serverId: server.id });
+      bindings.set(key, { source: server.name, tool: mcpTool.name, serverId: server.id, readOnly: mcpTool.annotations?.readOnlyHint === true });
       tools[key] = mcpToolToAiTool(mcpTool, server, options, sideChannel);
     }
   });
@@ -227,6 +238,8 @@ export async function* runAgent(options: RunAgentOptions): AsyncGenerator<ChatCh
   });
 
   const toolStarts = new Map<string, number>();
+  // Calls that can change something, by tool + arguments, to spot a model repeating a write.
+  const writes = new Map<string, string>();
   let stepStarted = Date.now();
   let stepIndex = 0;
 
@@ -277,13 +290,28 @@ export async function* runAgent(options: RunAgentOptions): AsyncGenerator<ChatCh
         case "tool-call": {
           const binding = bindings.get(part.toolName) ?? { source: "unknown", tool: part.toolName };
           toolStarts.set(part.toolCallId, Date.now());
+          let duplicateOf: string | undefined;
+          if (binding.serverId && !binding.readOnly) {
+            const key = `${part.toolName}\u0000${stableJson(part.input)}`;
+            duplicateOf = writes.get(key);
+            if (!duplicateOf) writes.set(key, part.toolCallId);
+          }
           bus.emit({
             kind: "tool.call",
             runId,
-            title: `${binding.source} › ${binding.tool}`,
-            data: { id: part.toolCallId, input: part.input },
+            title: `${binding.source} › ${binding.tool}${duplicateOf ? " · same call again" : ""}`,
+            ...(duplicateOf ? { level: "warn" as const } : {}),
+            data: { id: part.toolCallId, input: part.input, ...(duplicateOf ? { duplicateOf } : {}) },
           });
-          yield { type: "tool-call", id: part.toolCallId, name: part.toolName, tool: binding.tool, source: binding.source, input: part.input };
+          yield {
+            type: "tool-call",
+            id: part.toolCallId,
+            name: part.toolName,
+            tool: binding.tool,
+            source: binding.source,
+            input: part.input,
+            ...(duplicateOf ? { duplicateOf } : {}),
+          };
           break;
         }
         case "tool-result": {
@@ -422,4 +450,16 @@ export async function expandServerUi(
     if (entry.catalog) catalogs.push(entry.catalog);
   }
   return catalogs.length > 1 ? expandMessages(messages, new ComponentRegistry(catalogs)) : messages;
+}
+
+/** JSON with sorted keys, so `{a,b}` and `{b,a}` compare equal. */
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.keys(value)
+      .sort()
+      .map((k) => `${JSON.stringify(k)}:${stableJson((value as Record<string, unknown>)[k])}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "null";
 }

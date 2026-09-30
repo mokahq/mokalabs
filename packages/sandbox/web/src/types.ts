@@ -243,6 +243,10 @@ export interface MokaEvent {
   durationMs?: number;
   direction?: "in" | "out";
   level?: "info" | "warn" | "error";
+  /** JSON-RPC correlation: responses, cancellations and "no response" markers point at their request. */
+  rpc?: { id: string; method?: string; pairId?: string; outcome?: "ok" | "error" | "cancelled" | "late" | "unanswered" };
+  /** Parent event, e.g. the AG-UI step (graph node) that emitted this one. */
+  parentId?: string;
   data?: unknown;
 }
 
@@ -256,7 +260,7 @@ export type ChatChunk =
   | { type: "start"; runId: string; model: string; profileId: string; tools: number }
   | { type: "text"; text: string }
   | { type: "reasoning"; text: string }
-  | { type: "tool-call"; id: string; name: string; tool: string; source: string; input: unknown }
+  | { type: "tool-call"; id: string; name: string; tool: string; source: string; input: unknown; duplicateOf?: string }
   | { type: "tool-result"; id: string; output: unknown; isError: boolean; durationMs?: number; ui?: UiDescriptor; raw?: RawToolResult }
   | { type: "step"; usage: Usage; finishReason: string }
   | { type: "finish"; usage: Usage; durationMs: number; messages: unknown[] }
@@ -293,6 +297,8 @@ export type Part =
       isError?: boolean;
       durationMs?: number;
       status: "running" | "done" | "error";
+      /** Same tool and arguments as an earlier call in this turn, for a tool that may write. */
+      duplicateOf?: string;
       ui?: UiDescriptor;
       raw?: RawToolResult;
     };
