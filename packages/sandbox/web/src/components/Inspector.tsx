@@ -350,6 +350,13 @@ function requestStatus(e: MokaEvent, answers: Map<string, MokaEvent[]>): { label
   const cancelled = find("cancelled");
   const reply = find("ok") ?? find("error");
   if (unanswered) return { label: "no response", tone: "border-err/30 bg-err/10 text-err", title: `The connection closed after ${formatMs(unanswered.durationMs)} with this request still open.` };
+  if (cancelled?.rpc?.reason === "timeout") {
+    return {
+      label: `timed out · ${formatMs(cancelled.durationMs)}${late ? " · late reply" : ""}`,
+      tone: "border-warn/30 bg-warn/10 text-warn",
+      title: `Moka gave up after ${formatMs(cancelled.durationMs)} (tool timeout)${late ? `; the server still replied after ${formatMs(late.durationMs)}, too late to be used` : ""}.`,
+    };
+  }
   if (cancelled) return { label: late ? "cancelled · late reply" : "cancelled", tone: "border-warn/30 bg-warn/10 text-warn", title: `Cancelled after ${formatMs(cancelled.durationMs)}${late ? `; the server still replied after ${formatMs(late.durationMs)} (ignored)` : ""}.` };
   if (reply?.rpc?.outcome === "error") return { label: `error · ${formatMs(reply.durationMs)}`, tone: "border-err/30 bg-err/10 text-err", title: "The server answered with a JSON-RPC error." };
   if (reply) return { label: formatMs(reply.durationMs), tone: "border-line text-subtle", title: "Time until the response arrived" };
@@ -389,7 +396,8 @@ function RpcPair({
   }
   const all = answers.get(request.id) ?? [];
   const reply = all.find((a) => a.rpc?.outcome === "ok" || a.rpc?.outcome === "error" || a.rpc?.outcome === "late");
-  const other = all.filter((a) => a !== reply);
+  const other = all.filter((a) => a !== reply && (a.rpc?.outcome === "cancelled" || a.rpc?.outcome === "unanswered"));
+  const progress = all.filter((a) => a.title.startsWith("progress"));
   const status = requestStatus(request, answers);
   const Side = ({ label, event, empty }: { label: string; event?: MokaEvent; empty: string }) => (
     <div className="min-w-0">
@@ -420,6 +428,11 @@ function RpcPair({
           {o.durationMs !== undefined && <span className="font-mono text-[10.5px]">{formatMs(o.durationMs)}</span>}
         </button>
       ))}
+      {progress.length > 0 && (
+        <p className="text-[12px] text-muted">
+          {progress.length} progress update{progress.length === 1 ? "" : "s"}, last: <span className="font-mono">{progress.at(-1)!.title.split(" → ")[0]}</span>
+        </p>
+      )}
       <Side label="Request" event={request} empty="" />
       <Side
         label={reply?.rpc?.outcome === "late" ? "Response (late, ignored by the client)" : "Response"}

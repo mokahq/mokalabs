@@ -39,6 +39,9 @@ export interface McpServerConfig {
   headers?: Record<string, string>;
   disabledTools?: string[];
   timeoutMs?: number;
+  toolTimeoutMs?: number;
+  resetTimeoutOnProgress?: boolean;
+  maxTotalTimeoutMs?: number;
   approval?: { default?: ApprovalMode; tools?: Record<string, ApprovalMode> };
   oauth?: boolean | { clientId?: string; clientSecret?: string; scopes?: string[] };
   sampling?: "ask" | "auto" | "deny";
@@ -141,7 +144,7 @@ export interface MokaConfig {
   agents: AgentConfig[];
   catalogs: CatalogConfig[];
   workspaces: Workspace[];
-  ui?: { starLink?: boolean };
+  ui?: { starLink?: boolean; animations?: boolean; branding?: boolean };
 }
 
 export interface ProviderPreset {
@@ -244,7 +247,7 @@ export interface MokaEvent {
   direction?: "in" | "out";
   level?: "info" | "warn" | "error";
   /** JSON-RPC correlation: responses, cancellations and "no response" markers point at their request. */
-  rpc?: { id: string; method?: string; pairId?: string; outcome?: "ok" | "error" | "cancelled" | "late" | "unanswered" };
+  rpc?: { id: string; method?: string; pairId?: string; reason?: string; outcome?: "ok" | "error" | "cancelled" | "late" | "unanswered" };
   /** Parent event, e.g. the AG-UI step (graph node) that emitted this one. */
   parentId?: string;
   data?: unknown;

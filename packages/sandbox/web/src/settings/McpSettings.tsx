@@ -482,9 +482,10 @@ function ServerForm({ initial, isNew, onCreated }: { initial: McpServerConfig; i
               <option value="deny">Never (don't offer sampling)</option>
             </Select>
           </Field>
-          <Field label="Timeout (ms)">
+          <Field label="Timeout (ms)" hint="For connecting, and for tool calls unless set below.">
             <Input type="number" value={draft.timeoutMs ?? ""} onChange={(e) => patch({ timeoutMs: e.target.value ? Number(e.target.value) : undefined })} placeholder="30000" />
           </Field>
+          <ToolTimeoutFields draft={draft} patch={patch} />
         </>
       )}
     </div>
@@ -715,5 +716,60 @@ function HeaderTable({ title, rows, configured }: { title: string; rows: Array<[
         ))}
       </div>
     </div>
+  );
+}
+
+/** How long to wait for slow tools, with a preset that behaves like clients on the MCP SDK defaults. */
+function ToolTimeoutFields({ draft, patch }: { draft: McpServerConfig; patch: (p: Partial<McpServerConfig>) => void }) {
+  const preset =
+    draft.toolTimeoutMs === undefined && draft.resetTimeoutOnProgress === undefined && draft.maxTotalTimeoutMs === undefined
+      ? "default"
+      : draft.toolTimeoutMs === 60_000 && draft.resetTimeoutOnProgress === false && draft.maxTotalTimeoutMs === undefined
+        ? "sdk"
+        : "custom";
+  const [custom, setCustom] = useState(preset === "custom");
+  const mode = custom ? "custom" : preset;
+  const choose = (value: string) => {
+    setCustom(value === "custom");
+    if (value === "default") patch({ toolTimeoutMs: undefined, resetTimeoutOnProgress: undefined, maxTotalTimeoutMs: undefined });
+    if (value === "sdk") patch({ toolTimeoutMs: 60_000, resetTimeoutOnProgress: false, maxTotalTimeoutMs: undefined });
+  };
+  return (
+    <>
+      <Field
+        label="Slow tools"
+        className="sm:col-span-2"
+        hint="Test how your server behaves with impatient clients. Moka shows the exact moment it gave up, and any late reply, in the inspector."
+      >
+        <Select value={mode} onChange={(e) => choose(e.target.value)}>
+          <option value="default">Wait up to 2 minutes; progress notifications restart the timer (Moka default)</option>
+          <option value="sdk">Give up after 60 seconds, even if progress arrives (like clients on the MCP SDK defaults)</option>
+          <option value="custom">Custom…</option>
+        </Select>
+      </Field>
+      {mode === "custom" && (
+        <>
+          <Field label="Tool timeout (ms)">
+            <Input
+              type="number"
+              value={draft.toolTimeoutMs ?? ""}
+              onChange={(e) => patch({ toolTimeoutMs: e.target.value ? Number(e.target.value) : undefined })}
+              placeholder={String(draft.timeoutMs ?? 120000)}
+            />
+          </Field>
+          <Field label="Hard limit (ms)" hint="Give up even while progress keeps arriving. Empty = no limit.">
+            <Input
+              type="number"
+              value={draft.maxTotalTimeoutMs ?? ""}
+              onChange={(e) => patch({ maxTotalTimeoutMs: e.target.value ? Number(e.target.value) : undefined })}
+            />
+          </Field>
+          <label className="flex items-center justify-between gap-3 text-[13px] sm:col-span-2">
+            <span>Progress notifications restart the timer</span>
+            <Switch checked={draft.resetTimeoutOnProgress ?? true} onChange={(on) => patch({ resetTimeoutOnProgress: on })} label="Progress restarts the timer" />
+          </label>
+        </>
+      )}
+    </>
   );
 }

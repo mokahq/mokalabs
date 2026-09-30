@@ -1,0 +1,105 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 164 128" role="img" aria-label="Moka the puppy, facing you">
+  <style>
+    .f-body, .f-head, .f-eyes, .f-tail, .f-steam path { transform-box: view-box; }
+    .f-body { transform-origin: 82px 106px; animation: f-breathe 3.2s ease-in-out infinite; }
+    .f-head { transform-origin: 82px 66px; animation: f-look 9s ease-in-out infinite; }
+    .f-eyes { transform-origin: 82px 42px; animation: f-blink 4.4s infinite; }
+    .f-tail { transform-origin: 100px 100px; animation: f-wag 2.6s ease-in-out infinite; }
+    .f-steam path { animation: f-steam 2.4s ease-in-out infinite; opacity: 0; }
+    .f-steam path:nth-child(2) { animation-delay: 1.2s; }
+    .f-pupils { transform-box: view-box; transform: translate(calc(var(--look-x, 0) * 2.4px), calc(var(--look-y, 0) * 2px)); transition: transform .12s ease-out; }
+    .f-happy { opacity: 0; }
+    .f-ear-l, .f-ear-r, .f-tongue { transform-box: view-box; transition: transform .25s ease-out; }
+    .f-ear-l { transform-origin: 62px 30px; }
+    .f-ear-r { transform-origin: 102px 30px; }
+    .f-tongue { opacity: 0; transform-origin: 84px 55px; transform: scaleY(.3); }
+    /* petted: ears perk up, tongue out, tail goes wild */
+    .petted .f-ear-l { transform: rotate(16deg); }
+    .petted .f-ear-r { transform: rotate(-16deg); }
+    .petted .f-tongue { opacity: 1; transform: scaleY(1); }
+    .petted .f-tail { animation: f-wag .22s ease-in-out infinite; }
+    /* petted: happy eyes, a little head tilt */
+    .petted .f-eyes-open { opacity: 0; }
+    .petted .f-happy { opacity: 1; }
+    .petted .f-eyes { animation: none; }
+    .petted .f-head { animation: f-tilt .3s ease-out forwards; }
+    @keyframes f-tilt { to { transform: rotate(-4deg); } }
+    /* still: blinks, nothing else (the small header pup) */
+    .mood-still .f-body, .mood-still .f-head, .mood-still .f-tail, .mood-still .f-steam path { animation: none; }
+    .mood-still .f-steam path { opacity: .85; }
+
+    @keyframes f-breathe { 0%, 100% { transform: scale(1, 1); } 50% { transform: scale(1.015, 1.03); } }
+    @keyframes f-look { 0%, 40%, 100% { transform: rotate(0deg); } 50%, 58% { transform: rotate(-5deg); } 68%, 76% { transform: rotate(4deg); } }
+    @keyframes f-blink { 0%, 92%, 100% { transform: scaleY(1); } 94%, 96% { transform: scaleY(.08); } }
+    @keyframes f-wag { 0%, 100% { transform: rotate(-10deg); } 50% { transform: rotate(14deg); } }
+    @keyframes f-steam { 0% { opacity: 0; transform: translateY(3px); } 30% { opacity: .9; } 100% { opacity: 0; transform: translateY(-7px); } }
+
+    .mood-off *, .mood-off { animation: none !important; }
+    .mood-off .f-steam path { opacity: 1; }
+    @media (prefers-reduced-motion: reduce) {
+      * { animation: none !important; }
+      .f-steam path { opacity: .85; }
+    }
+  </style>
+
+  <g>
+    <!-- tail, wagging behind -->
+    <path class="f-tail" d="M98 100 C 108 98, 116 90, 118 80 C 119 76, 124 77, 123 81 C 121 94, 112 104, 100 106 Z" fill="#f3c58b" stroke="#3b2a20" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
+
+    <!-- legs -->
+    <g><path d="M68 102 L 68 113 Q 68 117 73 117 L 78 117 Q 82 117 82 113 L 82 104" fill="#f3c58b" stroke="#3b2a20" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/></g>
+    <g><path d="M82 104 L 82 113 Q 82 117 86 117 L 91 117 Q 96 117 96 113 L 96 102" fill="#f3c58b" stroke="#3b2a20" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/></g>
+
+    <g class="f-body">
+      <path d="M82 62 C 64 62, 58 76, 59 90 C 60 104, 70 111, 82 111 C 94 111, 104 104, 105 90 C 106 76, 100 62, 82 62 Z" fill="#f3c58b" stroke="#3b2a20" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
+      <!-- tummy -->
+      <ellipse cx="82" cy="96" rx="12" ry="10" fill="#fdebd2"/>
+    </g>
+
+    <!-- right paw -->
+    <g><path d="M101 74 q 5 7 1 14" fill="none" stroke="#3b2a20" stroke-width="7.8" stroke-linecap="round"/><path d="M101 74 q 5 7 1 14" fill="none" stroke="#f3c58b" stroke-width="4" stroke-linecap="round"/></g>
+
+    <!-- cup, held in front of the tummy -->
+    <g class="f-cup">
+      <g class="f-steam">
+        <path d="M79 76 c -2 -2.5, 3 -4, 1 -6.5" fill="none" stroke="#9a5b34" stroke-width="2.2" stroke-linecap="round"/>
+        <path d="M86 77 c -2 -2.5, 3 -4, 1 -6.5" fill="none" stroke="#9a5b34" stroke-width="2.2" stroke-linecap="round"/>
+      </g>
+      <path d="M73 81 h 18 v 8 a 9 9 0 0 1 -9 9 a 9 9 0 0 1 -9 -9 z" fill="#fffaf3" stroke="#3b2a20" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
+      <path d="M91 83.5 h 2.5 a 3.8 3.8 0 0 1 0 7.6 h -2.8" fill="none" stroke="#3b2a20" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
+      <path d="M74.5 84 h 15" stroke="#7a4a2a" stroke-width="2.6" stroke-linecap="round"/>
+    </g>
+    <path d="M63 74 q -4 10 11 14" fill="none" stroke="#3b2a20" stroke-width="7.8" stroke-linecap="round"/><path d="M63 74 q -4 10 11 14" fill="none" stroke="#f3c58b" stroke-width="4" stroke-linecap="round"/>
+
+    <g class="f-head">
+      <ellipse cx="82" cy="42" rx="27" ry="23" fill="#f3c58b" stroke="#3b2a20" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
+      <!-- a mocha patch around one eye -->
+      <path d="M86 33 C 90 27, 102 29, 102 38 C 102 45, 94 47, 89 44 C 85 42, 83 37, 86 33 Z" fill="#9a5b34" opacity=".85"/>
+      <!-- cheeks -->
+      <ellipse cx="64" cy="49" rx="4.4" ry="2.7" fill="#f07b5a" opacity=".45"/>
+      <ellipse cx="100" cy="50" rx="4.4" ry="2.7" fill="#f07b5a" opacity=".45"/>
+      <!-- muzzle, nose, mouth, tongue -->
+      <ellipse cx="82" cy="51" rx="11.5" ry="8.5" fill="#fdebd2" stroke="#3b2a20" stroke-width="2.4"/>
+      <path class="f-tongue" d="M81 55 h 6 v 3.5 a 3 3 0 0 1 -6 0 z" fill="#f2798a" stroke="#3b2a20" stroke-width="2"/>
+      <path d="M78.5 49 q 3.5 -3.5 7 0 q 0 3 -3.5 3.5 q -3.5 -0.5 -3.5 -3.5 z" fill="#3b2a20"/>
+      <path d="M77 54 q 2.5 2.6 5 0 q 2.5 2.6 5 0" fill="none" stroke="#3b2a20" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+      <g class="f-eyes">
+        <g class="f-eyes-open">
+          <!-- dot eyes follow the pointer (the app sets the look-x and look-y CSS variables, -1 to 1) -->
+          <g class="f-pupils">
+            <circle cx="71" cy="39" r="3.1" fill="#3b2a20"/>
+            <circle cx="93" cy="39" r="3.1" fill="#3b2a20"/>
+            <circle cx="72" cy="38" r="0.9" fill="#fff"/>
+            <circle cx="94" cy="38" r="0.9" fill="#fff"/>
+          </g>
+        </g>
+        <!-- happy ^ ^ (being petted) -->
+        <path class="f-happy" d="M66.5 40.5 q 4.5 -5.5 9 0 M88.5 40.5 q 4.5 -5.5 9 0" fill="none" stroke="#3b2a20" stroke-width="2.6" stroke-linecap="round"/>
+      </g>
+      <!-- floppy ears -->
+      <path class="f-ear-l" d="M64 26 C 56 24, 48 30, 48 42 C 48 52, 52 60, 57 60 C 62 60, 63 50, 63 44 Z" fill="#9a5b34" stroke="#3b2a20" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
+      <path class="f-ear-r" d="M100 26 C 108 24, 116 30, 116 42 C 116 52, 112 60, 107 60 C 102 60, 101 50, 101 44 Z" fill="#9a5b34" stroke="#3b2a20" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
+    </g>
+  </g>
+
+</svg>

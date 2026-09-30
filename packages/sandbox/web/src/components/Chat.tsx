@@ -26,7 +26,7 @@ import { uid } from "../runner";
 import { useStore } from "../store";
 import type { Attachment, Part, UiMessage } from "../types";
 import { REPO_URL } from "../links";
-import { Dino } from "./Dino";
+import { MokaPortrait, useMokaBranding } from "./Moka";
 import { ApprovalBar, usePendingApproval } from "./Interactions";
 import { Markdown } from "./Markdown";
 import { ToolUi } from "./ToolUi";
@@ -90,13 +90,14 @@ function EmptyChat() {
   const llm = agent ? { name: agent.name, model: agent.protocol === "a2a" ? "A2A agent" : "AG-UI agent" } : (config.llms.find((l) => l.id === workspace.llmId) ?? config.llms[0]);
   const toolCount = workspace.mcpServerIds.reduce((n, id) => n + (mcp[id]?.tools.length ?? 0), 0);
   const wsSkills = skills.filter((s) => workspace.skillIds.includes(s.id));
+  const branded = useMokaBranding();
 
   return (
     <div className="relative flex min-h-full flex-col items-center justify-center px-6 py-16">
       <div className="glow pointer-events-none absolute inset-x-0 top-0 h-80" />
       <div className="relative w-full max-w-2xl text-center">
-        <Dino className="mx-auto mb-3 h-28 w-36 drop-shadow-[0_12px_24px_rgba(0,0,0,0.25)]" />
-        <h1 className="text-2xl font-semibold tracking-tight">{workspace.name === "Default" ? "What are we brewing?" : workspace.name}</h1>
+        {branded && <MokaPortrait className="mx-auto mb-4" />}
+        <h1 className="text-2xl font-semibold tracking-tight">{workspace.name !== "Default" ? workspace.name : branded ? "What are we brewing?" : "What can I help with?"}</h1>
         <div className="mt-3 flex flex-wrap items-center justify-center gap-1.5 text-[13px] text-muted">
           {llm ? (
             <Badge tone="accent">
@@ -146,7 +147,7 @@ function EmptyChat() {
             ))}
           </div>
         )}
-        {!presenter && config.ui?.starLink !== false && (
+        {!presenter && branded && config.ui?.starLink !== false && (
           <div className="mt-10 inline-flex items-center gap-2 text-[12px] text-subtle">
             <a href={REPO_URL} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 transition-colors hover:text-accent">
               <Star className="h-3.5 w-3.5" />
@@ -318,10 +319,57 @@ function Reasoning({ text, live }: { text: string; live: boolean }) {
   );
 }
 
+/** Latest `notifications/progress` for a tool call, from the inspector stream. */
+function useToolProgress(id: string, running: boolean) {
+  const events = useStore((s) => s.events);
+  return useMemo(() => {
+    if (!running) return undefined;
+    for (let i = events.length - 1; i >= 0; i--) {
+      const e = events[i]!;
+      if (e.kind === "tool.progress" && (e.data as any)?.id === id) return e.data as { progress: number; total?: number; message?: string };
+    }
+    return undefined;
+  }, [events, id, running]);
+}
+
+/** Seconds since a tool call started, ticking while it runs. */
+function useElapsed(running: boolean) {
+  const [started] = useState(() => Date.now());
+  const [now, setNow] = useState(started);
+  useEffect(() => {
+    if (!running) return;
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [running]);
+  return Math.floor((now - started) / 1000);
+}
+
+function ToolProgress({ progress, elapsed }: { progress?: { progress: number; total?: number; message?: string }; elapsed: number }) {
+  const percent = progress?.total ? Math.min(100, (progress.progress / progress.total) * 100) : undefined;
+  const clock = `${Math.floor(elapsed / 60)}:${String(elapsed % 60).padStart(2, "0")}`;
+  return (
+    <div className="px-3 pb-2.5">
+      <div className="relative h-1.5 overflow-hidden rounded-full bg-panel-2">
+        <div
+          className={cn("absolute inset-y-0 left-0 rounded-full bg-accent transition-[width] duration-700", percent === undefined && "w-1/3 animate-pulse")}
+          style={percent !== undefined ? { width: `${percent}%` } : undefined}
+        />
+      </div>
+      <div className="mt-1.5 flex items-center gap-2 font-mono text-[11px] text-subtle">
+        <span className="min-w-0 flex-1 truncate">{progress?.message ?? (progress ? `${progress.progress}${progress.total ? ` / ${progress.total}` : ""}` : "Working…")}</span>
+        {percent !== undefined && <span>{Math.round(percent)}%</span>}
+        <span>{clock}</span>
+      </div>
+    </div>
+  );
+}
+
 export function ToolCard({ part }: { part: Extract<Part, { type: "tool" }> }) {
   const approval = usePendingApproval(part.id);
   const [open, setOpen] = useState(false);
   const running = part.status === "running";
+  const progress = useToolProgress(part.id, running);
+  const elapsed = useElapsed(running);
   const inputPreview = useMemo(() => {
     const s = JSON.stringify(part.input ?? {});
     return s === "{}" ? "" : s.length > 80 ? `${s.slice(0, 80)}…` : s;
@@ -337,7 +385,7 @@ export function ToolCard({ part }: { part: Extract<Part, { type: "tool" }> }) {
         <div
           className={cn(
             "flex h-6 w-6 shrink-0 items-center justify-center rounded-md",
-            part.status === "error" ? "bg-err/10 text-err" : running ? "bg-accent-soft text-accent" : "bg-ok/10 text-ok",
+            part.status === "error" ? "bg-err/10 text-err" : running ? "text-accent" : "bg-ok/10 text-ok",
           )}
         >
           {running ? <Spinner /> : part.source === "skills" ? <Sparkles className="h-3.5 w-3.5" /> : <Wrench className="h-3.5 w-3.5" />}
@@ -374,6 +422,7 @@ export function ToolCard({ part }: { part: Extract<Part, { type: "tool" }> }) {
           )}
         </div>
       )}
+      {running && !approval && (progress || elapsed >= 3) && <ToolProgress progress={progress} elapsed={elapsed} />}
       {approval && <ApprovalBar approval={approval} />}
     </div>
   );
@@ -461,6 +510,7 @@ export function Composer({
   const ref = useRef<HTMLTextAreaElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const rich = !onSend; // attachments, resources and prompts only in the main chat
+  const who = useMokaBranding() ? "Message Moka…" : "Send a message…";
 
   const servers = workspace.mcpServerIds.map((id) => mcp[id]).filter((s): s is NonNullable<typeof s> => s?.status === "connected");
   const resources = servers.flatMap((s) => s.resources.map((r) => ({ ...r, serverId: s.id, serverName: s.name })));
@@ -687,7 +737,7 @@ export function Composer({
                 submit();
               }
             }}
-            placeholder={disabledReason ?? (hasModel ? placeholder ?? (rich ? `Message Moka… (@ for resources${prompts.length ? ", / for prompts" : ""})` : "Message Moka…") : "Add a model in Settings to start chatting")}
+            placeholder={disabledReason ?? (hasModel ? placeholder ?? (rich ? `${who} (@ for resources${prompts.length ? ", / for prompts" : ""})` : who) : "Add a model in Settings to start chatting")}
             className="block w-full resize-none bg-transparent px-4 pt-3.5 pb-1 text-[15px] leading-relaxed placeholder:text-subtle focus:outline-none"
           />
           <div className="flex items-center gap-1 px-3 pb-2.5">

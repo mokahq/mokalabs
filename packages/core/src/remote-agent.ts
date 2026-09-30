@@ -384,7 +384,7 @@ async function frontendTools(options: RunRemoteAgentOptions): Promise<FrontendTo
             const ok = await options.authorizeTool({ runId: options.runId, toolCallId, server, tool, input: args, signal: options.signal });
             if (!ok) return { text: "The user declined to run this tool.", isError: true };
           }
-          const result = await options.mcp.callTool(server.id, tool.name, args ?? {}, { signal: options.signal });
+          const result = await options.mcp.callTool(server.id, tool.name, args ?? {}, { signal: options.signal, runId: options.runId, callId: toolCallId });
           const { detectResultUi, toolUiResourceUri } = await import("./ui.js");
           const appUri = toolUiResourceUri(tool);
           let ui: UiDescriptor | undefined = appUri ? { kind: "mcp-app", serverId: server.id, resourceUri: appUri } : detectResultUi(server.id, result);

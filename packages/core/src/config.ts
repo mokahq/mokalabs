@@ -54,7 +54,14 @@ export const mcpServerSchema = z.object({
   headers: stringRecord.optional(),
   /** Tools hidden from the model (still callable from the tool runner). */
   disabledTools: z.array(z.string()).optional(),
+  /** Connection timeout, and the tool-call timeout when `toolTimeoutMs` isn't set. */
   timeoutMs: z.number().int().positive().optional(),
+  /** How long to wait for a tool call before giving up (default 120000, or `timeoutMs`). */
+  toolTimeoutMs: z.number().int().positive().optional(),
+  /** Progress notifications restart the tool timeout (default true). The MCP SDK's own default is false. */
+  resetTimeoutOnProgress: z.boolean().optional(),
+  /** Hard limit for a tool call even while progress keeps arriving. */
+  maxTotalTimeoutMs: z.number().int().positive().optional(),
   /**
    * OAuth for http/sse servers. On by default when the server asks for it and
    * no Authorization header is set; `false` disables it, an object sets a
@@ -193,6 +200,10 @@ export const mokaConfigSchema = z.object({
     .object({
       /** Show the small "Star it on GitHub" line on the empty chat screen and in the terminal banner (default true). */
       starLink: z.boolean().optional(),
+      /** Animate Moka the puppy: eyes that follow the cursor, petting and peekaboo (default true). */
+      animations: z.boolean().optional(),
+      /** Show Moka's branding in the chat: the puppy, the name, the star link (default true). Off gives a neutral chat for demos of your own product. */
+      branding: z.boolean().optional(),
     })
     .optional(),
 });

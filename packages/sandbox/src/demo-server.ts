@@ -292,6 +292,40 @@ export function createDemoServer(version: string): McpServer {
   );
 
   server.registerTool(
+    "slow_backtest",
+    {
+      title: "Backtest a strategy (slow)",
+      description:
+        "Backtest a simple trading strategy on historical prices (simulated). Takes about 90 seconds and reports progress every second: use it to test long-running tools, progress bars and client timeouts.",
+      inputSchema: {
+        symbol: z.string().default("AAPL").describe("Ticker to backtest"),
+        years: z.number().int().min(1).max(20).default(5).describe("Years of history to replay"),
+        seconds: z.number().int().min(1).max(300).default(90).describe("How long the simulation takes"),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    async ({ symbol, years, seconds }, extra) => {
+      const token = extra._meta?.progressToken;
+      for (let s = 1; s <= seconds; s++) {
+        await new Promise((r) => setTimeout(r, 1000));
+        if (extra.signal.aborted) return text("Backtest cancelled.");
+        if (token !== undefined) {
+          const year = new Date().getFullYear() - years + Math.min(years - 1, Math.floor((s / seconds) * years));
+          await extra
+            .sendNotification({ method: "notifications/progress", params: { progressToken: token, progress: s, total: seconds, message: `Replaying ${symbol} ${year}` } })
+            .catch(() => {});
+        }
+      }
+      // Deterministic, made-up results so demos are repeatable.
+      const seed = [...symbol.toUpperCase()].reduce((n, c) => n + c.charCodeAt(0), years);
+      const cagr = ((seed % 190) / 10 - 4).toFixed(1);
+      const drawdown = (8 + (seed % 23)).toFixed(0);
+      const trades = 40 + (seed % 160) * years;
+      return text(`Backtest of ${symbol.toUpperCase()} over ${years} years (simulated): ${cagr}% a year, worst drawdown -${drawdown}%, ${trades} trades.`);
+    },
+  );
+
+  server.registerTool(
     "flaky_write",
     {
       title: "Save a note (flaky)",

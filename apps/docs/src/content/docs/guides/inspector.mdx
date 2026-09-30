@@ -36,7 +36,8 @@ Moka matches every JSON-RPC response to its request by `id`, in both directions 
 |---|---|
 | `17ms` | The response arrived after 17 ms |
 | `error · 17ms` | The server answered with a JSON-RPC error |
-| `cancelled` | Moka sent `notifications/cancelled` (you stopped the run, or the request timed out) |
+| `timed out · 60.0s` | Moka gave up waiting (the server's [tool timeout](/guides/mcp-servers/#slow-tools-progress-and-timeouts)) |
+| `cancelled` | Moka sent `notifications/cancelled` (for example, you stopped the run) |
 | `cancelled · late reply` | …and the server answered anyway, after the client had stopped listening |
 | `no response` | The connection closed while the request was still open |
 | `waiting…` | Still open |
