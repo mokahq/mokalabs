@@ -23,7 +23,7 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "../store";
-import type { MokaEvent } from "../types";
+import type { MokaEvent, ToolLineage } from "../types";
 import { IconButton, Input, JsonView, Tabs, cn, formatMs } from "./ui";
 
 type Filter = "all" | "llm" | "tools" | "rpc" | "logs";
@@ -119,6 +119,7 @@ export function Inspector() {
     }
     return { answers, byId };
   }, [source]);
+  const attempts = useMemo(() => indexAttempts(events), [events]);
   const depth = (e: MokaEvent) => {
     let d = 0;
     for (let p = e.parentId && byId.get(e.parentId); p && d < 4; p = p.parentId ? byId.get(p.parentId) : undefined) d++;
@@ -169,13 +170,16 @@ export function Inspector() {
             </div>
           </div>
         </div>
-        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-3">
+        {/* Keyed so each event opens scrolled to the top. */}
+        <div key={selected.id} className="min-h-0 flex-1 space-y-4 overflow-y-auto p-3">
           <div className="grid grid-cols-2 gap-2 text-[12px]">
             {selected.serverId && <Meta label="Server" value={serverName(selected.serverId)} />}
             {selected.runId && <Meta label="Run" value={selected.runId} mono />}
             {selected.direction && <Meta label="Direction" value={selected.direction === "out" ? "client → server" : "server → client"} />}
             {selected.level && <Meta label="Level" value={selected.level} />}
           </div>
+          <Attempts selected={selected} index={attempts} answers={answers} onSelect={(id) => set({ selectedEventId: id })} />
+          <ArgsTrace selected={selected} index={attempts} onSelect={(id) => set({ selectedEventId: id })} />
           {selected.rpc ? (
             <RpcPair selected={selected} byId={byId} answers={answers} onSelect={(id) => set({ selectedEventId: id })} />
           ) : (
@@ -336,6 +340,219 @@ function Waterfall({ events, selectedId, onSelect }: { events: MokaEvent[]; sele
           </button>
         );
       })}
+    </div>
+  );
+}
+
+interface Attempt {
+  call: MokaEvent;
+  /** MCP tools only. */
+  lineage?: ToolLineage;
+  /** tool.result or tool.error */
+  end?: MokaEvent;
+  /** The tools/call request on the wire. */
+  request?: MokaEvent;
+}
+
+/** Tool calls grouped into retry lineages, with the result and the raw request of each attempt. */
+function indexAttempts(events: MokaEvent[]) {
+  const byCall = new Map<string, Attempt>();
+  const byLineage = new Map<string, Attempt[]>();
+  for (const e of events) {
+    const d = e.data as { id?: string; lineage?: ToolLineage } | undefined;
+    if (e.kind === "tool.call" && d?.id) {
+      const attempt: Attempt = { call: e, lineage: d.lineage };
+      byCall.set(d.id, attempt);
+      if (d.lineage) byLineage.set(d.lineage.id, [...(byLineage.get(d.lineage.id) ?? []), attempt]);
+    } else if ((e.kind === "tool.result" || e.kind === "tool.error") && d?.id) {
+      const attempt = byCall.get(d.id);
+      if (attempt) attempt.end = e;
+    } else if (e.rpc?.callId && e.rpc.method === "tools/call" && !e.rpc.pairId) {
+      const attempt = byCall.get(e.rpc.callId);
+      if (attempt) attempt.request = e;
+    }
+  }
+  return { byCall, byLineage };
+}
+
+/** Every attempt of the selected tool call (retries of the same call), and the tool call behind a raw tools/call message. */
+function Attempts({
+  selected,
+  index,
+  answers,
+  onSelect,
+}: {
+  selected: MokaEvent;
+  index: ReturnType<typeof indexAttempts>;
+  answers: Map<string, MokaEvent[]>;
+  onSelect: (id: string) => void;
+}) {
+  const callId = selected.rpc?.callId ?? (selected.kind.startsWith("tool.") ? (selected.data as { id?: string } | undefined)?.id : undefined);
+  const mine = callId ? index.byCall.get(callId) : undefined;
+  if (!mine?.lineage) return null;
+  const all = index.byLineage.get(mine.lineage.id) ?? [mine];
+  if (all.length < 2) {
+    // A single attempt: from the wire, link back to the tool call.
+    if (!selected.rpc) return null;
+    return (
+      <button onClick={() => onSelect(mine.call.id)} className="flex w-full items-center gap-2 rounded-lg border border-line px-2.5 py-1.5 text-left text-[12px] hover:bg-panel-2">
+        <Wrench className="h-3.5 w-3.5 shrink-0 text-subtle" />
+        <span className="min-w-0 flex-1 truncate">{mine.call.title}</span>
+        <span className="text-accent">open tool call</span>
+      </button>
+    );
+  }
+  const unknown = all.filter((a) => (a.end?.data as any)?.outcomeUnknown).length;
+  const tool = mine.call.title.split(" › ").pop()!.split(" · ")[0];
+  return (
+    <div>
+      <div className="mb-1.5 text-[11px] font-medium tracking-wide text-subtle uppercase">
+        Attempts · {tool} · {all.length}
+        {unknown ? ` · ${unknown} outcome unknown` : ""}
+      </div>
+      <div className="overflow-hidden rounded-lg border border-line">
+        {all.map((a) => {
+          const d = a.end?.data as { errorClass?: string; outcomeUnknown?: boolean; possibleDoubleWrite?: boolean } | undefined;
+          const status = a.request ? requestStatus(a.request, answers) : undefined;
+          const outcome = !a.end
+            ? { label: "running", tone: "text-subtle" }
+            : a.end.kind === "tool.result"
+              ? d?.possibleDoubleWrite
+                ? { label: "ok · may have run twice", tone: "text-warn" }
+                : { label: "ok", tone: "text-ok" }
+              : d?.outcomeUnknown
+                ? { label: `${d.errorClass} · outcome unknown`, tone: "text-warn" }
+                : { label: d?.errorClass ?? "error", tone: "text-err" };
+          const current = a === mine;
+          return (
+            <div key={a.call.id} className={cn("flex items-center gap-2 border-b border-line px-2.5 py-1.5 text-[12px] last:border-b-0", current && "bg-panel-2")}>
+              <button className="min-w-0 flex-1 truncate text-left hover:underline" onClick={() => onSelect(a.call.id)}>
+                Attempt {a.lineage?.attempt}
+              </button>
+              <span className={cn("font-mono text-[11px]", outcome.tone)}>{outcome.label}</span>
+              {a.end?.durationMs !== undefined && <span className="font-mono text-[10.5px] text-subtle">{formatMs(a.end.durationMs)}</span>}
+              {a.request && (
+                <button
+                  className="font-mono text-[10.5px] text-accent hover:underline"
+                  title={status?.title ?? "The tools/call request on the wire"}
+                  onClick={() => onSelect(a.request!.id)}
+                >
+                  #{a.request.rpc?.id}
+                </button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      <p className="mt-1 font-mono text-[10.5px] text-subtle">fingerprint {mine.lineage!.fingerprint} · server + tool + input schema + arguments</p>
+    </div>
+  );
+}
+
+type JsonDiff = { path: string; from: unknown; to: unknown };
+
+/** Where two JSON values differ (paths like `items[0].name`), up to `limit` entries. */
+function jsonDiff(a: unknown, b: unknown, path = "", out: JsonDiff[] = [], limit = 12): JsonDiff[] {
+  if (out.length >= limit) return out;
+  const isObj = (v: unknown) => v !== null && typeof v === "object";
+  if (Array.isArray(a) && Array.isArray(b)) {
+    for (let i = 0; i < Math.max(a.length, b.length); i++) jsonDiff(a[i], b[i], `${path}[${i}]`, out, limit);
+  } else if (isObj(a) && isObj(b) && !Array.isArray(a) && !Array.isArray(b)) {
+    const keys = new Set([...Object.keys(a as object), ...Object.keys(b as object)]);
+    for (const k of [...keys].sort()) jsonDiff((a as any)[k], (b as any)[k], path ? `${path}.${k}` : k, out, limit);
+  } else if (JSON.stringify(a) !== JSON.stringify(b)) {
+    out.push({ path: path || "(arguments)", from: a, to: b });
+  }
+  return out;
+}
+
+const preview = (v: unknown) => (v === undefined ? "missing" : JSON.stringify(v).slice(0, 60));
+
+/**
+ * The arguments at each hop: exactly what the model streamed, what Moka parsed,
+ * and what the server received in tools/call. Catches truncated or rewritten arguments.
+ */
+function ArgsTrace({ selected, index, onSelect }: { selected: MokaEvent; index: ReturnType<typeof indexAttempts>; onSelect: (id: string) => void }) {
+  const [showRaw, setShowRaw] = useState(false);
+  const callId = selected.rpc?.callId ?? (selected.kind.startsWith("tool.") ? (selected.data as { id?: string } | undefined)?.id : undefined);
+  const mine = callId ? index.byCall.get(callId) : undefined;
+  if (!mine) return null;
+  const d = mine.call.data as { input?: unknown; rawInput?: string; invalid?: boolean };
+  const raw = d.rawInput;
+  let modelArgs: unknown;
+  let rawOk = raw !== undefined;
+  if (raw !== undefined) {
+    try {
+      modelArgs = raw.trim() === "" ? {} : JSON.parse(raw);
+    } catch {
+      rawOk = false;
+    }
+  }
+  const wire = mine.request ? (mine.request.data as { params?: { arguments?: unknown } } | undefined)?.params?.arguments ?? {} : undefined;
+  const parsedDiff = rawOk ? jsonDiff(modelArgs, d.input ?? {}) : [];
+  const wireDiff = wire !== undefined ? jsonDiff(d.input ?? {}, wire) : [];
+  const isMcp = !!mine.lineage;
+
+  const Row = ({ label, ok, text, children }: { label: string; ok: boolean | undefined; text: string; children?: React.ReactNode }) => (
+    <div className="border-b border-line px-2.5 py-1.5 last:border-b-0">
+      <div className="flex items-center gap-2 text-[12px]">
+        <span className="min-w-0 flex-1 truncate">{label}</span>
+        <span className={cn("font-mono text-[11px]", ok === undefined ? "text-subtle" : ok ? "text-ok" : "text-warn")}>{text}</span>
+      </div>
+      {children}
+    </div>
+  );
+  const Diffs = ({ diffs }: { diffs: JsonDiff[] }) => (
+    <ul className="mt-1 space-y-0.5 font-mono text-[10.5px]">
+      {diffs.map((x) => (
+        <li key={x.path} className="truncate text-warn" title={`${x.path}: ${JSON.stringify(x.from)} → ${JSON.stringify(x.to)}`}>
+          {x.path}: {preview(x.from)} → {preview(x.to)}
+        </li>
+      ))}
+    </ul>
+  );
+
+  return (
+    <div>
+      <div className="mb-1.5 flex items-center gap-2 text-[11px] font-medium tracking-wide text-subtle uppercase">
+        Arguments · model → server
+        {raw !== undefined && (
+          <button className="normal-case tracking-normal text-accent hover:underline" onClick={() => setShowRaw(!showRaw)}>
+            {showRaw ? "hide raw" : "show raw"}
+          </button>
+        )}
+      </div>
+      <div className="overflow-hidden rounded-lg border border-line">
+        <Row
+          label="Model output"
+          ok={raw === undefined ? undefined : rawOk}
+          text={raw === undefined ? "not streamed by the provider" : rawOk ? `valid JSON · ${raw.length} chars` : "not valid JSON · truncated?"}
+        >
+          {!rawOk && raw !== undefined && <p className="mt-1 truncate font-mono text-[10.5px] text-warn">…{raw.slice(-80)}</p>}
+        </Row>
+        {rawOk && (
+          <Row label="Parsed by Moka" ok={parsedDiff.length === 0} text={parsedDiff.length ? `${parsedDiff.length} difference${parsedDiff.length === 1 ? "" : "s"}` : "same as model output"}>
+            {parsedDiff.length > 0 && <Diffs diffs={parsedDiff} />}
+          </Row>
+        )}
+        {isMcp && (
+          <Row
+            label={mine.request ? `Sent to server · tools/call #${mine.request.rpc?.id}` : "Sent to server"}
+            ok={wire === undefined ? undefined : wireDiff.length === 0}
+            text={wire === undefined ? (mine.end ? "never sent" : "not sent yet") : wireDiff.length ? `${wireDiff.length} difference${wireDiff.length === 1 ? "" : "s"}` : "same as parsed"}
+          >
+            {wireDiff.length > 0 && <Diffs diffs={wireDiff} />}
+            {mine.request && mine.request.id !== selected.id && (
+              <button className="mt-0.5 text-[11px] text-accent hover:underline" onClick={() => onSelect(mine.request!.id)}>
+                open request
+              </button>
+            )}
+          </Row>
+        )}
+      </div>
+      {showRaw && raw !== undefined && (
+        <pre className="mt-1.5 max-h-48 overflow-auto rounded-lg border border-line bg-panel-2/60 p-2 font-mono text-[11px] whitespace-pre-wrap break-all">{raw || "(empty)"}</pre>
+      )}
     </div>
   );
 }

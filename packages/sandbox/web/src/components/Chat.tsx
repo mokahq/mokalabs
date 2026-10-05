@@ -32,6 +32,9 @@ import { Markdown } from "./Markdown";
 import { ToolUi } from "./ToolUi";
 import { Badge, Button, CopyButton, IconButton, JsonView, Kbd, Spinner, cn, formatMs, formatNumber } from "./ui";
 
+/** The default starter prompt about Moka (see the sandbox's default workspace). */
+const MOKA_STARTER = "What is Moka and how do I add my own MCP server?";
+
 export function ChatView() {
   const session = useStore((s) => s.session);
   const streaming = useStore((s) => s.streaming);
@@ -91,6 +94,8 @@ function EmptyChat() {
   const toolCount = workspace.mcpServerIds.reduce((n, id) => n + (mcp[id]?.tools.length ?? 0), 0);
   const wsSkills = skills.filter((s) => workspace.skillIds.includes(s.id));
   const branded = useMokaBranding();
+  // With branding off, leave out the default prompt that asks about Moka itself.
+  const starters = (workspace.starterPrompts ?? []).filter((p) => branded || p !== MOKA_STARTER);
 
   return (
     <div className="relative flex min-h-full flex-col items-center justify-center px-6 py-16">
@@ -134,9 +139,9 @@ function EmptyChat() {
           </div>
         )}
 
-        {llm && (workspace.starterPrompts?.length ?? 0) > 0 && (
+        {llm && starters.length > 0 && (
           <div className="mt-8 grid gap-2 sm:grid-cols-2">
-            {workspace.starterPrompts!.map((prompt) => (
+            {starters.map((prompt) => (
               <button
                 key={prompt}
                 onClick={() => send(prompt)}
@@ -168,8 +173,24 @@ function EmptyChat() {
   );
 }
 
+/** "just now", "5 min ago", "3 h ago", "yesterday", or the date. */
+function timeAgo(at: number, now: number): string {
+  const minutes = Math.floor((now - at) / 60_000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} h ago`;
+  if (hours < 48) return "yesterday";
+  return new Date(at).toLocaleDateString();
+}
+
 function MessageView({ message, live, last }: { message: UiMessage; live: boolean; last: boolean }) {
   const retry = useStore((s) => s.retry);
+  const rerun = useStore((s) => s.rerun);
+  const streaming = useStore((s) => s.streaming);
+  // Refreshed on hover, so "2 min ago" is current when it's shown.
+  const [now, setNow] = useState(() => Date.now());
+  const laterMessages = useStore((s) => s.session.messages.length - 1 - s.session.messages.findIndex((m) => m.id === message.id));
   const openSettings = useStore((s) => s.openSettings);
   const set = useStore((s) => s.set);
   const events = useStore((s) => s.events);
@@ -190,7 +211,7 @@ function MessageView({ message, live, last }: { message: UiMessage; live: boolea
     }
     const files = message.parts.filter((p): p is Extract<Part, { type: "attachment" }> => p.type === "attachment");
     return (
-      <div className="animate-in mb-6 flex flex-col items-end gap-1.5">
+      <div className="animate-in group/user mb-6 flex flex-col items-end gap-1.5" onMouseEnter={() => setNow(Date.now())}>
         {files.length > 0 && (
           <div className="flex max-w-[85%] flex-wrap justify-end gap-1.5">
             {files.map((f) =>
@@ -202,7 +223,30 @@ function MessageView({ message, live, last }: { message: UiMessage; live: boolea
             )}
           </div>
         )}
-        {text && <div className="max-w-[85%] rounded-2xl rounded-br-md bg-accent-soft px-4 py-2.5 text-[15px] leading-relaxed whitespace-pre-wrap text-fg">{text}</div>}
+        {text && (
+          // Leaves room on the left for the hover actions.
+          <div className="relative max-w-[min(85%,calc(100%-10rem))]">
+            <div className="rounded-2xl rounded-br-md bg-accent-soft px-4 py-2.5 text-[15px] leading-relaxed whitespace-pre-wrap text-fg">{text}</div>
+            {!streaming && (
+              // To the left of the bubble, shown on hover: takes no space and covers nothing.
+              <div className="absolute right-full bottom-0.5 mr-1.5 flex items-center gap-0.5 whitespace-nowrap text-subtle opacity-0 transition-opacity group-hover/user:opacity-100 focus-within:opacity-100">
+                {message.meta?.sentAt && (
+                  <span className="mr-1 text-[11px]" title={new Date(message.meta.sentAt).toLocaleString()}>
+                    {timeAgo(message.meta.sentAt, now)}
+                  </span>
+                )}
+                <CopyButton text={text} className="h-6 w-6" />
+                <IconButton
+                  label={laterMessages > 1 ? "Run again from here (replaces the replies after it)" : "Run again"}
+                  className="h-6 w-6"
+                  onClick={() => void rerun(message.id)}
+                >
+                  <RotateCcw className="h-3 w-3" />
+                </IconButton>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     );
   }
@@ -267,7 +311,7 @@ function MessageView({ message, live, last }: { message: UiMessage; live: boolea
               {toolParts} tool {toolParts === 1 ? "call" : "calls"}
             </span>
           )}
-          {meta.steps ? <span>{meta.steps} steps</span> : null}
+          {meta.steps ? <span>{meta.steps === 1 ? "1 step" : `${meta.steps} steps`}</span> : null}
           <span className="flex-1" />
           {meta.runId && (
             <button
@@ -364,6 +408,28 @@ function ToolProgress({ progress, elapsed }: { progress?: { progress: number; to
   );
 }
 
+/** Retries of the same call: which attempt this is, and whether a write may have happened zero, one or two times. */
+function AttemptBadge({ part }: { part: Extract<Part, { type: "tool" }> }) {
+  const attempt = part.lineage?.attempt ?? 1;
+  const badge = (tone: "warn" | "neutral", label: string, title: string) => (
+    <span title={title}>
+      <Badge tone={tone}>{label}</Badge>
+    </span>
+  );
+  if (part.outcomeUnknown) {
+    return badge(
+      "warn",
+      "outcome unknown",
+      `The call failed (${part.errorClass}) before the server answered, so it's unknown whether the tool did its work. Check before retrying.`,
+    );
+  }
+  if (part.errorClass === "input") return badge("warn", "invalid arguments", "The model's arguments weren't valid JSON or didn't match the tool's schema, so nothing was sent. The inspector shows the raw arguments.");
+  if (part.possibleDoubleWrite) return badge("warn", "may have run twice", "An earlier attempt of this exact call has an unknown outcome, and this one succeeded: the write may have happened twice.");
+  if (part.duplicateOf) return badge("warn", "same call again", "The model already made this exact call in this turn. If the tool writes something, it may have happened twice.");
+  if (attempt > 1) return badge("neutral", `attempt ${attempt}`, `The model made this exact call ${attempt} times in this turn.`);
+  return null;
+}
+
 export function ToolCard({ part }: { part: Extract<Part, { type: "tool" }> }) {
   const approval = usePendingApproval(part.id);
   const [open, setOpen] = useState(false);
@@ -398,11 +464,7 @@ export function ToolCard({ part }: { part: Extract<Part, { type: "tool" }> }) {
           {!open && inputPreview && <div className="truncate font-mono text-[11px] text-subtle">{inputPreview}</div>}
         </div>
         {approval && <Badge tone="warn">waiting for you</Badge>}
-        {part.duplicateOf && (
-          <span title="The model already made this exact call in this turn. If the tool writes something, it may have happened twice.">
-            <Badge tone="warn">same call again</Badge>
-          </span>
-        )}
+        <AttemptBadge part={part} />
         {part.durationMs !== undefined && <span className="font-mono text-[11px] text-subtle">{formatMs(part.durationMs)}</span>}
         <ChevronRight className={cn("h-3.5 w-3.5 text-subtle transition-transform", open && "rotate-90")} />
       </button>
@@ -731,6 +793,15 @@ export function Composer({
                 setMenu(undefined);
                 setPrompt(undefined);
                 if (mention) setText(text.slice(0, mention.index + mention[1]!.length));
+              }
+              // ↑ in an empty box brings back your last message, like a terminal.
+              if (e.key === "ArrowUp" && rich && !text) {
+                const last = [...useStore.getState().session.messages].reverse().find((m) => m.role === "user" && !m.meta?.via);
+                const previous = last?.parts.map((p) => (p.type === "text" ? p.text : "")).join("");
+                if (previous) {
+                  e.preventDefault();
+                  setText(previous);
+                }
               }
               if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
                 e.preventDefault();

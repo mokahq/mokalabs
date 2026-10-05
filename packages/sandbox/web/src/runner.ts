@@ -68,6 +68,7 @@ export async function runTurn(options: {
             input: chunk.input,
             status: "running",
             ...(chunk.duplicateOf ? { duplicateOf: chunk.duplicateOf } : {}),
+            ...(chunk.lineage ? { lineage: chunk.lineage } : {}),
           });
           break;
         case "tool-result": {
@@ -79,6 +80,9 @@ export async function runTurn(options: {
             part.status = chunk.isError ? "error" : "done";
             part.ui = chunk.ui;
             part.raw = chunk.raw;
+            if (chunk.errorClass) part.errorClass = chunk.errorClass;
+            if (chunk.outcomeUnknown) part.outcomeUnknown = true;
+            if (chunk.possibleDoubleWrite) part.possibleDoubleWrite = true;
           }
           break;
         }

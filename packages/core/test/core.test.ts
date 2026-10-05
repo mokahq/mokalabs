@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   discoverSkills,
+  errorClassOf,
   exportCode,
   importMcpJson,
   loadSkill,
@@ -14,8 +15,11 @@ import {
   redactConfig,
   resolveSecret,
   skillsSystemPrompt,
+  outcomeUnknown,
+  toolFingerprint,
   toolKey,
   uniqueId,
+  withErrorClass,
 } from "../src/index.js";
 
 const fixtures = path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures");
@@ -139,6 +143,38 @@ describe("agent helpers", () => {
   it("flattens MCP content", () => {
     expect(mcpContentToText({ content: [{ type: "text", text: "a" }, { type: "image", mimeType: "image/png", data: "…" }] })).toBe("a\n[image image/png]");
     expect(mcpContentToText({ content: [], structuredContent: { ok: true } })).toBe('{"ok":true}');
+  });
+});
+
+describe("retry lineage", () => {
+  it("fingerprints a tool call by server, tool, schema and normalized arguments", () => {
+    const fp = toolFingerprint("srv", "save", "schema1", { note: "x", tags: ["a"], extra: undefined });
+    expect(fp).toMatch(/^[0-9a-f]{12}$/);
+    // Key order and undefined fields don't matter…
+    expect(toolFingerprint("srv", "save", "schema1", { tags: ["a"], note: "x" })).toBe(fp);
+    // …but the arguments, the tool, the server and the tool's schema do.
+    expect(toolFingerprint("srv", "save", "schema1", { note: "y", tags: ["a"] })).not.toBe(fp);
+    expect(toolFingerprint("srv", "delete", "schema1", { note: "x", tags: ["a"] })).not.toBe(fp);
+    expect(toolFingerprint("other", "save", "schema1", { note: "x", tags: ["a"] })).not.toBe(fp);
+    expect(toolFingerprint("srv", "save", "schema2", { note: "x", tags: ["a"] })).not.toBe(fp);
+  });
+
+  it("classifies errors and knows when a write's outcome is unknown", () => {
+    const timeout = withErrorClass(new Error("no answer"), "timeout");
+    expect(errorClassOf(timeout)).toBe("timeout");
+    expect(outcomeUnknown(timeout, "timeout")).toBe(true);
+    // The first class sticks.
+    expect(errorClassOf(withErrorClass(timeout, "transport"))).toBe("timeout");
+    // Never sent: nothing happened.
+    expect(outcomeUnknown(withErrorClass(new Error("not connected"), "transport", { notSent: true }), "transport")).toBe(false);
+    // The server answered, so the outcome is known.
+    expect(outcomeUnknown(new Error("x"), "protocol")).toBe(false);
+    expect(outcomeUnknown(new Error("x"), "tool")).toBe(false);
+    // Untagged errors from the AI SDK.
+    expect(errorClassOf(Object.assign(new Error("bad args"), { name: "AI_InvalidToolInputError" }))).toBe("input");
+    expect(errorClassOf(Object.assign(new Error("stop"), { name: "AbortError" }))).toBe("cancelled");
+    expect(errorClassOf(new Error("?"))).toBe("other");
+    expect(withErrorClass("plain string", "transport")).toMatchObject({ message: "plain string", errorClass: "transport" });
   });
 });
 

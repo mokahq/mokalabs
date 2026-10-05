@@ -101,6 +101,7 @@ export async function seedConfig(config: MokaConfig, env: NodeJS.ProcessEnv): Pr
               "What time is it in Tokyo and Bengaluru right now?",
               "Roll 3d20 and compute the average with the calculator",
               "Fetch https://example.com and summarise it",
+              // The web UI hides this one when Moka branding is off (MOKA_STARTER in Chat.tsx).
               "What is Moka and how do I add my own MCP server?",
             ],
           }

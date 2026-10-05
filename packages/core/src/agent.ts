@@ -1,6 +1,16 @@
 import { dynamicTool, jsonSchema, stepCountIs, streamText, type ModelMessage, type ToolSet } from "ai";
 import type { LlmProfile, McpServerConfig, Workspace } from "./config.js";
 import type { EventBus } from "./events.js";
+import {
+  errorClassOf,
+  outcomeUnknown as isOutcomeUnknown,
+  shortHash,
+  stableJson,
+  toolFingerprint,
+  withErrorClass,
+  type ToolErrorClass,
+  type ToolLineage,
+} from "./lineage.js";
 import { errorMessage, type McpManager, type McpTool } from "./mcp.js";
 import { createModel } from "./providers.js";
 import { readSkillFile, skillsSystemPrompt, type LoadedSkill } from "./skills.js";
@@ -33,8 +43,24 @@ export type ChatChunk =
       input: unknown;
       /** An earlier call in this run with the same tool and arguments, for tools that may write. */
       duplicateOf?: string;
+      /** Attempts of the same MCP tool call in this run share a lineage (retries). */
+      lineage?: ToolLineage;
     }
-  | { type: "tool-result"; id: string; output: unknown; isError: boolean; durationMs?: number; ui?: UiDescriptor; raw?: RawToolResult }
+  | {
+      type: "tool-result";
+      id: string;
+      output: unknown;
+      isError: boolean;
+      durationMs?: number;
+      ui?: UiDescriptor;
+      raw?: RawToolResult;
+      /** Why the call failed. */
+      errorClass?: ToolErrorClass;
+      /** A tool that may write failed in a way that leaves it unknown whether the write happened. */
+      outcomeUnknown?: boolean;
+      /** This attempt succeeded after an earlier attempt with an unknown outcome: the write may have happened twice. */
+      possibleDoubleWrite?: boolean;
+    }
   | { type: "step"; usage: Usage; finishReason: string }
   | { type: "finish"; usage: Usage; durationMs: number; messages: ModelMessage[] }
   | { type: "error"; message: string };
@@ -77,6 +103,21 @@ interface ToolBinding {
   serverId?: string;
   /** The MCP tool says it only reads (`readOnlyHint`), so repeating it is harmless. */
   readOnly?: boolean;
+  /** Hash of the tool's input schema, part of its retry fingerprint. */
+  schemaHash?: string;
+  /** The MCP tool says repeating a call with the same arguments has no extra effect (`idempotentHint`). */
+  idempotent?: boolean;
+}
+
+/** The attempts of one tool call within a run. */
+interface Lineage {
+  id: string;
+  fingerprint: string;
+  attempts: number;
+  /** How the latest finished attempt ended. */
+  last?: "ok" | "unknown" | "error";
+  /** Some attempt ended with an unknown outcome. */
+  unknown?: boolean;
 }
 
 /** The untouched MCP result, forwarded to MCP Apps as `ui/notifications/tool-result`. */
@@ -150,7 +191,14 @@ export async function* runAgent(options: RunAgentOptions): AsyncGenerator<ChatCh
     for (const mcpTool of state.tools) {
       if (hidden.has(mcpTool.name) || !toolVisibleToModel(mcpTool)) continue;
       const key = toolKey(server.id, mcpTool.name);
-      bindings.set(key, { source: server.name, tool: mcpTool.name, serverId: server.id, readOnly: mcpTool.annotations?.readOnlyHint === true });
+      bindings.set(key, {
+        source: server.name,
+        tool: mcpTool.name,
+        serverId: server.id,
+        readOnly: mcpTool.annotations?.readOnlyHint === true,
+        idempotent: mcpTool.annotations?.idempotentHint === true,
+        schemaHash: shortHash(stableJson(mcpTool.inputSchema ?? {})),
+      });
       tools[key] = mcpToolToAiTool(mcpTool, server, options, sideChannel);
     }
   });
@@ -238,8 +286,13 @@ export async function* runAgent(options: RunAgentOptions): AsyncGenerator<ChatCh
   });
 
   const toolStarts = new Map<string, number>();
-  // Calls that can change something, by tool + arguments, to spot a model repeating a write.
-  const writes = new Map<string, string>();
+  // Retry lineage: attempts of the same MCP tool call (same server, tool, schema and arguments) in this run.
+  const lineages = new Map<string, Lineage>();
+  const attempts = new Map<string, { lineage: Lineage; attempt: number; write: boolean; idempotent: boolean }>();
+  // The arguments exactly as the model streamed them, before parsing.
+  const rawInputs = new Map<string, string>();
+  // Tool calls the SDK couldn't parse or match to a tool.
+  const invalidCalls = new Set<string>();
   let stepStarted = Date.now();
   let stepIndex = 0;
 
@@ -287,21 +340,61 @@ export async function* runAgent(options: RunAgentOptions): AsyncGenerator<ChatCh
           yield { type: "step", usage, finishReason: part.finishReason };
           break;
         }
+        case "tool-input-delta":
+          rawInputs.set(part.id, (rawInputs.get(part.id) ?? "") + part.delta);
+          break;
         case "tool-call": {
           const binding = bindings.get(part.toolName) ?? { source: "unknown", tool: part.toolName };
           toolStarts.set(part.toolCallId, Date.now());
           let duplicateOf: string | undefined;
-          if (binding.serverId && !binding.readOnly) {
-            const key = `${part.toolName}\u0000${stableJson(part.input)}`;
-            duplicateOf = writes.get(key);
-            if (!duplicateOf) writes.set(key, part.toolCallId);
+          let lineage: ToolLineage | undefined;
+          let note = "";
+          let warn = false;
+          const rawInput = rawInputs.get(part.toolCallId);
+          rawInputs.delete(part.toolCallId);
+          const invalid = (part as { invalid?: boolean }).invalid === true;
+          if (invalid) invalidCalls.add(part.toolCallId);
+          if (binding.serverId) {
+            const fingerprint = toolFingerprint(binding.serverId, binding.tool, binding.schemaHash ?? "", part.input);
+            let line = lineages.get(fingerprint);
+            if (!line) lineages.set(fingerprint, (line = { id: part.toolCallId, fingerprint, attempts: 0 }));
+            const previous = line.last;
+            line.attempts++;
+            const write = !binding.readOnly;
+            const idempotent = binding.idempotent === true;
+            attempts.set(part.toolCallId, { lineage: line, attempt: line.attempts, write, idempotent });
+            lineage = { id: line.id, attempt: line.attempts, fingerprint };
+            if (line.attempts > 1) {
+              if (!write) note = ` · attempt ${line.attempts}`;
+              // Repeating an idempotent write is safe: no duplicate warning.
+              else if (idempotent) note = ` · attempt ${line.attempts} (idempotent)`;
+              else if (previous === "unknown") {
+                // The last attempt may or may not have written; this one might write it again.
+                note = ` · retry after an unknown outcome (attempt ${line.attempts})`;
+                warn = true;
+                duplicateOf = line.id;
+              } else if (previous === "error") note = ` · retry after an error (attempt ${line.attempts})`;
+              else {
+                // The earlier call succeeded (or is still running): this repeats a write.
+                note = " · same call again";
+                warn = true;
+                duplicateOf = line.id;
+              }
+            }
           }
           bus.emit({
             kind: "tool.call",
             runId,
-            title: `${binding.source} › ${binding.tool}${duplicateOf ? " · same call again" : ""}`,
-            ...(duplicateOf ? { level: "warn" as const } : {}),
-            data: { id: part.toolCallId, input: part.input, ...(duplicateOf ? { duplicateOf } : {}) },
+            title: `${binding.source} › ${binding.tool}${note}`,
+            ...(warn ? { level: "warn" as const } : {}),
+            data: {
+              id: part.toolCallId,
+              input: part.input,
+              ...(rawInput !== undefined ? { rawInput } : {}),
+              ...(invalid ? { invalid } : {}),
+              ...(duplicateOf ? { duplicateOf } : {}),
+              ...(lineage ? { lineage } : {}),
+            },
           });
           yield {
             type: "tool-call",
@@ -311,38 +404,73 @@ export async function* runAgent(options: RunAgentOptions): AsyncGenerator<ChatCh
             source: binding.source,
             input: part.input,
             ...(duplicateOf ? { duplicateOf } : {}),
+            ...(lineage ? { lineage } : {}),
           };
           break;
         }
         case "tool-result": {
           if ((part as any).preliminary) break;
           const durationMs = elapsed(toolStarts, part.toolCallId);
+          const at = attempts.get(part.toolCallId);
+          attempts.delete(part.toolCallId);
+          // A success after an attempt whose outcome is unknown: both may have written.
+          const possibleDoubleWrite = !!(at?.write && !at.idempotent && at.lineage.unknown);
+          if (at) at.lineage.last = "ok";
           bus.emit({
             kind: "tool.result",
             runId,
-            title: `${bindings.get(part.toolName)?.tool ?? part.toolName} ✓`,
+            title: `${bindings.get(part.toolName)?.tool ?? part.toolName} ✓${possibleDoubleWrite ? " · may have run twice (an earlier attempt's outcome is unknown)" : ""}`,
+            ...(possibleDoubleWrite ? { level: "warn" as const } : {}),
             durationMs,
-            data: { id: part.toolCallId, output: part.output },
+            data: { id: part.toolCallId, output: part.output, ...lineageData(at), ...(possibleDoubleWrite ? { possibleDoubleWrite } : {}) },
           });
           const extra = sideChannel.get(part.toolCallId);
           sideChannel.delete(part.toolCallId);
-          yield { type: "tool-result", id: part.toolCallId, output: part.output, isError: false, durationMs, ui: extra?.ui, raw: extra?.raw };
+          yield {
+            type: "tool-result",
+            id: part.toolCallId,
+            output: part.output,
+            isError: false,
+            durationMs,
+            ui: extra?.ui,
+            raw: extra?.raw,
+            ...(possibleDoubleWrite ? { possibleDoubleWrite } : {}),
+          };
           break;
         }
         case "tool-error": {
           const durationMs = elapsed(toolStarts, part.toolCallId);
           const message = errorMessage(part.error);
+          const errorClass = signal?.aborted ? "cancelled" : invalidCalls.delete(part.toolCallId) ? "input" : errorClassOf(part.error);
+          const at = attempts.get(part.toolCallId);
+          attempts.delete(part.toolCallId);
+          const outcomeUnknown = !!at?.write && isOutcomeUnknown(part.error, errorClass);
+          if (at) {
+            at.lineage.last = outcomeUnknown ? "unknown" : "error";
+            if (outcomeUnknown) at.lineage.unknown = true;
+          }
+          const tool = bindings.get(part.toolName)?.tool ?? part.toolName;
           bus.emit({
             kind: "tool.error",
             runId,
             level: "error",
-            title: `${bindings.get(part.toolName)?.tool ?? part.toolName} ✗ ${message.slice(0, 80)}`,
+            title: outcomeUnknown ? `${tool} ✗ ${errorClass} · outcome unknown (the write may have happened)` : `${tool} ✗ ${message.slice(0, 80)}`,
             durationMs,
-            data: { id: part.toolCallId, error: message },
+            data: { id: part.toolCallId, error: message, errorClass, ...lineageData(at), ...(outcomeUnknown ? { outcomeUnknown } : {}) },
           });
           const extra = sideChannel.get(part.toolCallId);
           sideChannel.delete(part.toolCallId);
-          yield { type: "tool-result", id: part.toolCallId, output: message, isError: true, durationMs, ui: extra?.ui, raw: extra?.raw };
+          yield {
+            type: "tool-result",
+            id: part.toolCallId,
+            output: message,
+            isError: true,
+            durationMs,
+            ui: extra?.ui,
+            raw: extra?.raw,
+            errorClass,
+            ...(outcomeUnknown ? { outcomeUnknown } : {}),
+          };
           break;
         }
         case "error":
@@ -371,17 +499,34 @@ function mcpToolToAiTool(mcpTool: McpTool, server: McpServerConfig, options: Run
     execute: async (input: any, { abortSignal, toolCallId }) => {
       if (options.authorizeTool) {
         const allowed = await options.authorizeTool({ runId: options.runId, toolCallId, server, tool: mcpTool, input, signal: abortSignal });
-        if (!allowed) throw new Error("The user declined to run this tool. Ask them how to proceed instead of retrying.");
+        if (!allowed) throw withErrorClass(new Error("The user declined to run this tool. Ask them how to proceed instead of retrying."), "declined");
       }
-      const result = await options.mcp.callTool(server.id, mcpTool.name, input ?? {}, { signal: abortSignal, runId: options.runId, callId: toolCallId });
+      let result: Awaited<ReturnType<McpManager["callTool"]>>;
+      try {
+        result = await options.mcp.callTool(server.id, mcpTool.name, input ?? {}, { signal: abortSignal, runId: options.runId, callId: toolCallId });
+      } catch (error) {
+        // Tell the model when a write may have happened anyway, so it checks instead of assuming it failed.
+        const errorClass = errorClassOf(error);
+        if (mcpTool.annotations?.readOnlyHint !== true && errorClass !== "cancelled" && isOutcomeUnknown(error, errorClass) && error instanceof Error) {
+          error.message +=
+            errorClass === "timeout"
+              ? "\n\nThe tool may have run anyway. Check whether it did before retrying."
+              : "\n\nThe request reached the server, but the connection broke before it answered, so the tool may have run. Check whether it did before retrying.";
+        }
+        throw error;
+      }
       let ui: UiDescriptor | undefined = appUri ? { kind: "mcp-app", serverId: server.id, resourceUri: appUri } : detectResultUi(server.id, result);
       if (ui?.kind === "a2ui") ui = { kind: "a2ui", messages: await expandServerUi(ui.messages, server.id, options) };
       sideChannel.set(toolCallId, { ui, raw: { content: result.content, structuredContent: result.structuredContent, isError: result.isError } });
       const text = mcpContentToText(result);
-      if (result.isError) throw new Error(text || "Tool reported an error");
+      if (result.isError) throw withErrorClass(new Error(text || "Tool reported an error"), "tool");
       return text;
     },
   });
+}
+
+function lineageData(at: { lineage: Lineage; attempt: number } | undefined): { lineage?: ToolLineage } {
+  return at ? { lineage: { id: at.lineage.id, attempt: at.attempt, fingerprint: at.lineage.fingerprint } } : {};
 }
 
 function elapsed(starts: Map<string, number>, id: string): number | undefined {
@@ -450,16 +595,4 @@ export async function expandServerUi(
     if (entry.catalog) catalogs.push(entry.catalog);
   }
   return catalogs.length > 1 ? expandMessages(messages, new ComponentRegistry(catalogs)) : messages;
-}
-
-/** JSON with sorted keys, so `{a,b}` and `{b,a}` compare equal. */
-function stableJson(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
-  if (value && typeof value === "object") {
-    return `{${Object.keys(value)
-      .sort()
-      .map((k) => `${JSON.stringify(k)}:${stableJson((value as Record<string, unknown>)[k])}`)
-      .join(",")}}`;
-  }
-  return JSON.stringify(value) ?? "null";
 }

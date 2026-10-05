@@ -107,6 +107,7 @@ const text = (value: string) => ({ content: [{ type: "text" as const, text: valu
 
 /** Where `flaky_write` keeps notes, so they survive the crash it simulates. */
 const NOTES_FILE = path.join(os.tmpdir(), "moka-demo-notes.txt");
+const readNotes = () => (existsSync(NOTES_FILE) ? readFileSync(NOTES_FILE, "utf8") || "(empty)" : "(empty)");
 /** True when running as its own process (`moka demo-server`), so crashing is safe. */
 let standalone = false;
 
@@ -330,7 +331,7 @@ export function createDemoServer(version: string): McpServer {
     {
       title: "Save a note (flaky)",
       description:
-        "Save a note to the demo notebook. For testing interrupted calls: the server writes the note, then crashes before it can reply, like a flaky backend. Check the notebook (moka://notes) before retrying so you don't save it twice.",
+        "Save a note to the demo notebook. For testing interrupted calls: the server writes the note, then crashes before it can reply, like a flaky backend. If it fails, call read_notes to check whether the note was saved before retrying, so you don't save it twice.",
       inputSchema: { note: z.string().describe("The note to save") },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
     },
@@ -343,12 +344,23 @@ export function createDemoServer(version: string): McpServer {
     },
   );
 
+  server.registerTool(
+    "read_notes",
+    {
+      title: "Read the notebook",
+      description: "List the notes saved in the demo notebook (by flaky_write). Use it to check whether a save went through.",
+      inputSchema: {},
+      annotations: { readOnlyHint: true },
+    },
+    async () => ({ content: [{ type: "text", text: readNotes() }] }),
+  );
+
   server.registerResource(
     "notes",
     "moka://notes",
     { title: "Demo notebook", description: "Notes saved by flaky_write (kept across server restarts)", mimeType: "text/plain" },
     async (uri) => ({
-      contents: [{ uri: uri.href, mimeType: "text/plain", text: existsSync(NOTES_FILE) ? readFileSync(NOTES_FILE, "utf8") || "(empty)" : "(empty)" }],
+      contents: [{ uri: uri.href, mimeType: "text/plain", text: readNotes() }],
     }),
   );
 

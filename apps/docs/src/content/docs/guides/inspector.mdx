@@ -45,12 +45,55 @@ Moka matches every JSON-RPC response to its request by `id`, in both directions 
 Click a request or response to see **both payloads with their ids side by side**, plus any cancellation or "no response" marker. Responses are titled after their request (`result #5 · tools/call`), so the list reads naturally.
 
 <Aside type="tip">
-Try it with the demo server's `flaky_write` tool. It saves a note, then crashes before answering, like a flaky backend: you'll see `tools/call` marked **no response**, the note in the `moka://notes` resource (the write *did* happen), and Moka reconnecting on the next call.
+Try it with the demo server's `flaky_write` tool. It saves a note, then crashes before answering, like a flaky backend: you'll see `tools/call` marked **no response**, the server marked **disconnected**, and the note in `read_notes` (or the `moka://notes` resource): the write *did* happen. Moka starts the server again on the next call.
 </Aside>
 
-## Repeated writes
+## Retries and repeated writes
 
-When the model calls a tool that may change something (no `readOnlyHint`) twice in the same turn with the same arguments, the second call is flagged: **same call again** on the tool card in the chat, and a warning in the inspector (`data.duplicateOf` names the first call). Read-only tools are never flagged.
+When the model calls the same MCP tool again with the same arguments in one turn, Moka treats it as another **attempt** of the same call rather than a new one. Attempts share a **lineage**, matched by a fingerprint of the server, the tool, the tool's input schema and the normalized arguments (key order doesn't matter; a changed schema starts a new lineage).
+
+Each failed attempt gets an **error class**:
+
+| Class | Meaning |
+|---|---|
+| `timeout` | Moka stopped waiting (tool timeout). The server may still have done the work |
+| `cancelled` | The call was stopped (you pressed Stop) |
+| `transport` | The connection broke: the server crashed or disconnected, or an HTTP or network error |
+| `protocol` | The server answered with a JSON-RPC error |
+| `tool` | The tool ran and reported an error (`isError`) |
+| `declined` | You declined it in the approval prompt |
+| `input` | The model's arguments didn't match the schema |
+
+For a tool that may change something (no `readOnlyHint`), `timeout`, `cancelled` and `transport` leave it **unknown whether the write happened**:
+
+- The tool card shows **outcome unknown**, and the error says so in the inspector.
+- The error the model receives says so too ("the tool may have run. Check whether it did before retrying"), so it doesn't report a save as failed when it may have worked.
+- If the model retries and the retry succeeds, both may have written: the card shows **may have run twice**, and the result is a warning.
+- A plain repeat of a write that succeeded (or is still running) is flagged **same call again**. A retry after a clear error (`protocol`, `tool`, …) isn't a warning.
+
+Read-only tools are never flagged; repeats just show **attempt 2**, **attempt 3**. Neither are tools marked `idempotentHint` (repeating them has no extra effect): their retries show **attempt 2 (idempotent)**, and a timeout still says **outcome unknown**, but a successful retry isn't flagged as running twice.
+
+Click any attempt (or its raw `tools/call`) to see **Attempts**: every attempt in the lineage with its outcome, duration and request id, linked to the RPC log. The trace download has the same data: `lineage` (`id`, `attempt`, `fingerprint`), `errorClass` and `outcomeUnknown` on tool events, and `rpc.callId` on the raw messages.
+
+<Aside type="tip">
+Ask the model to save a note with the demo server's `flaky_write` tool: the server saves it, then crashes before answering. The call fails with `transport` and **outcome unknown**, and the note is saved all the same. Moka tells the model the tool may have run, so a good model calls `read_notes` to check before retrying.
+</Aside>
+
+## Arguments: model → server
+
+Open a tool call (or its raw `tools/call`) to see its arguments at each hop:
+
+| Row | What it checks |
+|---|---|
+| **Model output** | The arguments exactly as the model streamed them. "not valid JSON · truncated?" when the model's output was cut off or malformed (the call fails with error class `input`, and nothing is sent) |
+| **Parsed by Moka** | What Moka made of them, with any differences listed by path |
+| **Sent to server** | The `arguments` in the `tools/call` request the server received, compared with the parsed ones |
+
+**show raw** shows the model's raw text. Truncated arguments and rewritten tool calls are much easier to spot here than in the chat.
+
+<Aside>
+"Model output" is what reached Moka from the provider. If a gateway or proxy rewrites the model's response before that, Moka sees the rewritten version.
+</Aside>
 
 ## Agent graphs
 
