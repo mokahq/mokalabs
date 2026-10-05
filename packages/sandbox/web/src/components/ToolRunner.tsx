@@ -27,7 +27,8 @@ export function ToolRunner() {
 
   const state = serverId ? mcp[serverId] : undefined;
   useEffect(() => {
-    if (serverId && (!state || state.status === "idle")) void connectServer(serverId);
+    // Also bring back a server that dropped (crashed or exited), like the chat does.
+    if (serverId && (!state || state.status === "idle" || state.status === "disconnected")) void connectServer(serverId);
   }, [serverId, state, connectServer]);
 
   if (config.mcpServers.length === 0) {
@@ -67,7 +68,7 @@ export function ToolRunner() {
           </Select>
           <div className="flex items-center gap-2 text-[12px] text-muted">
             <StatusDot status={state?.status ?? "idle"} />
-            <span className="flex-1 truncate">{state?.status === "error" ? state.error : state?.status ?? "idle"}</span>
+            <span className="flex-1 truncate">{state?.status === "error" || state?.status === "disconnected" ? state.error : state?.status ?? "idle"}</span>
             <button className="text-subtle hover:text-fg" onClick={() => serverId && connectServer(serverId, true)} title="Reconnect">
               <RefreshCw className={cn("h-3.5 w-3.5", state?.status === "connecting" && "animate-spin")} />
             </button>

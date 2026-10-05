@@ -631,7 +631,7 @@ function StatePanel({ state }: { state?: McpServerState }) {
   if (!state) return null;
   const ok = state.status === "connected";
   return (
-    <div className={cn("rounded-xl border px-4 py-3 text-[13px]", ok ? "border-ok/30 bg-ok/5" : state.status === "connecting" ? "border-line" : state.status === "auth" ? "border-info/30 bg-info/5" : "border-err/30 bg-err/5")}>
+    <div className={cn("rounded-xl border px-4 py-3 text-[13px]", ok ? "border-ok/30 bg-ok/5" : state.status === "connecting" ? "border-line" : state.status === "disconnected" ? "border-warn/30 bg-warn/5" : state.status === "auth" ? "border-info/30 bg-info/5" : "border-err/30 bg-err/5")}>
       {state.status === "auth" && (
         <div className="flex items-center gap-2">
           <KeyRound className="h-4 w-4 text-info" />
@@ -645,7 +645,7 @@ function StatePanel({ state }: { state?: McpServerState }) {
       )}
       {state.status !== "auth" && <div className="flex items-center gap-2 font-medium">
         <StatusDot status={state.status} />
-        {ok ? `Connected · ${state.tools.length} tools, ${state.resources.length} resources, ${state.prompts.length} prompts` : state.status === "connecting" ? "Connecting…" : "Could not connect"}
+        {ok ? `Connected · ${state.tools.length} tools, ${state.resources.length} resources, ${state.prompts.length} prompts` : state.status === "connecting" ? "Connecting…" : state.status === "disconnected" ? "Disconnected" : "Could not connect"}
       </div>}
       {state.error && state.status !== "auth" && <p className="mt-1 break-words text-muted">{state.error}</p>}
       {ok && state.tools.length > 0 && (

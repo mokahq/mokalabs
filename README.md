@@ -41,6 +41,8 @@ Getting an LLM talking to MCP tools usually means wiring up a client, a provider
 - **Generative UI.** Moka renders [MCP Apps](https://github.com/modelcontextprotocol/ext-apps) (the official MCP UI extension) in a secure sandbox, supports legacy MCP-UI, and lets *any* model answer with native [A2UI](https://github.com/google/A2UI) forms, cards and buttons through a built-in `render_ui` tool.
 - **Your own components.** Add A2UI catalogs of template or sandboxed-HTML components, rename and theme the render tool, and try it all in the Generative UI playground.
 - **Slow tools.** Progress bars from `notifications/progress`, per-server tool timeouts, a "60-second client" preset, and the exact moment a client gives up, in the inspector.
+- **Retry lineage.** Retries of the same tool call are grouped as attempts, with an error class for each failure, an "outcome unknown" flag when a write timed out, and a warning when a retry may have written twice.
+- **Arguments, model → server.** See a tool call's arguments exactly as the model streamed them, as parsed, and as the server received them, so truncated or rewritten arguments stand out.
 - **Tool approvals.** Have the model ask before it runs a tool: per tool, per server, or a whole-workspace safe mode for live demos.
 - **Any agent, too.** Point a workspace at an A2A or AG-UI agent (LangGraph, CopilotKit, ADK…) and get the chat, A2UI and inspector for it. AG-UI agents can even call your MCP tools.
 - **Full MCP client.** OAuth sign-in for hosted servers, elicitation forms, sampling with your model, `@` resources and `/` prompts.

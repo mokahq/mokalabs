@@ -181,7 +181,8 @@ export interface McpTool {
 export interface McpServerState {
   id: string;
   name: string;
-  status: "idle" | "connecting" | "connected" | "error" | "auth";
+  /** `disconnected`: it was connected, then the server closed the connection (exited or crashed). */
+  status: "idle" | "connecting" | "connected" | "disconnected" | "error" | "auth";
   error?: string;
   authUrl?: string;
   oauth?: { signedIn: boolean };
@@ -247,10 +248,26 @@ export interface MokaEvent {
   direction?: "in" | "out";
   level?: "info" | "warn" | "error";
   /** JSON-RPC correlation: responses, cancellations and "no response" markers point at their request. */
-  rpc?: { id: string; method?: string; pairId?: string; reason?: string; outcome?: "ok" | "error" | "cancelled" | "late" | "unanswered" };
+  rpc?: {
+    id: string;
+    method?: string;
+    pairId?: string;
+    reason?: string;
+    outcome?: "ok" | "error" | "cancelled" | "late" | "unanswered";
+    /** For tools/call: the tool call (`tool.call` data.id) this message belongs to. */
+    callId?: string;
+  };
   /** Parent event, e.g. the AG-UI step (graph node) that emitted this one. */
   parentId?: string;
   data?: unknown;
+}
+
+/** Attempts of the same MCP tool call (same server, tool, schema and arguments) in a run share a lineage. */
+export interface ToolLineage {
+  /** Tool call id of the first attempt. */
+  id: string;
+  attempt: number;
+  fingerprint: string;
 }
 
 export interface Usage {
@@ -263,8 +280,19 @@ export type ChatChunk =
   | { type: "start"; runId: string; model: string; profileId: string; tools: number }
   | { type: "text"; text: string }
   | { type: "reasoning"; text: string }
-  | { type: "tool-call"; id: string; name: string; tool: string; source: string; input: unknown; duplicateOf?: string }
-  | { type: "tool-result"; id: string; output: unknown; isError: boolean; durationMs?: number; ui?: UiDescriptor; raw?: RawToolResult }
+  | { type: "tool-call"; id: string; name: string; tool: string; source: string; input: unknown; duplicateOf?: string; lineage?: ToolLineage }
+  | {
+      type: "tool-result";
+      id: string;
+      output: unknown;
+      isError: boolean;
+      durationMs?: number;
+      ui?: UiDescriptor;
+      raw?: RawToolResult;
+      errorClass?: string;
+      outcomeUnknown?: boolean;
+      possibleDoubleWrite?: boolean;
+    }
   | { type: "step"; usage: Usage; finishReason: string }
   | { type: "finish"; usage: Usage; durationMs: number; messages: unknown[] }
   | { type: "error"; message: string };
@@ -302,6 +330,13 @@ export type Part =
       status: "running" | "done" | "error";
       /** Same tool and arguments as an earlier call in this turn, for a tool that may write. */
       duplicateOf?: string;
+      lineage?: ToolLineage;
+      /** Why it failed: timeout, cancelled, transport, protocol, tool, declined, input, other. */
+      errorClass?: string;
+      /** A tool that may write failed so that nobody knows whether the write happened. */
+      outcomeUnknown?: boolean;
+      /** Succeeded after an attempt with an unknown outcome: the write may have happened twice. */
+      possibleDoubleWrite?: boolean;
       ui?: UiDescriptor;
       raw?: RawToolResult;
     };
@@ -321,6 +356,8 @@ export interface UiMessage {
     firstTokenMs?: number;
     /** User messages produced by a UI (A2UI button, MCP App ui/message). */
     via?: "a2ui" | "mcp-app";
+    /** When a user message was sent (ms since epoch). */
+    sentAt?: number;
   };
 }
 

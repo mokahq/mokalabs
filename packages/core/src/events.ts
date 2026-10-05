@@ -66,6 +66,8 @@ export interface RpcLink {
    * unanswered: the connection closed while the request was still open.
    */
   outcome?: "ok" | "error" | "cancelled" | "late" | "unanswered";
+  /** For `tools/call`: the tool call (`tool.call` event `data.id`) this message belongs to. */
+  callId?: string;
 }
 
 export type MokaEventInput = Omit<MokaEvent, "id" | "ts"> & { ts?: number };

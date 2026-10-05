@@ -21,9 +21,11 @@ import { MokaOAuthProvider, oauthSettings, type OAuthStore } from "./oauth.js";
 import { resolveRecord, resolveSecret, type McpServerConfig } from "./config.js";
 import type { EventBus, MokaEventInput } from "./events.js";
 import { tracingFetch, type HttpExchange } from "./http-trace.js";
+import { stableJson, withErrorClass } from "./lineage.js";
 
 /** "auth" = the server needs the user to sign in (OAuth); see `authUrl`. */
-export type McpStatus = "idle" | "connecting" | "connected" | "error" | "auth";
+/** `disconnected`: it was connected, then the server closed the connection (exited or crashed). */
+export type McpStatus = "idle" | "connecting" | "connected" | "disconnected" | "error" | "auth";
 
 export interface McpTool {
   name: string;
@@ -69,6 +71,10 @@ interface Connection {
   provider?: MokaOAuthProvider;
   state: McpServerState;
   pending?: Promise<McpServerState>;
+  /** Tool calls about to be sent, so the RPC log can name the tool call each `tools/call` belongs to. */
+  calls?: { tool: string; args: string; callId: string }[];
+  /** Ids of recent late replies (answers to requests Moka had cancelled). */
+  late?: Set<string>;
 }
 
 /** Host hooks for server-initiated requests (elicitation, sampling). */
@@ -185,12 +191,15 @@ export class McpManager {
           // progress update that arrives with the result finds its handler gone. Harmless: the
           // update is still in the RPC log, and the call is done.
           if (/progress notification for an unknown token/i.test(error.message)) return;
+          // A reply to a request Moka already gave up on: the RPC log shows it as a "late" reply.
+          const late = /response for an unknown message ID: (.*)$/s.exec(error.message);
+          if (late && conn.late?.has(String(safeJson(late[1])?.id))) return;
           this.bus.emit({ kind: "mcp.log", level: "error", title: `${config.name}: ${error.message}`, serverId: config.id });
         };
         client.onclose = () => {
           if (this.connections.get(config.id) !== conn || state.status !== "connected") return;
-          state.status = "error";
-          state.error = "Connection closed";
+          state.status = "disconnected";
+          state.error = "The server closed the connection (it exited or crashed). Moka reconnects on the next call.";
           this.emitStatus(conn);
         };
         this.listen(conn, client);
@@ -483,13 +492,14 @@ export class McpManager {
     const { id } = conn.config;
     const bus = this.bus;
     // Open requests, keyed by who sent them: "out:3" = Moka's request #3, "in:0" = the server's.
-    const open = new Map<string, { eventId: string; method: string; at: number; cancelled?: boolean }>();
+    const open = new Map<string, { eventId: string; method: string; at: number; cancelled?: boolean; callId?: string }>();
 
     const record = (direction: "in" | "out", message: any): void => {
       const input: MokaEventInput = { kind: "mcp.rpc", direction, title: rpcTitle(message), serverId: id, data: message };
       const other = direction === "out" ? "in" : "out";
       const now = Date.now();
       let request: string | undefined;
+      let callId: string | undefined;
       if (message?.method === "notifications/cancelled" && message.params?.requestId != null) {
         // A cancellation refers to a request the *same* side sent earlier.
         const target = open.get(`${direction}:${message.params.requestId}`);
@@ -499,7 +509,14 @@ export class McpManager {
           // Most servers never answer a cancelled request; stop waiting for a late reply after a minute.
           const key = `${direction}:${message.params.requestId}`;
           setTimeout(() => open.get(key) === target && open.delete(key), 60_000).unref?.();
-          input.rpc = { id: String(message.params.requestId), method: target.method, pairId: target.eventId, outcome: "cancelled", ...(timedOut ? { reason: "timeout" } : {}) };
+          input.rpc = {
+            id: String(message.params.requestId),
+            method: target.method,
+            pairId: target.eventId,
+            outcome: "cancelled",
+            ...(timedOut ? { reason: "timeout" } : {}),
+            ...(target.callId ? { callId: target.callId } : {}),
+          };
           input.durationMs = now - target.at;
           input.title = timedOut
             ? `${direction === "out" ? "Moka" : "The server"} gave up on ${target.method} #${message.params.requestId} after ${formatWait(now - target.at)} (timeout)`
@@ -511,26 +528,40 @@ export class McpManager {
         const target = open.get(`${other}:${message.params.progressToken}`);
         if (target) {
           const { progress, total } = message.params;
-          input.rpc = { id: String(message.params.progressToken), method: target.method, pairId: target.eventId };
+          input.rpc = { id: String(message.params.progressToken), method: target.method, pairId: target.eventId, ...(target.callId ? { callId: target.callId } : {}) };
           input.title = `progress ${total ? `${Math.round((progress / total) * 100)}%` : progress} → ${target.method} #${message.params.progressToken}`;
         }
       } else if (message?.method && message.id != null) {
         input.rpc = { id: String(message.id), method: message.method };
         request = `${direction}:${message.id}`;
+        if (direction === "out" && message.method === "tools/call" && conn.calls?.length) {
+          const args = stableJson(message.params?.arguments ?? {});
+          const call = conn.calls.find((c) => c.tool === message.params?.name && c.args === args);
+          if (call) {
+            callId = call.callId;
+            input.rpc.callId = callId;
+            conn.calls = conn.calls.filter((c) => c !== call);
+          }
+        }
       } else if (!message?.method && message?.id != null) {
         const key = `${other}:${message.id}`;
         const target = open.get(key);
         const outcome = target?.cancelled ? "late" : message.error ? "error" : "ok";
-        input.rpc = { id: String(message.id), method: target?.method, pairId: target?.eventId, outcome };
+        input.rpc = { id: String(message.id), method: target?.method, pairId: target?.eventId, outcome, ...(target?.callId ? { callId: target.callId } : {}) };
         if (target) {
           input.durationMs = now - target.at;
           input.title = `${outcome === "late" ? "late " : ""}${message.error ? "error" : "result"} #${message.id} · ${target.method}`;
-          if (outcome === "late") input.level = "warn";
+          if (outcome === "late") {
+            input.level = "warn";
+            const late = (conn.late ??= new Set());
+            late.add(String(message.id));
+            setTimeout(() => late.delete(String(message.id)), 10_000).unref?.();
+          }
           open.delete(key);
         }
       }
       const event = bus.emit(input);
-      if (request) open.set(request, { eventId: event.id, method: message.method, at: now });
+      if (request) open.set(request, { eventId: event.id, method: message.method, at: now, ...(callId ? { callId } : {}) });
     };
 
     const send = transport.send.bind(transport);
@@ -570,7 +601,7 @@ export class McpManager {
                   serverId: id,
                   title: `${request.method} #${rpcId}: no response (connection closed after ${formatWait(now - request.at)})`,
                   durationMs: now - request.at,
-                  rpc: { id: rpcId, method: request.method, pairId: request.eventId, outcome: "unanswered" },
+                  rpc: { id: rpcId, method: request.method, pairId: request.eventId, outcome: "unanswered", ...(request.callId ? { callId: request.callId } : {}) },
                   data: { id: rpcId, method: request.method, waitedMs: now - request.at, reason: "connection closed" },
                 });
               }
@@ -588,13 +619,21 @@ export class McpManager {
     args: Record<string, unknown>,
     options: { signal?: AbortSignal; runId?: string; callId?: string } = {},
   ): Promise<{ content: unknown[]; isError?: boolean; structuredContent?: unknown }> {
-    const conn = this.connections.get(serverId);
+    let conn = this.connections.get(serverId);
+    if (conn?.state.status === "disconnected") {
+      // The server went away (it crashed or exited): start it again once, so a retry can actually retry.
+      await this.ensure(conn.config).catch(() => undefined);
+      conn = this.connections.get(serverId);
+    }
     if (!conn?.client || conn.state.status !== "connected") {
-      throw new Error(`MCP server "${conn?.config.name ?? serverId}" is not connected.`);
+      // Nothing was sent, so nothing can have happened on the server.
+      throw withErrorClass(new Error(`MCP server "${conn?.config.name ?? serverId}" is not connected.`), "transport", { notSent: true });
     }
     const { config } = conn;
     const timeout = toolTimeout(config);
     let last = 0;
+    const pending = options.callId ? { tool: toolName, args: stableJson(args), callId: options.callId } : undefined;
+    if (pending) (conn.calls ??= []).push(pending);
     try {
       const result = await conn.client.callTool({ name: toolName, arguments: args }, undefined, {
         signal: options.signal,
@@ -618,12 +657,22 @@ export class McpManager {
       });
       return result as any;
     } catch (error: any) {
-      if (error?.code === -32001) {
-        throw new Error(
-          `No answer from ${config.name} after ${formatWait(timeout)} (tool timeout), so Moka stopped waiting. The server may still be working; a late reply shows up in the inspector.`,
+      if (options.signal?.aborted) throw withErrorClass(error, "cancelled");
+      if (error?.code === ErrorCode.RequestTimeout) {
+        throw withErrorClass(
+          new Error(
+            `No answer from ${config.name} after ${formatWait(timeout)} (tool timeout), so Moka stopped waiting. The server may still be working; a late reply shows up in the inspector.`,
+          ),
+          "timeout",
         );
       }
-      throw error;
+      // A JSON-RPC error, or a reply that doesn't parse: the server answered. A dropped connection is an
+      // McpError too (ConnectionClosed); anything else (network, HTTP, crash) is the transport.
+      const answered = (error instanceof McpError && error.code !== ErrorCode.ConnectionClosed) || error?.name === "ZodError";
+      if (answered) throw withErrorClass(error, "protocol");
+      throw withErrorClass(error, "transport");
+    } finally {
+      if (pending && conn.calls) conn.calls = conn.calls.filter((c) => c !== pending);
     }
   }
 
@@ -728,4 +777,12 @@ function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promi
 
 function resolveOAuth(settings: { clientId?: string; clientSecret?: string; scopes?: string[] }, env: NodeJS.ProcessEnv) {
   return { ...settings, clientId: resolveSecret(settings.clientId, env), clientSecret: resolveSecret(settings.clientSecret, env) };
+}
+
+function safeJson(text: string | undefined): any {
+  try {
+    return text ? JSON.parse(text) : undefined;
+  } catch {
+    return undefined;
+  }
 }

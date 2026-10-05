@@ -91,6 +91,9 @@ interface State {
   appContext?: string;
   stop: () => void;
   retry: () => Promise<void>;
+  /** Send a user message again, dropping everything after it. */
+  rerun: (messageId: string) => Promise<void>;
+
   newChat: () => void;
   openSession: (id: string) => Promise<void>;
   deleteSession: (id: string) => Promise<void>;
@@ -321,7 +324,7 @@ export const useStore = create<State>((set, get) => ({
         ...(shown ? [{ type: "text" as const, text: shown }] : []),
         ...attachments.map((a) => ({ type: "attachment" as const, attachment: { ...a, text: undefined, dataUrl: a.kind === "image" ? a.dataUrl : undefined } })),
       ],
-      meta: options?.via ? { via: options.via } : undefined,
+      meta: { sentAt: Date.now(), ...(options?.via ? { via: options.via } : {}) },
     };
     const modelMessages = [...base.modelMessages, { role: "user", content: options?.replay ? options.replay.content : attachments.length ? toModelContent(content, attachments) : content }];
     const title = base.messages.length === 0 ? (shown || attachments[0]?.name || "Chat").slice(0, 60) : base.title;
@@ -368,15 +371,23 @@ export const useStore = create<State>((set, get) => ({
   },
 
   retry: async () => {
-    const { session } = get();
-    const lastUserIndex = session.messages.map((m) => m.role).lastIndexOf("user");
-    if (lastUserIndex < 0) return;
-    const lastUser = session.messages[lastUserIndex]!;
-    const text = lastUser.parts.map((p) => (p.type === "text" ? p.text : "")).join("");
-    // Rewind model history to before that user message.
+    const lastUser = [...get().session.messages].reverse().find((m) => m.role === "user");
+    if (lastUser) await get().rerun(lastUser.id);
+  },
+
+  rerun: async (messageId) => {
+    const { session, streaming } = get();
+    if (streaming) return;
+    const index = session.messages.findIndex((m) => m.id === messageId && m.role === "user");
+    if (index < 0) return;
+    const target = session.messages[index]!;
+    const text = target.parts.map((p) => (p.type === "text" ? p.text : "")).join("");
+    // Each user message added exactly one "user" model message, so the nth ones match.
+    const nth = session.messages.slice(0, index).filter((m) => m.role === "user").length;
     let cut = session.modelMessages.length;
-    for (let i = session.modelMessages.length - 1; i >= 0; i--) {
-      if ((session.modelMessages[i] as any)?.role === "user") {
+    for (let i = 0, seen = 0; i < session.modelMessages.length; i++) {
+      if ((session.modelMessages[i] as any)?.role !== "user") continue;
+      if (seen++ === nth) {
         cut = i;
         break;
       }
@@ -385,11 +396,11 @@ export const useStore = create<State>((set, get) => ({
     set({
       session: {
         ...session,
-        messages: session.messages.slice(0, lastUserIndex),
+        messages: session.messages.slice(0, index),
         modelMessages: session.modelMessages.slice(0, cut),
       },
     });
-    await get().send(text, { via: lastUser.meta?.via, replay: { content, parts: lastUser.parts } });
+    await get().send(text, { via: target.meta?.via, replay: { content, parts: target.parts } });
   },
 
   newChat: () => {
