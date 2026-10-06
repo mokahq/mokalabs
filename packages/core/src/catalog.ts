@@ -692,9 +692,14 @@ export function previewInput(name: string, component: CatalogComponent): { compo
     if (schema === binding || schema?.description === binding.description) props[prop] = { path: `/${prop}` };
     else if ((component.required ?? []).includes(prop)) props[prop] = sampleValue(prop, schema);
   }
-  if (name === "Image" && !props.url) props.url = "https://picsum.photos/seed/moka/640/320";
+  // A local placeholder: previews never load images from the network.
+  if (name === "Image" && !props.url) props.url = SAMPLE_IMAGE;
   return { components: [{ id: "root", component: name, ...props }], data: {} };
 }
+
+const SAMPLE_IMAGE = `data:image/svg+xml,${encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" width="640" height="320"><rect width="640" height="320" fill="#c2703d"/><text x="320" y="172" font-family="sans-serif" font-size="28" fill="#fff" text-anchor="middle">Image</text></svg>',
+)}`;
 
 function sampleValue(prop: string, schema: JsonSchema): unknown {
   if ("default" in (schema ?? {})) return schema.default;

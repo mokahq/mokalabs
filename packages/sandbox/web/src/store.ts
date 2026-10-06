@@ -12,11 +12,12 @@ import type {
   MokaEvent,
   ProviderPreset,
   SessionSummary,
+  ProxySession,
   UiMessage,
   Workspace,
 } from "./types";
 
-export type View = "chat" | "compare" | "tools";
+export type View = "chat" | "compare" | "tools" | "proxy";
 export type SettingsTab = "models" | "agents" | "mcp" | "skills" | "genui" | "workspaces" | "config";
 
 interface Toast {
@@ -51,6 +52,9 @@ interface State {
   respond: (id: string, response: Record<string, unknown>) => Promise<void>;
 
   events: MokaEvent[];
+  /** Sessions recorded by @mokalabs/proxy, and where they're read from. */
+  proxy: { dir?: string; sessions: ProxySession[] };
+  loadProxy: () => Promise<void>;
   eventIds: Set<string>;
   eventsConnected: boolean;
   selectedEventId?: string;
@@ -151,6 +155,16 @@ export const useStore = create<State>((set, get) => ({
   interactions: {},
 
   events: [],
+  proxy: { sessions: [] },
+  loadProxy: async () => {
+    try {
+      const next = await api<{ dir?: string; sessions: ProxySession[] }>("/api/proxy");
+      // Polled every few seconds: keep the same object when nothing changed, so views don't re-render.
+      if (JSON.stringify(next) !== JSON.stringify(get().proxy)) set({ proxy: next });
+    } catch {
+      // older server, or offline: keep what we have
+    }
+  },
   eventIds: new Set(),
   eventsConnected: false,
 

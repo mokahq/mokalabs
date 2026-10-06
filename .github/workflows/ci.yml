@@ -71,6 +71,15 @@ jobs:
           for i in $(seq 1 30); do curl -sf localhost:4000/api/health && break; sleep 1; done
           curl -sf localhost:4000/ | grep -q '<div id="root">'
           curl -sf -X POST localhost:4000/api/mcp/moka-demo/connect -H 'content-type: application/json' -d '{}' | grep -q '"connected"'
+      - name: The proxy passes a server through and Moka shows the session
+        run: |
+          mkdir -p /tmp/pack-proxy
+          (cd packages/proxy && pnpm pack --pack-destination /tmp/pack-proxy)
+          cd /tmp/app && npm install /tmp/pack-proxy/*.tgz
+          printf '%s\n' '{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"ci","version":"1"}}}' \
+            | MOKA_HOME=/tmp/home timeout 20 npx proxy --client ci --name demo -- npx sandbox demo-server | grep -q '"serverInfo"'
+          sleep 1
+          curl -sf localhost:4000/api/proxy | grep -q '"name":"demo"'
       - name: create-moka scaffolds a project
         run: |
           cd /tmp && node $GITHUB_WORKSPACE/packages/create-moka/index.js my-demo --yes

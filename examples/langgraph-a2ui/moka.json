@@ -1,0 +1,7 @@
+{
+  "$schema": "https://unpkg.com/@mokalabs/sandbox/dist/moka.schema.json",
+  "version": 1,
+  "activeWorkspaceId": "barista",
+  "agents": [{ "id": "barista", "name": "LangGraph barista", "protocol": "ag-ui", "url": "http://127.0.0.1:8123/agent" }],
+  "workspaces": [{ "id": "barista", "name": "LangGraph", "agentId": "barista", "starterPrompts": ["I need a coffee"] }]
+}

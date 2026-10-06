@@ -16,10 +16,13 @@ import {
   type MokaEngine,
   type SessionStore,
 } from "@mokalabs/core";
+import { exportSessions } from "@mokalabs/proxy";
 import { Hono, type Context } from "hono";
 import { stream } from "hono/streaming";
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
+
+import type { ProxySessions } from "./proxy-sessions.js";
 
 export interface ServerOptions {
   engine: MokaEngine;
@@ -31,6 +34,8 @@ export interface ServerOptions {
   configPath: string;
   version: string;
   env?: NodeJS.ProcessEnv;
+  /** Sessions recorded by @mokalabs/proxy. */
+  proxy?: ProxySessions;
 }
 
 const ENV_HINTS = [
@@ -98,6 +103,16 @@ export function createApp(options: ServerOptions): Hono {
   });
 
   app.get("/api/health", (c) => c.json({ ok: true, version: options.version }));
+
+  // --- proxy (@mokalabs/proxy sessions) --------------------------------------
+  app.get("/api/proxy", (c) => c.json({ dir: options.proxy?.dir, sessions: options.proxy?.list() ?? [] }));
+  // Everything recorded for the given sessions (all of them without ?ids), secrets redacted unless ?raw=1.
+  app.get("/api/proxy/export", (c) => {
+    if (!options.proxy) return c.json({ error: "The proxy watcher isn't running" }, 404);
+    const ids = c.req.query("ids")?.split(",").filter(Boolean);
+    const data = exportSessions(options.proxy.dir, { ids, redact: c.req.query("raw") !== "1" });
+    return c.json(data);
+  });
 
   // --- bootstrap / config -----------------------------------------------------
   app.get("/api/bootstrap", async (c) => {

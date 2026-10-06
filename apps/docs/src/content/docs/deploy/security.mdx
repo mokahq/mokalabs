@@ -7,6 +7,21 @@ import { Aside } from "@astrojs/starlight/components";
 
 Moka runs MCP servers — which are local programs — and calls LLM APIs with your credentials. Treat it like a terminal.
 
+## 100% local
+
+Moka runs entirely on your machine (or in your own container). There is no Moka backend, no account and no telemetry.
+
+| What | Where it goes |
+|---|---|
+| Prompts and replies | Only to the model you pick. With Ollama or LM Studio, nothing leaves your machine. |
+| Tool calls | Only to the MCP servers you add |
+| API keys | Your environment (`env:NAME`), or your own `moka.json` if you paste them in |
+| Chat history | `~/.moka/sessions` on your machine |
+| Proxy recordings | `~/.moka/proxy/sessions` on your machine |
+| Inspector traces | In memory; downloaded only when you click **Download trace** |
+
+Moka makes no other network calls: no update checks, no analytics, no fonts or scripts from a CDN.
+
 ## Defaults
 
 | Protection | Default |

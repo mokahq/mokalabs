@@ -1,14 +1,12 @@
 <div align="center">
 
-<img src="brand/moka-puppy.svg" width="140" height="140" alt="Moka the puppy, holding a coffee" />
+<img src="brand/moka-puppy.svg" width="120" height="120" alt="Moka the puppy, holding a coffee" />
 
 # Moka
 
 **See every MCP message.**
 
-Chat with any LLM, plug in any MCP server, agent or skill, and inspect every call: raw JSON-RPC, tool calls, tokens and timings. One command, zero config.
-
-*Good pup. Strong brew.* ☕
+Chat with any LLM, plug in any MCP server, agent or skill, and inspect every call. Or put Moka in front of your AI editor and see what it sends to your servers. One command, zero config, 100% local.
 
 [![npm](https://img.shields.io/npm/v/@mokalabs/sandbox?color=c2703d&label=%40mokalabs%2Fsandbox)](https://www.npmjs.com/package/@mokalabs/sandbox)
 [![CI](https://github.com/mokahq/mokalabs/actions/workflows/ci.yml/badge.svg)](https://github.com/mokahq/mokalabs/actions/workflows/ci.yml)
@@ -19,7 +17,7 @@ Chat with any LLM, plug in any MCP server, agent or skill, and inspect every cal
 npx @mokalabs/sandbox
 ```
 
-<img src="docs/assets/inspector.gif" alt="Moka: a chat with MCP tool calls, then the inspector's raw JSON-RPC request and response" width="100%" />
+<sub>Node 20+. Picks up your API keys from the environment and ships with a demo MCP server, so the first run has working tools.</sub>
 
 <sub>⭐ If Moka saves you time, a star helps other people find it.</sub>
 
@@ -27,200 +25,98 @@ npx @mokalabs/sandbox
 
 ---
 
-## Why Moka
+## Compare models
 
-Getting an LLM talking to MCP tools usually means wiring up a client, a provider SDK, a tool loop and some logging before you can even try one prompt. Moka does all of that for you:
+Run one prompt against several models with the same MCP tools, side by side: answers, tool calls, latency and tokens.
 
-- **Zero config.** Moka picks up `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `OPENROUTER_API_KEY`, `GROQ_API_KEY` and others from your environment, finds a local Ollama, and ships with a built-in demo MCP server, so the first run has working tools.
-- **Any model.** OpenAI, Anthropic, Gemini, Azure OpenAI, Ollama, LM Studio, OpenRouter, Groq, DeepSeek, Mistral, xAI and Together are built in. Any OpenAI-compatible gateway (vLLM, LiteLLM, a corporate proxy) also works, with custom base URLs, headers and provider options.
-- **Any MCP server.** stdio, Streamable HTTP and SSE. Paste your Claude Desktop, Cursor or VS Code `mcp.json`, or pick one from the gallery.
-- **Agent Skills.** Point Moka at a `SKILL.md` folder (including `~/.claude/skills`). Skills load on demand, the same way Claude does it.
-- **Inspector.** Every LLM step, tool call, token count and raw MCP JSON-RPC message, with timings and a per-run waterfall.
-- **Forms for everything.** Models, servers, skills and workspaces are all editable in the UI. Changes are written to a readable `moka.json`.
-- **Built for demos.** Workspaces, starter prompts, presenter mode, side-by-side model comparison, and a ⌘K command palette.
-- **Generative UI.** Moka renders [MCP Apps](https://github.com/modelcontextprotocol/ext-apps) (the official MCP UI extension) in a secure sandbox, supports legacy MCP-UI, and lets *any* model answer with native [A2UI](https://github.com/google/A2UI) forms, cards and buttons through a built-in `render_ui` tool.
-- **Your own components.** Add A2UI catalogs of template or sandboxed-HTML components, rename and theme the render tool, and try it all in the Generative UI playground.
-- **Slow tools.** Progress bars from `notifications/progress`, per-server tool timeouts, a "60-second client" preset, and the exact moment a client gives up, in the inspector.
-- **Retry lineage.** Retries of the same tool call are grouped as attempts, with an error class for each failure, an "outcome unknown" flag when a write timed out, and a warning when a retry may have written twice.
-- **Arguments, model → server.** See a tool call's arguments exactly as the model streamed them, as parsed, and as the server received them, so truncated or rewritten arguments stand out.
-- **Tool approvals.** Have the model ask before it runs a tool: per tool, per server, or a whole-workspace safe mode for live demos.
-- **Any agent, too.** Point a workspace at an A2A or AG-UI agent (LangGraph, CopilotKit, ADK…) and get the chat, A2UI and inspector for it. AG-UI agents can even call your MCP tools.
-- **Full MCP client.** OAuth sign-in for hosted servers, elicitation forms, sampling with your model, `@` resources and `/` prompts.
-- **Demo-proof.** Attach images and files, and replay any saved chat offline, with no model calls.
+<img src="docs/assets/compare.gif" alt="Three models answer the same prompt with the same MCP tools, with latency, tokens and tool calls for each" width="100%" />
+
+OpenAI, Anthropic, Gemini, Azure OpenAI, Ollama, LM Studio, OpenRouter, Groq, DeepSeek, Mistral, xAI and Together are built in, plus any OpenAI-compatible gateway (vLLM, LiteLLM, a corporate proxy). [Compare guide →](https://mokahq.github.io/mokalabs/guides/compare/)
+
+## Call tools directly
+
+Pick any tool, resource or prompt from your MCP servers and run it from a form generated from its schema. No model needed. Long-running tools show live progress.
+
+<img src="docs/assets/tools.gif" alt="The Tools view: a form for get_time, then slow_backtest with live progress, every call in the inspector" width="100%" />
+
+stdio, Streamable HTTP and SSE servers, with OAuth sign-in, elicitation and sampling. Add servers from a gallery or paste your Claude Desktop, Cursor or VS Code `mcp.json`. [Tool runner guide →](https://mokahq.github.io/mokalabs/guides/tool-runner/)
+
+## See what your AI editor sends to your MCP servers
+
+Put the Moka proxy in front of the MCP servers of GitHub Copilot (VS Code), Cursor, Claude Desktop, Claude Code, Windsurf or Gemini. Every message between them shows up in Moka's **Proxy** tab, live: timeouts, retries, late replies and errors.
+
+```bash
+npx @mokalabs/proxy wrap     # finds your editor configs and asks before changing anything
+npx @mokalabs/sandbox        # → Proxy tab
+```
+
+<img src="docs/assets/proxy.gif" alt="wrap updates the VS Code and Cursor configs; then each editor's MCP traffic appears in the Proxy tab, with a timed-out call and its retry flagged" width="100%" />
+
+Messages pass through untouched. **Export** saves everything recorded as one JSON file, with secrets redacted, ready for a bug report. `npx @mokalabs/proxy unwrap` puts your configs back. [Proxy guide →](https://mokahq.github.io/mokalabs/guides/proxy/)
+
+## Chat and inspect every call
+
+Chat with any model and your MCP servers. The inspector shows every LLM step, tool call and raw JSON-RPC message, each response paired with its request.
+
+<img src="docs/assets/chat.gif" alt="A chat with two MCP tool calls, then the inspector's paired JSON-RPC request and response and the run's LLM steps" width="100%" />
+
+Retries of a tool call are grouped as attempts, with a warning when a retry may have written twice. You can also see a call's arguments as the model streamed them and as the server received them. [Inspector guide →](https://mokahq.github.io/mokalabs/guides/inspector/)
+
+## Generative UI, from your own agent
+
+Point Moka at a LangGraph, CopilotKit or ADK agent over AG-UI or A2A, and get a chat UI, generative UI and the inspector for it. Tools that answer with [A2UI](https://github.com/google/A2UI) render as real forms and cards. Button presses go back to the agent.
+
+<img src="docs/assets/agent.gif" alt="A LangGraph agent over AG-UI shows a drink menu form; picking a cappuccino and pressing Order shows an order card; the inspector shows the graph's state" width="100%" />
+
+The agent in this clip is in [`examples/langgraph-a2ui`](examples/langgraph-a2ui). Moka also renders [MCP Apps](https://github.com/modelcontextprotocol/ext-apps), and any model can answer with A2UI through the built-in `render_ui` tool. [Generative UI guide →](https://mokahq.github.io/mokalabs/generative-ui/overview/)
+
+## More
+
+- **Agent Skills.** Point Moka at a `SKILL.md` folder (including `~/.claude/skills`). Skills load on demand, the same way Claude loads them.
+- **Workspaces.** Model + MCP servers + skills + system prompt + starter prompts, one per demo. Presenter mode, tool approvals and a ⌘K palette help with live demos.
+- **Replay.** Replay any saved chat offline, with no model calls.
+- **Export to code.** Turn a workspace into Vercel AI SDK (TypeScript) or LangGraph (Python) code, or an `mcp.json`.
 - **Works at work.** `HTTPS_PROXY`/`NO_PROXY`, custom CAs, and a zero-dependency package for curated registries.
-- **Export to code.** Turn any workspace into Vercel AI SDK (TypeScript) or LangGraph (Python) code, or an `mcp.json`.
 
 ## Quick start
 
 ```bash
-# 1. Run it (Node 20+)
-export OPENAI_API_KEY=sk-...       # optional: add keys in the UI instead
-npx @mokalabs/sandbox
-
-# 2. …or scaffold a shareable demo project
-npm create moka@latest my-demo
-cd my-demo && npm install && npm start
-
-# 3. …or use Docker
-docker run --rm -p 4000:4000 -e OPENAI_API_KEY ghcr.io/mokahq/moka
+npx @mokalabs/sandbox                      # run it
+npm create moka@latest my-demo             # or scaffold a shareable demo project
+docker run --rm -p 4000:4000 -e OPENAI_API_KEY ghcr.io/mokahq/moka   # or Docker
 ```
 
-Moka prints a URL with a one-time access token and opens your browser.
-
-| | |
-|---|---|
-| <img src="docs/assets/settings-mcp.png" alt="MCP gallery" /> | <img src="docs/assets/compare.png" alt="Compare models side by side" /> |
-| **Add MCP servers** from a gallery, a form, or pasted JSON | **Compare** models on the same prompt and tools |
-| <img src="docs/assets/tools.png" alt="Tool runner" /> | <img src="docs/assets/settings-models.png" alt="Model settings" /> |
-| **Call tools directly** with generated forms, no LLM needed | **Configure any provider**: keys, base URL, headers, options |
-
-## Using Moka
-
-### Models
-**Settings → Models → Add model** and pick a preset. Every field can be edited: model, API key, base URL, headers, temperature, max tokens and raw AI SDK `providerOptions`. Use **Fetch models** to list what your key can reach and **Test** to check it works.
-
-API keys can be pasted directly or referenced as `env:OPENAI_API_KEY`. References are resolved at request time and never written to disk, so `moka.json` stays safe to commit.
-
-### MCP servers
-**Settings → MCP servers → Add server** gives you three options:
-
-- **Gallery:** Everything, Filesystem, Memory, Playwright, Fetch, Git, DeepWiki, Context7, GitHub…
-- **Manual:** stdio (command, args, env, cwd) or HTTP/SSE (URL, headers). `${VAR}` expands from the environment.
-- **Paste JSON:** the `mcpServers` block from Claude Desktop, Claude Code, Cursor or Windsurf, or VS Code's `servers`.
-
-Once connected, you can switch individual tools on or off for the model, and call them manually from the **Tools** view. For HTTP servers, the **HTTP** section shows every header the last request actually carried (yours and the ones the client adds, secrets masked).
-
-### Skills
-A skill is a folder containing a `SKILL.md` (YAML frontmatter with `name` and `description`, then instructions) plus optional reference files. Moka lists each skill's name and description in the system prompt. The model calls the built-in `load_skill` tool when a skill is relevant, and `read_skill_file` to read the skill's other files.
-
-**Settings → Skills** lets you add one folder, scan a folder of skills, or write a skill inline.
-
-### Workspaces
-A workspace combines **model + MCP servers + skills + system prompt + starter prompts**. Create one per demo and switch between them from the top bar.
-
-### Inspector
-The right-hand panel streams everything Moka does:
-
-- `run.start` / `run.finish`: system prompt, tool list, total tokens
-- `llm.request` / `llm.response`: per step, with provider request body, finish reason, usage and latency
-- `tool.call` / `tool.result` / `tool.error`: arguments, outputs and durations
-- `mcp.rpc`: raw JSON-RPC in both directions, including the `initialize` handshake, with each response paired to its request (latency, errors, cancellations, late replies)
-- `mcp.unanswered`: requests still open when a connection closed
-- `mcp.http`: failed HTTP requests to remote servers (status, `WWW-Authenticate`, masked headers)
-- `mcp.status` / `mcp.log`: connections and server stderr
-- `agent.*`: A2A and AG-UI traffic (framework `RAW` events are collapsed into one entry per run)
-
-Click any event to see its full payload and the run's waterfall. **Download trace** exports everything as JSON.
-
-### Generative UI
-Ask the demo server to *"roll 3 dice"* to get an **MCP App**: an interactive iframe that calls tools and posts messages back into the chat. Ask *"book a table at Toit"* to get **A2UI** returned by an MCP tool. Ask for *"a signup form"* and the model itself builds A2UI with `render_ui`. Button presses go back to the agent as `[ui action]` messages. Add your own components under **Settings → Generative UI** ([custom catalogs](https://mokahq.github.io/mokalabs/generative-ui/catalogs/)). Full guide: [docs → Generative UI](https://mokahq.github.io/mokalabs/generative-ui/overview/).
-
-### Keyboard
-
-| | |
-|---|---|
-| `⌘K` | Command palette |
-| `⌘J` | New chat |
-| `⌘B` / `⌘I` | Toggle sidebar / inspector |
-| `⌘.` | Presenter mode |
-| `⌘,` | Settings |
-| `/` | Focus the composer |
-
-## CLI
-
-```text
-npx @mokalabs/sandbox [config.json] [options]
-moka [config.json] [options]          # after npm i -g @mokalabs/sandbox
-moka init                             # write a starter moka.json here
-moka demo-server                      # run the bundled demo MCP server on stdio
-
--p, --port <n>        port (default 4000, or $PORT; next free port if taken)
--H, --host <host>     bind address (default 127.0.0.1)
--c, --config <file>   config file (default ./moka.json, else ~/.moka/config.json)
-    --token <t>       fixed access token (default: random, or $MOKA_TOKEN)
-    --no-auth         disable the token (trusted machines only)
-    --no-open         don't open a browser
-```
-
-**Config lookup order:** `--config`, then `$MOKA_CONFIG`, then `./moka.json`, then `~/.moka/config.json`. On first run Moka creates the file for you. Chat history lives in `~/.moka/sessions` (override with `$MOKA_HOME`).
-
-## `moka.json`
+Moka prints a URL with a one-time access token and opens your browser. Add models, servers and skills in **Settings**. Everything is saved to a readable `moka.json`, and keys can stay in your environment (`"apiKey": "env:OPENAI_API_KEY"`).
 
 ```jsonc
 {
-  "$schema": "https://unpkg.com/@mokalabs/sandbox/dist/moka.schema.json",
-  "version": 1,
-  "activeWorkspaceId": "demo",
-  "llms": [
-    { "id": "gpt", "name": "OpenAI", "provider": "openai", "model": "gpt-5-mini", "apiKey": "env:OPENAI_API_KEY" },
-    { "id": "gw", "name": "Company gateway", "provider": "openai-compatible", "model": "llama-3.3-70b",
-      "baseURL": "https://llm.internal.example.com/v1", "headers": { "X-Team": "platform" }, "apiKey": "env:GATEWAY_KEY" }
-  ],
-  "mcpServers": [
-    { "id": "fs", "name": "Filesystem", "transport": "stdio", "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-filesystem", "."] },
-    { "id": "gh", "name": "GitHub", "transport": "http", "url": "https://api.githubcopilot.com/mcp/",
-      "headers": { "Authorization": "Bearer ${GITHUB_TOKEN}" }, "disabledTools": ["delete_repository"] }
-  ],
-  "skills": [{ "id": "brand", "path": "./skills/brand-voice" }],
-  "workspaces": [
-    { "id": "demo", "name": "Demo", "llmId": "gpt", "mcpServerIds": ["fs", "gh"], "skillIds": ["brand"],
-      "systemPrompt": "Be concise.", "starterPrompts": ["What's in this folder?"], "maxSteps": 12 }
-  ]
+  "llms": [{ "id": "gpt", "name": "OpenAI", "provider": "openai", "model": "gpt-5-mini", "apiKey": "env:OPENAI_API_KEY" }],
+  "mcpServers": [{ "id": "fs", "name": "Filesystem", "transport": "stdio", "command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "."] }],
+  "workspaces": [{ "id": "demo", "name": "Demo", "llmId": "gpt", "mcpServerIds": ["fs"] }]
 }
 ```
 
-Provider values: `openai`, `anthropic`, `google`, `azure`, `ollama`, `openai-compatible`. For the full field reference see [docs/configuration.md](docs/configuration.md).
+[Configuration](https://mokahq.github.io/mokalabs/reference/config/) · [CLI](https://mokahq.github.io/mokalabs/reference/cli/) · [Docker](https://mokahq.github.io/mokalabs/deploy/docker/) · [Embed the engine](https://mokahq.github.io/mokalabs/reference/core/)
 
-## Docker
+## 100% local, and safe by default
 
-```bash
-# Zero config, with keys from your shell
-docker run --rm -p 4000:4000 -e OPENAI_API_KEY -e ANTHROPIC_API_KEY ghcr.io/mokahq/moka
+Moka runs entirely on your machine. There's no Moka backend, no account and no telemetry, and Moka makes no network calls of its own: no update checks, no analytics, no CDN.
 
-# Use a moka.json (and skills) from the current folder; keep history in a volume
-docker run --rm -p 4000:4000 -v "$PWD:/workspace" -v moka-data:/data -e MOKA_TOKEN=change-me ghcr.io/mokahq/moka
-```
+- **Your data stays with you.** Prompts go only to the model you pick (with Ollama or LM Studio, nothing leaves your machine) and tool calls only to the MCP servers you add. Chat history and proxy recordings stay in `~/.moka`.
+- **Your keys stay in your environment.** Reference them as `env:OPENAI_API_KEY` and they're resolved in memory, never written to disk. Exports redact secrets.
+- **Locked to you.** Moka binds to `127.0.0.1`, and every API call needs the random token printed at startup. `--host 0.0.0.0` and `--no-auth` are explicit opt-ins.
+- **Sandboxed UI.** MCP Apps run in a sandboxed iframe, and A2UI is data only: no code from a server or model runs in the page.
 
-The image includes `npx` and `uvx`, so both Node and Python MCP servers work. It binds `0.0.0.0` inside the container. Set `MOKA_TOKEN` or read the generated token from `docker logs`.
-
-## Embed the engine
-
-The UI is a thin layer over `@mokalabs/core`, which you can use for tests, CLIs or your own UI:
-
-```ts
-import { MokaEngine, parseConfig } from "@mokalabs/core";
-
-const engine = new MokaEngine({ config: parseConfig(myConfig) });
-engine.bus.subscribe((e) => console.log(e.kind, e.title));
-
-for await (const chunk of engine.chat({ messages: [{ role: "user", content: "What time is it in Tokyo?" }] })) {
-  if (chunk.type === "text") process.stdout.write(chunk.text);
-}
-await engine.close();
-```
-
-## Security
-
-Moka runs MCP servers, which are local processes, for you, so treat it like a terminal:
-
-- It binds to `127.0.0.1` by default and every API call needs the random token printed at startup.
-- `--no-auth` and `--host 0.0.0.0` are opt-in. Only use them on trusted networks.
-- Keys referenced as `env:NAME` are never persisted. **Download (keys redacted)** strips literal secrets from exports.
-
-See [SECURITY.md](SECURITY.md) to report a vulnerability.
+Moka runs MCP servers (local programs) for you, so treat it like a terminal and only add servers you trust. [Security details →](https://mokahq.github.io/mokalabs/deploy/security/) · [Report a vulnerability](SECURITY.md)
 
 ## Packages
 
 | Package | |
 |---|---|
-| [`@mokalabs/sandbox`](packages/sandbox) | The app: CLI (`npx @mokalabs/sandbox`, `moka`), HTTP server, web UI, demo MCP server |
-| [`@mokalabs/core`](packages/core) | Headless engine: providers, MCP manager, skills, agent loop, event bus |
+| [`@mokalabs/sandbox`](packages/sandbox) | The app: CLI (`npx @mokalabs/sandbox`, `moka`), server, web UI, demo MCP server |
+| [`@mokalabs/proxy`](packages/proxy) | Pass-through proxy for your editor's MCP servers, and `wrap` / `unwrap` for their configs |
+| [`@mokalabs/core`](packages/core) | Headless engine: providers, MCP client, skills, agent loop, event bus |
 | [`create-moka`](packages/create-moka) | `npm create moka` project scaffolder |
-
-## Documentation
-
-Full docs live at **[mokahq.github.io/mokalabs](https://mokahq.github.io/mokalabs/)** (source in [`apps/docs`](apps/docs), built with Astro Starlight and deployed by the Docs workflow).
 
 ## Contributing
 
@@ -228,10 +124,9 @@ Full docs live at **[mokahq.github.io/mokalabs](https://mokahq.github.io/mokalab
 pnpm install
 pnpm dev        # server on :4000 + Vite UI on :5173 with hot reload
 pnpm test
-pnpm --filter @mokalabs/docs dev   # docs site on :4321
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). Releases are automated with Changesets: see [docs/releasing.md](docs/releasing.md).
+Full docs at **[mokahq.github.io/mokalabs](https://mokahq.github.io/mokalabs/)** (source in [`apps/docs`](apps/docs)). See [CONTRIBUTING.md](CONTRIBUTING.md) and [docs/releasing.md](docs/releasing.md).
 
 ## License
 

@@ -7,6 +7,7 @@ import { Inspector } from "./components/Inspector";
 import { InteractionCenter } from "./components/Interactions";
 import { CommandPalette, ExportDialog, Sidebar, Toasts, TopBar } from "./components/Shell";
 import { ToolRunner } from "./components/ToolRunner";
+import { ProxyView } from "./components/ProxyView";
 import { Button, Input, Spinner, cn } from "./components/ui";
 import { Settings } from "./settings/Settings";
 import { useStore } from "./store";
@@ -25,6 +26,14 @@ export function App() {
   useEffect(() => {
     void init();
   }, [init]);
+
+  // Names of proxied servers for the inspector (the Proxy tab refreshes more often).
+  const loadProxy = useStore((s) => s.loadProxy);
+  useEffect(() => {
+    void loadProxy();
+    const timer = setInterval(() => void loadProxy(), 10_000);
+    return () => clearInterval(timer);
+  }, [loadProxy]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -77,16 +86,18 @@ export function App() {
   }
 
   return (
-    <div className={cn("flex h-full flex-col", presenter && "presenter")}>
+    <div className={cn("flex h-full flex-col overflow-hidden", presenter && "presenter")}>
       <TopBar />
       <div className="flex min-h-0 flex-1">
         {sidebarOpen && !presenter && view === "chat" && <Sidebar />}
-        <main className="flex min-w-0 flex-1 flex-col bg-bg">
+        <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-bg">
           {view === "chat" && <ChatView />}
           {view === "compare" && <CompareView />}
           {view === "tools" && <ToolRunner />}
+          {view === "proxy" && <ProxyView />}
         </main>
-        {inspectorOpen && !presenter && (
+        {/* The Proxy tab shows its own, wider detail pane. */}
+        {inspectorOpen && !presenter && view !== "proxy" && (
           <aside className="hidden w-[380px] shrink-0 border-l border-line bg-panel/60 md:block">
             <Inspector />
           </aside>

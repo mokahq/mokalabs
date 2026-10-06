@@ -48,6 +48,7 @@ export default defineConfig({
             { label: "Skills", slug: "guides/skills" },
             { label: "Workspaces & demos", slug: "guides/workspaces" },
             { label: "Inspector", slug: "guides/inspector" },
+            { label: "Proxy for your AI editor", slug: "guides/proxy", badge: { text: "New", variant: "tip" } },
             { label: "Compare models", slug: "guides/compare" },
             { label: "Tool runner", slug: "guides/tool-runner" },
             { label: "Tool approvals", slug: "guides/approvals" },

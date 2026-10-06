@@ -341,6 +341,27 @@ export type Part =
       raw?: RawToolResult;
     };
 
+/** A server session recorded by @mokalabs/proxy (another client, such as GitHub Copilot, and one server). */
+export interface ProxySession {
+  id: string;
+  serverId: string;
+  client: string;
+  clientInfo?: { name?: string; version?: string };
+  name: string;
+  command: string;
+  args: string[];
+  cwd: string;
+  pid: number;
+  startedAt: number;
+  lastAt: number;
+  endedAt?: number;
+  exitCode?: number | null;
+  live: boolean;
+  requests: number;
+  errors: number;
+  timeouts: number;
+}
+
 export interface UiMessage {
   id: string;
   role: "user" | "assistant";
