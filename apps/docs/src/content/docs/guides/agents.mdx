@@ -3,6 +3,7 @@ title: Remote agents (A2A & AG-UI)
 description: Chat with an agent you already built (LangGraph, CopilotKit, ADK, anything that speaks A2A or AG-UI) and get Moka's UI, generative UI and inspector.
 ---
 
+import agentGif from "../../../../../../docs/assets/agent.gif";
 import { Aside, Steps, Tabs, TabItem } from "@astrojs/starlight/components";
 
 Moka doesn't have to call a model directly. Point a workspace at an **agent** and Moka becomes its front end: streaming chat, A2UI rendering, tool cards, approvals and a full event trace in the inspector.
@@ -26,6 +27,20 @@ Moka doesn't have to call a model directly. Point a workspace at an **agent** an
 </Steps>
 
 You'll get an A2UI booking form from the agent. Pressing **Book it** sends the action back to the agent, which confirms the booking.
+
+## LangGraph with generative UI
+
+<img src={agentGif.src} width={agentGif.width} height={agentGif.height} alt="A LangGraph agent over AG-UI shows a drink menu form; pressing Order shows an order card" />
+
+[`examples/langgraph-a2ui`](https://github.com/mokahq/mokalabs/tree/main/examples/langgraph-a2ui) is a small LangGraph graph served with `ag-ui-langgraph`. Its tools return [A2UI](/generative-ui/a2ui/), so the chat shows a menu form and an order card, and the form's **Order** button goes back to the graph as a `[ui action]` message.
+
+```bash
+pip install -r requirements.txt
+python agent.py              # AG-UI endpoint on http://127.0.0.1:8123/agent
+npx @mokalabs/sandbox        # from the example folder: uses its moka.json
+```
+
+It uses a scripted model so it runs without API keys. Swap in any LangChain chat model to use a real one.
 
 ## Configure
 

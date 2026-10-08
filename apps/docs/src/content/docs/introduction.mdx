@@ -16,6 +16,9 @@ import { Card, CardGrid } from "@astrojs/starlight/components";
   <Card title="MCP server authors" icon="puzzle">
     Test your tools, resources, prompts and MCP Apps against real models — and call tools directly without a model in the loop.
   </Card>
+  <Card title="Anyone using an AI editor" icon="seti:pipeline">
+    Put the Moka proxy in front of the MCP servers of GitHub Copilot, Cursor, Claude or Gemini, and see exactly what they send: timeouts, retries and errors included.
+  </Card>
   <Card title="Solution & sales engineers" icon="star">
     Build repeatable demos with workspaces, starter prompts and presenter mode. Share a `moka.json` and anyone can reproduce your demo with `npx`.
   </Card>
@@ -35,7 +38,7 @@ Browser UI  ──HTTP/NDJSON──▶  Moka server (Hono)  ──▶  @mokalabs
                                                          └─ event bus   (everything the inspector shows)
 ```
 
-- **Local-first.** Moka runs on your machine (or your container). Your keys and data never go anywhere except the providers you configure. No telemetry.
+- **100% local.** Moka runs on your machine (or your container). No account, no telemetry, no Moka backend. Your keys and data go only to the providers and servers you configure, and with a local model nothing leaves your machine. [Details](/deploy/security/#100-local)
 - **One config file.** Everything you set in the UI is saved to a readable `moka.json`. Secrets stay in environment variables via `env:NAME` references.
 - **Standards, not lock-in.** MCP for tools, Agent Skills for instructions, MCP Apps and A2UI for UI, the Vercel AI SDK for providers. What you build in Moka works elsewhere.
 

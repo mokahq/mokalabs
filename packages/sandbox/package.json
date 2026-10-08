@@ -1,7 +1,7 @@
 {
   "name": "@mokalabs/sandbox",
   "version": "0.2.5",
-  "description": "Moka sandbox — chat with any LLM, plug in any MCP server or skill, and inspect every call. One command: npx @mokalabs/sandbox",
+  "description": "Moka sandbox \u2014 chat with any LLM, plug in any MCP server or skill, and inspect every call. One command: npx @mokalabs/sandbox",
   "license": "MIT",
   "type": "module",
   "bin": {
@@ -57,6 +57,7 @@
     "@hono/node-server": "^2.1.1",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@mokalabs/core": "workspace:^",
+    "@mokalabs/proxy": "workspace:^",
     "@tailwindcss/vite": "^4.3.3",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",

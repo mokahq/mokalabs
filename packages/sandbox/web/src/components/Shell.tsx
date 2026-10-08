@@ -3,6 +3,7 @@ import {
   ChevronDown,
   BookOpen,
   Bug,
+  Cable,
   Code2,
   Command,
   Cpu,
@@ -74,6 +75,7 @@ export function TopBar() {
           { value: "chat", label: <span className="hidden sm:inline">Chat</span>, icon: <MessageSquare className="h-3.5 w-3.5" /> },
           { value: "compare", label: <span className="hidden sm:inline">Compare</span>, icon: <GitCompareArrows className="h-3.5 w-3.5" /> },
           { value: "tools", label: <span className="hidden sm:inline">Tools</span>, icon: <Wrench className="h-3.5 w-3.5" /> },
+          { value: "proxy", label: <span className="hidden sm:inline">Proxy</span>, icon: <Cable className="h-3.5 w-3.5" /> },
         ]}
       />
       <span className="flex-1" />
@@ -97,7 +99,7 @@ export function TopBar() {
       <IconButton label="Settings (⌘,)" onClick={() => openSettings()}>
         <Settings2 className="h-4 w-4" />
       </IconButton>
-      {!presenter && (
+      {!presenter && view !== "proxy" && (
         <IconButton label="Toggle inspector (⌘I)" active={inspectorOpen} onClick={() => set({ inspectorOpen: !inspectorOpen })}>
           <PanelRight className="h-4 w-4" />
         </IconButton>
@@ -488,6 +490,7 @@ export function CommandPalette() {
       { id: "new", label: "New chat", hint: "⌘J", icon: <MessageSquarePlus className={i} />, run: s.newChat },
       { id: "chat", label: "Go to Chat", icon: <MessageSquare className={i} />, run: () => s.set({ view: "chat" }) },
       { id: "compare", label: "Go to Compare", icon: <GitCompareArrows className={i} />, run: () => s.set({ view: "compare" }) },
+      { id: "proxy", label: "Go to Proxy (traffic from other clients)", icon: <Cable className={i} />, run: () => s.set({ view: "proxy" }) },
       { id: "tools", label: "Go to Tools", icon: <Wrench className={i} />, run: () => s.set({ view: "tools" }) },
       { id: "models", label: "Settings: Models", icon: <Cpu className={i} />, run: () => s.openSettings("models") },
       { id: "mcp", label: "Settings: MCP servers", icon: <Plug className={i} />, run: () => s.openSettings("mcp") },

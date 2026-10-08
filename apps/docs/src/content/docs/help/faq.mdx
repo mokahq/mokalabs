@@ -7,7 +7,7 @@ description: Frequently asked questions.
 Yes. Moka is open source under the MIT license. You pay only for the model APIs you use.
 
 **Does Moka send my data anywhere?**
-No. Moka has no telemetry and no backend. Prompts go only to the model providers and MCP servers you configure.
+No. Moka is 100% local: no telemetry, no account, no backend. Prompts go only to the model providers and MCP servers you configure (with Ollama or LM Studio, nothing leaves your machine), and chat history and proxy recordings stay in `~/.moka`. See [Security](/deploy/security/#100-local).
 
 **Which models support tools?**
 Any model that supports function/tool calling through its API: current OpenAI, Anthropic, Gemini, Mistral, Groq-hosted and most OpenRouter models, plus many local models through Ollama.

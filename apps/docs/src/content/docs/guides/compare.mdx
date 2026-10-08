@@ -3,7 +3,9 @@ title: Compare models
 description: Run one prompt against several models, with the same tools, side by side.
 ---
 
-![Compare view](../../../assets/compare.png)
+import compareGif from "../../../../../../docs/assets/compare.gif";
+
+<img src={compareGif.src} width={compareGif.width} height={compareGif.height} alt="Three models answer the same prompt with the same MCP tools, side by side" />
 
 **Compare** (top bar) sends every prompt to 2–4 **lanes** at once. Each lane uses a different model but the **same workspace**: same MCP servers, skills and system prompt — so the comparison is fair.
 

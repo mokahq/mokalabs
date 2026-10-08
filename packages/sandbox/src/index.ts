@@ -12,6 +12,8 @@ import { randomBytes } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { sessionsDir } from "@mokalabs/proxy";
+import { ProxySessions } from "./proxy-sessions.js";
 import { createApp } from "./server.js";
 
 export { createApp } from "./server.js";
@@ -144,8 +146,12 @@ export async function startSandbox(options: StartOptions = {}): Promise<RunningS
   const token =
     options.token === false ? undefined : options.token || env.MOKA_TOKEN || randomBytes(16).toString("hex");
   const webDir = path.join(here, "web");
+  // Traffic recorded by @mokalabs/proxy between other clients (GitHub Copilot, Cursor…) and their servers.
+  const proxy = new ProxySessions(engine.bus, sessionsDir(env));
+  proxy.start();
   const app = createApp({
     engine,
+    proxy,
     sessions: new SessionStore(path.join(mokaHome(env), "sessions")),
     webDir: options.ui === false ? undefined : webDir,
     token,
@@ -169,6 +175,7 @@ export async function startSandbox(options: StartOptions = {}): Promise<RunningS
     engine,
     seeded,
     close: async () => {
+      proxy.stop();
       await engine.close();
       await new Promise<void>((resolve) => server.close(() => resolve()));
     },

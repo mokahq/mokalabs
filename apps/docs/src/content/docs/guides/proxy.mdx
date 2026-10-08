@@ -1,0 +1,120 @@
+---
+title: Proxy for your AI editor
+description: See every message GitHub Copilot, Cursor or Claude sends to your MCP servers, with the Moka proxy.
+---
+
+import proxyGif from "../../../../../../docs/assets/proxy.gif";
+import { Aside } from "@astrojs/starlight/components";
+
+Moka's inspector shows the traffic of its own chat. The **Moka proxy** shows the traffic of *other* clients: GitHub Copilot in VS Code, Cursor, Claude Desktop, Claude Code, Windsurf, Gemini, or anything else that starts MCP servers from a config file.
+
+The proxy sits between the client and a server. Every byte passes through untouched, and every JSON-RPC message is recorded. Moka's **Proxy** tab shows it all, grouped by client and server, with the same pairing, latencies, timeouts and late replies as the inspector.
+
+<img src={proxyGif.src} width={proxyGif.width} height={proxyGif.height} alt="wrap updates the VS Code and Cursor configs; each editor's MCP traffic then appears in the Proxy tab, with a timed-out call and its retry flagged" />
+
+## Set it up
+
+```bash
+npx @mokalabs/proxy wrap       # find your client configs and wrap their servers
+```
+
+`wrap` looks at each client's **global** config and at the **project** configs in the folder you run it from (it never searches the rest of your disk). It lists what it found and asks before changing anything:
+
+```
+Found:
+  VS Code (this project)       ./.vscode/mcp.json
+      github                   will be wrapped
+      docs                     skipped: HTTP servers aren't supported yet
+  Cursor (all projects)        ~/.cursor/mcp.json
+      filesystem               will be wrapped
+
+Wrap 2 servers in 2 files? (a backup of each file is kept) [Y/n]
+```
+
+Then restart the MCP servers in your editor (or reload its window) and open Moka:
+
+```bash
+npx @mokalabs/sandbox          # → Proxy tab
+```
+
+Use your editor as usual: its messages show up as they happen. Moka can start before or after the editor; it reads the recorded sessions either way.
+
+| Client | Global config | Project config |
+|---|---|---|
+| VS Code / GitHub Copilot | `mcp.json` in VS Code's user folder | `.vscode/mcp.json` |
+| Cursor | `~/.cursor/mcp.json` | `.cursor/mcp.json` |
+| Claude Desktop | `claude_desktop_config.json` | |
+| Claude Code | | `.mcp.json` |
+| Windsurf | `~/.codeium/windsurf/mcp_config.json` | |
+| Gemini CLI | `~/.gemini/settings.json` | `.gemini/settings.json` |
+| Gemini | `~/.gemini/config/mcp_config.json` | |
+
+Another file? Name it: `npx @mokalabs/proxy wrap path/to/mcp.json`. Pick servers with `--only github,filesystem`, preview with `--dry-run`, and skip the question with `--yes`. Running the proxy from a clone or a global install? `--local` makes the configs start that copy (`node …/proxy/dist/cli.js`) instead of `npx @mokalabs/proxy`.
+
+## What wrap changes
+
+Only the `command` and `args` of each server entry. Comments, formatting and other fields (`env`, `cwd`, `type`) stay as they were:
+
+```jsonc
+"github": {
+  "type": "stdio",
+  "command": "npx",
+  "args": [
+    "-y", "@mokalabs/proxy", "--client", "vscode", "--name", "github",
+    "--",
+    "npx", "-y", "@modelcontextprotocol/server-github"
+  ]
+}
+```
+
+Everything after `--` is your original command. Wrapping twice changes nothing, and the first change to each file saves a copy next to it (`mcp.json.moka-backup`).
+
+```bash
+npx @mokalabs/proxy status     # what's wrapped, and where
+npx @mokalabs/proxy unwrap     # put your configs back (then restart the servers)
+```
+
+## The Proxy tab
+
+- **Clients via proxy:** each client and its servers. Click a server for its traffic, or the client for all its servers in one timeline.
+- **The log:** every request with its latency, or **timed out**, **late reply**, **no response** or **error**. When the client gives up on a request you see *"VS Code gave up on tools/call #8 after 60.0s (timeout)"*.
+- **Retries:** a `tools/call` that repeats an earlier one (same tool, same arguments) after a timeout, a cancellation or no response is flagged: *"retry after a timeout: the first call may have run"*. For tools that write, that's how duplicates happen.
+- **Server logs:** whatever the server writes to stderr.
+- Click any row (or use <kbd>↑</kbd> <kbd>↓</kbd>) to see the request and response side by side.
+- **Export** downloads what you're looking at as JSON (see below).
+
+The client's name comes from `--client`, and its exact name and version from its `initialize` message.
+
+<Aside>
+Sessions are recorded on your machine only, in `~/.moka/proxy/sessions/` (one JSON Lines file per server session; `MOKA_HOME` moves it). Nothing is uploaded anywhere. Moka shows the last 24 hours, and you can delete the folder at any time. Traces contain your tool arguments and results: review them before sharing.
+</Aside>
+
+## Export what was recorded
+
+Share a trace in a bug report, or keep it next to a failing test. In the Proxy tab, **Export** downloads everything recorded for what's shown (one server, or all of a client's servers) as one JSON file. The download icon next to *Clients via proxy* exports every session. From a terminal:
+
+```bash
+npx @mokalabs/proxy export                          # every recorded session → moka-proxy-<date>.json
+npx @mokalabs/proxy export --client vscode --name github --since 24h -o trace.json
+npx @mokalabs/proxy export -o - | jq '.sessions[0].records | length'
+```
+
+The file holds every line of each session log, in order: the start record (command, args, client, server name), each JSON-RPC message in both directions with its timestamp, raw lines that weren't JSON, server stderr, and the exit.
+
+Exports are **redacted by default**: values of keys like `apiKey`, `token`, `password` or `Authorization`, flags like `--token`, `NAME_TOKEN=…` pairs, bearer tokens and well-known key formats (`sk-…`, `ghp_…`, `AKIA…`) become `"<redacted>"`. Methods, ids, timings and the rest of each message stay as they were. Use **Export as recorded** (or `--raw`) for the untouched file, and keep it to yourself.
+
+## Without wrap
+
+Put the proxy in front of any server by hand:
+
+```bash
+npx @mokalabs/proxy --client my-app --name notes -- node notes-server.js
+```
+
+It never writes to stdout itself (that belongs to the protocol), and if the log can't be written it keeps passing messages through. The server's exit code is passed back to the client.
+
+## Limits
+
+- **Local (stdio) servers only** for now. HTTP servers are skipped by `wrap`.
+- The proxy sees what the client and server send each other, not the model's prompt. For the model side, use Moka's own chat and inspector.
+- Cloud agents (like the Copilot coding agent on github.com) don't run servers on your machine, so they can't be proxied.

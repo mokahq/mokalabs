@@ -13,12 +13,14 @@ WORKDIR /src
 COPY pnpm-lock.yaml pnpm-workspace.yaml package.json .npmrc ./
 COPY packages/core/package.json packages/core/
 COPY packages/sandbox/package.json packages/sandbox/
+COPY packages/proxy/package.json packages/proxy/
 COPY packages/create-moka/package.json packages/create-moka/
 COPY apps/docs/package.json apps/docs/
 # Only install what the sandbox needs (skips the docs site's toolchain).
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile --filter "@mokalabs/sandbox..."
 COPY . .
-RUN pnpm --filter @mokalabs/core --filter @mokalabs/sandbox run build \
+# The sandbox bundles @mokalabs/proxy (session paths, export), so it must be built first.
+RUN pnpm --filter @mokalabs/core --filter @mokalabs/proxy --filter @mokalabs/sandbox run build \
  && pnpm --filter @mokalabs/sandbox deploy --prod --legacy /out
 
 FROM node:22-bookworm-slim

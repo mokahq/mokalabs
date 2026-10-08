@@ -97,7 +97,12 @@ export function Inspector() {
   const stick = useRef(true);
 
   const source = paused && frozen ? frozen : events;
-  const serverName = (id?: string) => config.mcpServers.find((s) => s.id === id)?.name ?? id;
+  const proxySessions = useStore((s) => s.proxy.sessions);
+  const serverName = (id?: string) => {
+    const proxied = id?.startsWith("proxy:") ? proxySessions.find((p) => p.serverId === id) : undefined;
+    if (proxied) return `${proxied.client} → ${proxied.name}`;
+    return config.mcpServers.find((s) => s.id === id)?.name ?? id;
+  };
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -119,7 +124,6 @@ export function Inspector() {
     }
     return { answers, byId };
   }, [source]);
-  const attempts = useMemo(() => indexAttempts(events), [events]);
   const depth = (e: MokaEvent) => {
     let d = 0;
     for (let p = e.parentId && byId.get(e.parentId); p && d < 4; p = p.parentId ? byId.get(p.parentId) : undefined) d++;
@@ -153,48 +157,9 @@ export function Inspector() {
   };
 
   if (selected) {
-    const m = meta(selected);
-    const related = selected.runId ? events.filter((e) => e.runId === selected.runId) : [];
     return (
       <div className="flex h-full min-h-0 flex-col">
-        <div className="flex items-center gap-2 border-b border-line px-3 py-2.5">
-          <IconButton label="Back" onClick={() => set({ selectedEventId: undefined })}>
-            <ChevronLeft className="h-4 w-4" />
-          </IconButton>
-          <span className={cn("flex h-6 w-6 items-center justify-center rounded-md", m.tone)}>{m.icon}</span>
-          <div className="min-w-0 flex-1">
-            <div className="truncate text-[13px] font-medium">{selected.title}</div>
-            <div className="font-mono text-[11px] text-subtle">
-              {selected.kind} · {time(selected.ts)}
-              {selected.durationMs !== undefined && ` · ${formatMs(selected.durationMs)}`}
-            </div>
-          </div>
-        </div>
-        {/* Keyed so each event opens scrolled to the top. */}
-        <div key={selected.id} className="min-h-0 flex-1 space-y-4 overflow-y-auto p-3">
-          <div className="grid grid-cols-2 gap-2 text-[12px]">
-            {selected.serverId && <Meta label="Server" value={serverName(selected.serverId)} />}
-            {selected.runId && <Meta label="Run" value={selected.runId} mono />}
-            {selected.direction && <Meta label="Direction" value={selected.direction === "out" ? "client → server" : "server → client"} />}
-            {selected.level && <Meta label="Level" value={selected.level} />}
-          </div>
-          <Attempts selected={selected} index={attempts} answers={answers} onSelect={(id) => set({ selectedEventId: id })} />
-          <ArgsTrace selected={selected} index={attempts} onSelect={(id) => set({ selectedEventId: id })} />
-          {selected.rpc ? (
-            <RpcPair selected={selected} byId={byId} answers={answers} onSelect={(id) => set({ selectedEventId: id })} />
-          ) : (
-            <div>
-              <div className="mb-1.5 text-[11px] font-medium tracking-wide text-subtle uppercase">Payload</div>
-              {selected.data === undefined ? <p className="text-[13px] text-muted">No payload</p> : <JsonView value={selected.data} maxHeight="60vh" />}
-            </div>
-          )}
-          {related.length > 1 && (
-            <div>
-              <div className="mb-1.5 text-[11px] font-medium tracking-wide text-subtle uppercase">This run</div>
-              <Waterfall events={related} selectedId={selected.id} onSelect={(id) => set({ selectedEventId: id })} />
-            </div>
-          )}
-        </div>
+        <EventDetail event={selected} onSelect={(id) => set({ selectedEventId: id })} onBack={() => set({ selectedEventId: undefined })} />
       </div>
     );
   }
@@ -288,6 +253,94 @@ export function Inspector() {
       </div>
       {paused && <div className="border-t border-line bg-warn/10 px-3 py-1.5 text-center text-[11px] text-warn">Paused — new events are buffered</div>}
     </div>
+  );
+}
+
+/**
+ * One event in full: its request and response, retries and run. Used by the
+ * inspector and, wide, by the Proxy tab.
+ */
+export function EventDetail({
+  event: selected,
+  onSelect,
+  onBack,
+  backIcon = <ChevronLeft className="h-4 w-4" />,
+  backLabel = "Back",
+  wide = false,
+}: {
+  event: MokaEvent;
+  onSelect: (id: string) => void;
+  onBack?: () => void;
+  backIcon?: React.ReactNode;
+  backLabel?: string;
+  /** Request and response side by side, without their own scrollbars. */
+  wide?: boolean;
+}) {
+  const events = useStore((s) => s.events);
+  const config = useStore((s) => s.config);
+  const proxySessions = useStore((s) => s.proxy.sessions);
+  const serverName = (id?: string) => {
+    const proxied = id?.startsWith("proxy:") ? proxySessions.find((p) => p.serverId === id) : undefined;
+    if (proxied) return `${proxied.client} → ${proxied.name}`;
+    return config.mcpServers.find((s) => s.id === id)?.name ?? id;
+  };
+  const { answers, byId } = useMemo(() => {
+    const answers = new Map<string, MokaEvent[]>();
+    const byId = new Map<string, MokaEvent>();
+    for (const e of events) {
+      byId.set(e.id, e);
+      if (e.rpc?.pairId) answers.set(e.rpc.pairId, [...(answers.get(e.rpc.pairId) ?? []), e]);
+    }
+    return { answers, byId };
+  }, [events]);
+  const attempts = useMemo(() => indexAttempts(events), [events]);
+  const m = meta(selected);
+  const related = selected.runId ? events.filter((e) => e.runId === selected.runId) : [];
+  return (
+    <>
+      <div className="flex items-center gap-2 border-b border-line px-3 py-2.5">
+        {onBack && (
+          <IconButton label={backLabel} onClick={onBack}>
+            {backIcon}
+          </IconButton>
+        )}
+        <span className={cn("flex h-6 w-6 shrink-0 items-center justify-center rounded-md", m.tone)}>{m.icon}</span>
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-[13px] font-medium" title={selected.title}>
+            {selected.title}
+          </div>
+          <div className="font-mono text-[11px] text-subtle">
+            {selected.kind} · {time(selected.ts)}
+            {selected.durationMs !== undefined && ` · ${formatMs(selected.durationMs)}`}
+          </div>
+        </div>
+      </div>
+      {/* Keyed so each event opens scrolled to the top. */}
+      <div key={selected.id} className="min-h-0 flex-1 space-y-4 overflow-y-auto p-3">
+        <div className={cn("grid gap-2 text-[12px]", wide ? "grid-cols-4" : "grid-cols-2")}>
+          {selected.serverId && <Meta label="Server" value={serverName(selected.serverId)} />}
+          {selected.runId && <Meta label="Run" value={selected.runId} mono />}
+          {selected.direction && <Meta label="Direction" value={selected.direction === "out" ? "client → server" : "server → client"} />}
+          {selected.level && <Meta label="Level" value={selected.level} />}
+        </div>
+        <Attempts selected={selected} index={attempts} answers={answers} onSelect={onSelect} />
+        <ArgsTrace selected={selected} index={attempts} onSelect={onSelect} />
+        {selected.rpc ? (
+          <RpcPair selected={selected} byId={byId} answers={answers} onSelect={onSelect} wide={wide} />
+        ) : (
+          <div>
+            <div className="mb-1.5 text-[11px] font-medium tracking-wide text-subtle uppercase">Payload</div>
+            {selected.data === undefined ? <p className="text-[13px] text-muted">No payload</p> : <JsonView value={selected.data} maxHeight={wide ? "none" : "60vh"} />}
+          </div>
+        )}
+        {related.length > 1 && (
+          <div>
+            <div className="mb-1.5 text-[11px] font-medium tracking-wide text-subtle uppercase">This run</div>
+            <Waterfall events={related} selectedId={selected.id} onSelect={onSelect} />
+          </div>
+        )}
+      </div>
+    </>
   );
 }
 
@@ -558,7 +611,7 @@ function ArgsTrace({ selected, index, onSelect }: { selected: MokaEvent; index: 
 }
 
 /** What happened to a request: latency, error, cancelled, no response, or still waiting. */
-function requestStatus(e: MokaEvent, answers: Map<string, MokaEvent[]>): { label: string; tone: string; title: string } | undefined {
+export function requestStatus(e: MokaEvent, answers: Map<string, MokaEvent[]>): { label: string; tone: string; title: string } | undefined {
   if (!e.rpc || e.rpc.pairId || !e.rpc.method) return undefined;
   const all = answers.get(e.id) ?? [];
   const find = (o: string) => all.find((a) => a.rpc?.outcome === o);
@@ -596,11 +649,13 @@ function RpcPair({
   byId,
   answers,
   onSelect,
+  wide = false,
 }: {
   selected: MokaEvent;
   byId: Map<string, MokaEvent>;
   answers: Map<string, MokaEvent[]>;
   onSelect: (id: string) => void;
+  wide?: boolean;
 }) {
   const request = selected.rpc?.pairId ? byId.get(selected.rpc.pairId) : selected.rpc?.method && !selected.rpc.pairId ? selected : undefined;
   if (!request) {
@@ -616,19 +671,6 @@ function RpcPair({
   const other = all.filter((a) => a !== reply && (a.rpc?.outcome === "cancelled" || a.rpc?.outcome === "unanswered"));
   const progress = all.filter((a) => a.title.startsWith("progress"));
   const status = requestStatus(request, answers);
-  const Side = ({ label, event, empty }: { label: string; event?: MokaEvent; empty: string }) => (
-    <div className="min-w-0">
-      <div className="mb-1.5 flex items-center gap-2 text-[11px] font-medium tracking-wide text-subtle uppercase">
-        {label}
-        {event && event.id !== selected.id && (
-          <button className="normal-case tracking-normal text-accent hover:underline" onClick={() => onSelect(event.id)}>
-            open
-          </button>
-        )}
-      </div>
-      {event ? <JsonView value={event.data} maxHeight="40vh" /> : <p className="rounded-lg border border-dashed border-line px-3 py-2 text-[12.5px] text-muted">{empty}</p>}
-    </div>
-  );
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-1.5 rounded-lg border border-line bg-panel-2/60 px-2.5 py-2 font-mono text-[11.5px]">
@@ -650,12 +692,51 @@ function RpcPair({
           {progress.length} progress update{progress.length === 1 ? "" : "s"}, last: <span className="font-mono">{progress.at(-1)!.title.split(" → ")[0]}</span>
         </p>
       )}
-      <Side label="Request" event={request} empty="" />
-      <Side
-        label={reply?.rpc?.outcome === "late" ? "Response (late, ignored by the client)" : "Response"}
-        event={reply}
-        empty={other.some((o) => o.rpc?.outcome === "unanswered") ? "No response: the connection closed first." : other.length ? "No response after the cancellation." : "No response yet."}
-      />
+      <div className={cn(wide ? "grid grid-cols-2 items-start gap-3" : "space-y-3")}>
+        <RpcSide label="Request" event={request} selectedId={selected.id} onSelect={onSelect} maxHeight={wide ? "none" : "40vh"} empty="" />
+        <RpcSide
+          label={reply?.rpc?.outcome === "late" ? "Response (late, ignored by the client)" : "Response"}
+          event={reply}
+          selectedId={selected.id}
+          onSelect={onSelect}
+          maxHeight={wide ? "none" : "40vh"}
+          empty={other.some((o) => o.rpc?.outcome === "unanswered") ? "No response: the connection closed first." : other.length ? "No response after the cancellation." : "No response yet."}
+        />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * One side of a request/response pair. A component of its own (not one defined
+ * inside RpcPair), so a re-render keeps its JSON mounted and scrolled where it was.
+ */
+function RpcSide({
+  label,
+  event,
+  empty,
+  selectedId,
+  onSelect,
+  maxHeight,
+}: {
+  label: string;
+  event?: MokaEvent;
+  empty: string;
+  selectedId: string;
+  onSelect: (id: string) => void;
+  maxHeight: string;
+}) {
+  return (
+    <div className="min-w-0">
+      <div className="mb-1.5 flex items-center gap-2 text-[11px] font-medium tracking-wide text-subtle uppercase">
+        {label}
+        {event && event.id !== selectedId && (
+          <button className="normal-case tracking-normal text-accent hover:underline" onClick={() => onSelect(event.id)}>
+            open
+          </button>
+        )}
+      </div>
+      {event ? <JsonView value={event.data} maxHeight={maxHeight} /> : <p className="rounded-lg border border-dashed border-line px-3 py-2 text-[12.5px] text-muted">{empty}</p>}
     </div>
   );
 }
