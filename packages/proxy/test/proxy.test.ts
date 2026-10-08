@@ -62,9 +62,18 @@ describe("proxy", () => {
     const run = spawnSync(process.execPath, [cli, "--", "definitely-not-a-command-xyz"], { env: { ...process.env, MOKA_HOME: home }, encoding: "utf8", input: "" });
     expect(run.status).toBe(1);
     expect(run.stdout).toBe("");
-    expect(run.stderr).toMatch(/could not start definitely-not-a-command-xyz/);
     const [records] = sessions(home);
-    expect(records!.map((r) => r.type)).toEqual(["start", "error"]);
+    if (process.platform === "win32") {
+      // Windows starts servers through cmd.exe (so `npx` works): cmd itself starts, reports the
+      // missing command on stderr and exits 1. The proxy passes that through and records it.
+      expect(run.stderr).toMatch(/definitely-not-a-command-xyz/);
+      expect(records![0]!.type).toBe("start");
+      expect(records!.some((r) => r.type === "stderr" && r.text.includes("definitely-not-a-command-xyz"))).toBe(true);
+      expect(records!.at(-1)).toMatchObject({ type: "exit", code: 1 });
+    } else {
+      expect(run.stderr).toMatch(/could not start definitely-not-a-command-xyz/);
+      expect(records!.map((r) => r.type)).toEqual(["start", "error"]);
+    }
   });
 
   it("names a server from its command", () => {
