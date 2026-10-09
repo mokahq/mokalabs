@@ -1,6 +1,6 @@
 {
   "name": "@mokalabs/sandbox",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "See every MCP message: chat with any LLM and MCP server, compare models, call tools, and see what your AI editor sends to your MCP servers. 100% local. One command: npx @mokalabs/sandbox",
   "license": "MIT",
   "type": "module",
