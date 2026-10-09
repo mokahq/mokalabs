@@ -137,4 +137,3 @@ describe("gateway stream events", () => {
     }
   });
 });
-

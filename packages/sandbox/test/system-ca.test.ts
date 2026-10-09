@@ -1,6 +1,7 @@
 import { execFileSync, spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import https from "node:https";
+import tls from "node:tls";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -10,6 +11,8 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 // Only on Linux can a test put a CA in the "system" store (SSL_CERT_FILE); it needs openssl too.
 const SYSTEM_BUNDLE = "/etc/ssl/certs/ca-certificates.crt";
 const supported = process.platform === "linux" && existsSync(SYSTEM_BUNDLE) && spawnSync("openssl", ["version"]).status === 0;
+// Node 22.15+ can read the OS store (--use-system-ca; at runtime from 22.19 / 24.5). Older Node can't.
+const nodeReadsSystemStore = typeof (tls as any).setDefaultCACertificates === "function" || process.allowedNodeEnvironmentFlags.has("--use-system-ca");
 const cli = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "dist", "cli.js");
 
 let dir: string;
@@ -71,10 +74,19 @@ const post = async (base: string, route: string) =>
   (await fetch(`${base}${route}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(profile()) })).json();
 
 describe.skipIf(!supported)("company certificates", () => {
-  it("trusts the certificates the OS trusts, so a company gateway just works", async () => {
+  it.runIf(nodeReadsSystemStore)("trusts the certificates the OS trusts, so a company gateway just works", async () => {
     const base = await startMoka({});
-    expect(await post(base, "/api/llm/test")).toMatchObject({ ok: true, text: "pong" });
+    const result = await post(base, "/api/llm/test");
+    // Spelled out so a failure shows the reason, not just ok: false.
+    expect({ ok: result.ok, text: result.text, error: result.error }).toEqual({ ok: true, text: "pong", error: undefined });
     expect(await post(base, "/api/llm/models")).toEqual({ models: ["corp-llama"] });
+  }, 40_000);
+
+  it.runIf(!nodeReadsSystemStore)("on Node versions that can't read the OS store, says which Node to use", async () => {
+    const base = await startMoka({});
+    const result = await post(base, "/api/llm/test");
+    expect(result.ok).toBe(false);
+    expect(result.error).toMatch(/self-signed certificate in certificate chain\. .*Node 22\.19\+.*NODE_EXTRA_CA_CERTS/);
   }, 40_000);
 
   it("explains how to fix an untrusted certificate when the OS store is off", async () => {
