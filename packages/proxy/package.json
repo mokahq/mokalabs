@@ -1,6 +1,6 @@
 {
   "name": "@mokalabs/proxy",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "See what your AI editor sends to your MCP server: a pass-through proxy that records every JSON-RPC message for the Moka inspector. Works with GitHub Copilot, Cursor, Claude Desktop and any client that starts MCP servers.",
   "license": "MIT",
   "type": "module",
