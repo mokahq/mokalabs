@@ -55,28 +55,28 @@ importers:
     dependencies:
       '@ai-sdk/anthropic':
         specifier: ^4.0.52
-        version: 4.0.52(zod@4.6.2)
+        version: 4.0.52(zod@4.6.5)
       '@ai-sdk/azure':
         specifier: ^4.0.68
-        version: 4.0.68(zod@4.6.2)
+        version: 4.0.68(zod@4.6.5)
       '@ai-sdk/google':
         specifier: ^4.0.67
-        version: 4.0.67(zod@4.6.2)
+        version: 4.0.67(zod@4.6.5)
       '@ai-sdk/openai':
         specifier: ^4.0.65
-        version: 4.0.65(zod@4.6.2)
+        version: 4.0.65(zod@4.6.5)
       '@ai-sdk/openai-compatible':
         specifier: ^3.0.47
-        version: 3.0.47(zod@4.6.2)
+        version: 3.0.47(zod@4.6.5)
       '@modelcontextprotocol/sdk':
         specifier: ^1.30.0
-        version: 1.30.0(zod@4.6.2)
+        version: 1.30.0(zod@4.6.5)
       ai:
         specifier: ^7.0.97
-        version: 7.0.97(zod@4.6.2)
+        version: 7.0.97(zod@4.6.5)
       zod:
-        specifier: ^4.6.2
-        version: 4.6.2
+        specifier: ^4.6.5
+        version: 4.6.5
 
   packages/create-moka: {}
 
@@ -84,7 +84,7 @@ importers:
     devDependencies:
       '@modelcontextprotocol/sdk':
         specifier: ^1.30.0
-        version: 1.30.0(zod@4.6.2)
+        version: 1.30.0(zod@4.6.5)
       jsonc-parser:
         specifier: ^3.3.1
         version: 3.3.1
@@ -93,25 +93,25 @@ importers:
     devDependencies:
       '@ai-sdk/anthropic':
         specifier: ^4.0.52
-        version: 4.0.52(zod@4.6.2)
+        version: 4.0.52(zod@4.6.5)
       '@ai-sdk/azure':
         specifier: ^4.0.68
-        version: 4.0.68(zod@4.6.2)
+        version: 4.0.68(zod@4.6.5)
       '@ai-sdk/google':
         specifier: ^4.0.67
-        version: 4.0.67(zod@4.6.2)
+        version: 4.0.67(zod@4.6.5)
       '@ai-sdk/openai':
         specifier: ^4.0.65
-        version: 4.0.65(zod@4.6.2)
+        version: 4.0.65(zod@4.6.5)
       '@ai-sdk/openai-compatible':
         specifier: ^3.0.47
-        version: 3.0.47(zod@4.6.2)
+        version: 3.0.47(zod@4.6.5)
       '@hono/node-server':
         specifier: ^2.1.1
         version: 2.1.1(hono@4.13.7)
       '@modelcontextprotocol/sdk':
         specifier: ^1.30.0
-        version: 1.30.0(zod@4.6.2)
+        version: 1.30.0(zod@4.6.5)
       '@mokalabs/core':
         specifier: workspace:^
         version: link:../core
@@ -132,7 +132,7 @@ importers:
         version: 6.1.1(vite@8.3.0(@types/node@24.13.4)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.13)(yaml@2.9.0))
       ai:
         specifier: ^7.0.97
-        version: 7.0.97(zod@4.6.2)
+        version: 7.0.97(zod@4.6.5)
       concurrently:
         specifier: ^9.2.0
         version: 9.2.4
@@ -164,8 +164,8 @@ importers:
         specifier: ^8.3.0
         version: 8.3.0(@types/node@24.13.4)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.13)(yaml@2.9.0)
       zod:
-        specifier: ^4.6.2
-        version: 4.6.2
+        specifier: ^4.6.5
+        version: 4.6.5
       zustand:
         specifier: ^5.0.15
         version: 5.0.15(@types/react@19.3.0)(react@19.3.0)
@@ -3625,6 +3625,9 @@ packages:
   zod@4.6.2:
     resolution: {integrity: sha512-lh5RCAGFa1Cm2hjtNwLQhSs/AsqdWnTQaBER9fEwN/88pSh7KOtJavtBx/0VlkN/uFd61SwYmljLMDAsHlvzBQ==}
 
+  zod@4.6.5:
+    resolution: {integrity: sha512-v5l/aFXZQeai4awLbOpSoHecE9UiMrnfx75tEXLjNonXVARxQ5mOeipTjROUchszUNCqnE+hqAMujRsRHsut2Q==}
+
   zustand@5.0.15:
     resolution: {integrity: sha512-MpSEjRiBkA9crSYeOUH32rJC7SVqAbm0Fqcqge/bUi2PPoLcBWKOsG+C8mevmpr8TwXHBVkChbbJiyvkE+i/3A==}
     engines: {node: '>=12.20.0'}
@@ -3648,59 +3651,59 @@ packages:
 
 snapshots:
 
-  '@ai-sdk/anthropic@4.0.52(zod@4.6.2)':
+  '@ai-sdk/anthropic@4.0.52(zod@4.6.5)':
     dependencies:
       '@ai-sdk/provider': 4.0.13
-      '@ai-sdk/provider-utils': 5.0.39(zod@4.6.2)
-      zod: 4.6.2
+      '@ai-sdk/provider-utils': 5.0.39(zod@4.6.5)
+      zod: 4.6.5
 
-  '@ai-sdk/azure@4.0.68(zod@4.6.2)':
+  '@ai-sdk/azure@4.0.68(zod@4.6.5)':
     dependencies:
-      '@ai-sdk/deepseek': 3.0.42(zod@4.6.2)
-      '@ai-sdk/openai': 4.0.65(zod@4.6.2)
+      '@ai-sdk/deepseek': 3.0.42(zod@4.6.5)
+      '@ai-sdk/openai': 4.0.65(zod@4.6.5)
       '@ai-sdk/provider': 4.0.13
-      '@ai-sdk/provider-utils': 5.0.39(zod@4.6.2)
-      zod: 4.6.2
+      '@ai-sdk/provider-utils': 5.0.39(zod@4.6.5)
+      zod: 4.6.5
 
-  '@ai-sdk/deepseek@3.0.42(zod@4.6.2)':
+  '@ai-sdk/deepseek@3.0.42(zod@4.6.5)':
     dependencies:
       '@ai-sdk/provider': 4.0.13
-      '@ai-sdk/provider-utils': 5.0.39(zod@4.6.2)
-      zod: 4.6.2
+      '@ai-sdk/provider-utils': 5.0.39(zod@4.6.5)
+      zod: 4.6.5
 
-  '@ai-sdk/gateway@4.0.78(zod@4.6.2)':
+  '@ai-sdk/gateway@4.0.78(zod@4.6.5)':
     dependencies:
       '@ai-sdk/provider': 4.0.13
-      '@ai-sdk/provider-utils': 5.0.39(zod@4.6.2)
+      '@ai-sdk/provider-utils': 5.0.39(zod@4.6.5)
       '@vercel/oidc': 3.2.0
-      zod: 4.6.2
+      zod: 4.6.5
 
-  '@ai-sdk/google@4.0.67(zod@4.6.2)':
+  '@ai-sdk/google@4.0.67(zod@4.6.5)':
     dependencies:
       '@ai-sdk/provider': 4.0.13
-      '@ai-sdk/provider-utils': 5.0.39(zod@4.6.2)
-      zod: 4.6.2
+      '@ai-sdk/provider-utils': 5.0.39(zod@4.6.5)
+      zod: 4.6.5
 
-  '@ai-sdk/openai-compatible@3.0.47(zod@4.6.2)':
+  '@ai-sdk/openai-compatible@3.0.47(zod@4.6.5)':
     dependencies:
       '@ai-sdk/provider': 4.0.13
-      '@ai-sdk/provider-utils': 5.0.39(zod@4.6.2)
-      zod: 4.6.2
+      '@ai-sdk/provider-utils': 5.0.39(zod@4.6.5)
+      zod: 4.6.5
 
-  '@ai-sdk/openai@4.0.65(zod@4.6.2)':
+  '@ai-sdk/openai@4.0.65(zod@4.6.5)':
     dependencies:
       '@ai-sdk/provider': 4.0.13
-      '@ai-sdk/provider-utils': 5.0.39(zod@4.6.2)
-      zod: 4.6.2
+      '@ai-sdk/provider-utils': 5.0.39(zod@4.6.5)
+      zod: 4.6.5
 
-  '@ai-sdk/provider-utils@5.0.39(zod@4.6.2)':
+  '@ai-sdk/provider-utils@5.0.39(zod@4.6.5)':
     dependencies:
       '@ai-sdk/provider': 4.0.13
       '@standard-schema/spec': 1.1.0
       '@workflow/serde': 4.1.0
       eventsource-parser: 3.1.1
       undici: 7.29.1
-      zod: 4.6.2
+      zod: 4.6.5
 
   '@ai-sdk/provider@4.0.13':
     dependencies:
@@ -3821,7 +3824,7 @@ snapshots:
   '@astrojs/sitemap@3.7.4':
     dependencies:
       sitemap: 9.0.1
-      zod: 4.6.2
+      zod: 4.6.5
 
   '@astrojs/starlight@0.42.0(@astrojs/markdown-remark@7.3.1)(astro@7.3.2(@astrojs/markdown-remark@7.3.1)(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3)(@types/node@24.13.4)(jiti@2.7.0)(tsx@4.23.13)(yaml@2.9.0))(typescript@5.9.3)':
     dependencies:
@@ -4429,7 +4432,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@modelcontextprotocol/sdk@1.30.0(zod@4.6.2)':
+  '@modelcontextprotocol/sdk@1.30.0(zod@4.6.5)':
     dependencies:
       '@hono/node-server': 2.1.1(hono@4.13.7)
       ajv: 8.20.0
@@ -4446,8 +4449,8 @@ snapshots:
       json-schema-typed: 8.0.2
       pkce-challenge: 5.0.1
       raw-body: 3.0.2
-      zod: 4.6.2
-      zod-to-json-schema: 3.25.2(zod@4.6.2)
+      zod: 4.6.5
+      zod-to-json-schema: 3.25.2(zod@4.6.5)
     transitivePeerDependencies:
       - supports-color
 
@@ -4857,12 +4860,12 @@ snapshots:
 
   acorn@8.18.0: {}
 
-  ai@7.0.97(zod@4.6.2):
+  ai@7.0.97(zod@4.6.5):
     dependencies:
-      '@ai-sdk/gateway': 4.0.78(zod@4.6.2)
+      '@ai-sdk/gateway': 4.0.78(zod@4.6.5)
       '@ai-sdk/provider': 4.0.13
-      '@ai-sdk/provider-utils': 5.0.39(zod@4.6.2)
-      zod: 4.6.2
+      '@ai-sdk/provider-utils': 5.0.39(zod@4.6.5)
+      zod: 4.6.5
 
   ajv-formats@3.0.1(ajv@8.20.0):
     optionalDependencies:
@@ -7426,11 +7429,13 @@ snapshots:
 
   yocto-queue@1.2.2: {}
 
-  zod-to-json-schema@3.25.2(zod@4.6.2):
+  zod-to-json-schema@3.25.2(zod@4.6.5):
     dependencies:
-      zod: 4.6.2
+      zod: 4.6.5
 
   zod@4.6.2: {}
+
+  zod@4.6.5: {}
 
   zustand@5.0.15(@types/react@19.3.0)(react@19.3.0):
     optionalDependencies:

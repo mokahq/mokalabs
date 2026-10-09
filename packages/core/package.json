@@ -48,6 +48,6 @@
     "@ai-sdk/openai-compatible": "^3.0.47",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "ai": "^7.0.97",
-    "zod": "^4.6.2"
+    "zod": "^4.6.5"
   }
 }
