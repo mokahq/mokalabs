@@ -79,7 +79,7 @@
     "@types/react-dom": "^19.1.0",
     "@vitejs/plugin-react": "^6.1.1",
     "ai": "^7.0.97",
-    "concurrently": "^9.2.0",
+    "concurrently": "^10.0.5",
     "hono": "^4.13.7",
     "lucide-react": "^1.45.0",
     "react": "^19.3.0",
