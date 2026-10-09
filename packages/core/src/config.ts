@@ -30,6 +30,11 @@ export const llmProfileSchema = z.object({
   apiVersion: z.string().optional(),
   /** OpenAI only: use the Chat Completions API instead of Responses. */
   useChatApi: z.boolean().optional(),
+  /**
+   * `false`: ask for the whole reply in one response instead of a stream. For
+   * gateways that don't stream reliably; Moka still shows the reply as it would a stream.
+   */
+  stream: z.boolean().optional(),
   temperature: z.number().min(0).max(2).optional(),
   maxOutputTokens: z.number().int().positive().optional(),
   /** Free-form provider options passed straight to the AI SDK. */

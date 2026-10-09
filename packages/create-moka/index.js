@@ -57,6 +57,10 @@ export function scaffold(targetDir, { name } = {}) {
   const pkgPath = path.join(target, "package.json");
   const pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
   pkg.name = name ?? toPackageName(targetDir);
+  // create-moka is released together with @mokalabs/sandbox (same version), so new projects get
+  // the matching Moka. A caret on 0.x only allows patch updates, so this has to be current.
+  const own = JSON.parse(readFileSync(path.join(here, "package.json"), "utf8"));
+  pkg.devDependencies = { ...pkg.devDependencies, "@mokalabs/sandbox": `^${own.version}` };
   writeFileSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`);
   return target;
 }

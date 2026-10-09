@@ -22,13 +22,29 @@ Moka prints `Proxy: …` at startup when it's active. `localhost`, `127.0.0.1` a
 
 stdio MCP servers inherit `HTTP(S)_PROXY`, `NO_PROXY`, `NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`, `npm_config_registry`, `PIP_INDEX_URL` and `UV_INDEX_URL`, so `npx` and `uvx` servers can download and connect from behind the proxy too.
 
-## Custom certificate authorities
+## Company certificates
 
-If your company intercepts TLS, point Node at the corporate root certificate:
+Company LLM gateways, and proxies that inspect TLS, often use certificates from an internal certificate authority. Your browser trusts them because IT installed that authority in your system (the macOS keychain or the Windows certificate store). Node doesn't look there by default, so connections fail with errors like *self-signed certificate in certificate chain* or *unable to get local issuer certificate*.
+
+**Moka trusts the certificates your system trusts**, like a browser does: with Node 22.19+ or 24.5+ it loads them at startup, and on Node 22.15+ it restarts itself once with `--use-system-ca`. MCP servers it starts get `NODE_USE_SYSTEM_CA=1`, so `npx` servers trust them too. The startup banner shows `Certs: Node's + your system's` when this is on. Turn it off with `--no-system-ca` (or `MOKA_SYSTEM_CA=0`).
+
+If the certificate isn't in your system store either (or you're on an older Node), get your company's root certificate as a `.pem` file and point Node at it:
 
 ```bash
-export NODE_EXTRA_CA_CERTS=/path/to/corp-root.pem
+export NODE_EXTRA_CA_CERTS=/path/to/company-root.pem
+npx @mokalabs/sandbox
 ```
+
+On a Mac, IT-installed certificates are usually in the System keychain. This exports them all to one file:
+
+```bash
+security find-certificate -a -p /Library/Keychains/System.keychain > ~/company-cas.pem
+export NODE_EXTRA_CA_CERTS=~/company-cas.pem
+```
+
+When a connection fails because of a certificate, Moka's error message says which of these to do.
+
+<Aside type="caution">Don't turn off certificate checks (`NODE_TLS_REJECT_UNAUTHORIZED=0`) to get around this: your API keys and prompts would be sent to anyone who can intercept the connection.</Aside>
 
 ## Curated registries (Artifactory, Nexus, …)
 

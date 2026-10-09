@@ -20,7 +20,7 @@ import { InteractionBroker, type InteractionHandler, type InteractionResponse } 
 import type { McpTool } from "./mcp.js";
 import type { CreateMessageRequest, CreateMessageResult } from "@modelcontextprotocol/sdk/types.js";
 import { EventBus } from "./events.js";
-import { McpManager, type CommandResolver } from "./mcp.js";
+import { errorMessage, McpManager, type CommandResolver } from "./mcp.js";
 import { createModel, listModels } from "./providers.js";
 import { loadSkill, type LoadedSkill } from "./skills.js";
 import type { ConfigStore } from "./store.js";
@@ -345,7 +345,7 @@ export class MokaEngine {
       });
       return { ok: true, latencyMs: Date.now() - started, text: result.text };
     } catch (error: any) {
-      return { ok: false, latencyMs: Date.now() - started, error: error?.message ?? String(error) };
+      return { ok: false, latencyMs: Date.now() - started, error: errorMessage(error) };
     }
   }
 

@@ -1,6 +1,9 @@
 # @mokalabs/core
 
-The headless engine behind [Moka](https://github.com/mokahq/mokalabs): providers for any LLM, an MCP client manager (stdio / Streamable HTTP / SSE), Agent Skills, a streaming tool loop, and an event bus that records every step.
+[![npm](https://img.shields.io/npm/v/@mokalabs/core?color=c2703d&label=%40mokalabs%2Fcore)](https://www.npmjs.com/package/@mokalabs/core)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](https://github.com/mokahq/mokalabs/blob/main/LICENSE)
+
+The headless engine behind [Moka](https://www.npmjs.com/package/@mokalabs/sandbox): providers for any LLM, an MCP client manager (stdio / Streamable HTTP / SSE), Agent Skills, a streaming tool loop, and an event bus that records every step.
 
 ```bash
 npm i @mokalabs/core
@@ -26,3 +29,7 @@ await engine.close();
 ```
 
 Also exported: `McpManager`, `loadSkill`, `importMcpJson`, `exportCode` (AI SDK / LangGraph), `redactConfig`, `mokaJsonSchema`, and more.
+
+Every step is an event on `engine.bus`: `run.start`, `llm.request` / `llm.response`, `tool.call` / `tool.result`, raw `mcp.rpc` messages (each response paired with its request), `mcp.log` and more. Use it for tests, CLIs, evals or your own UI.
+
+[API reference](https://mokalabs.dev/reference/core/) · [Events](https://mokalabs.dev/reference/events/) · [GitHub](https://github.com/mokahq/mokalabs) · MIT

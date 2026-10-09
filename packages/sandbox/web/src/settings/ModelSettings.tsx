@@ -362,6 +362,9 @@ function ModelForm({ initial }: { initial: LlmProfile }) {
                   <Switch checked={!!draft.useChatApi} onChange={(v) => patch({ useChatApi: v || undefined })} />
                 </Field>
               )}
+              <Field label="Stream responses" hint="Turn off for gateways that don't stream reliably: Moka asks for the whole reply at once.">
+                <Switch checked={draft.stream !== false} onChange={(v) => patch({ stream: v ? undefined : false })} />
+              </Field>
               <Field label="Custom headers" className="sm:col-span-2" hint="Sent with every request — e.g. gateway auth, org or tracing headers. Values support env:NAME.">
                 <KeyValueEditor value={draft.headers} onChange={(headers) => patch({ headers })} keyPlaceholder="Header" />
               </Field>

@@ -70,6 +70,8 @@ Anything that speaks the OpenAI Chat Completions API works: vLLM, LiteLLM, Portk
 
 Native providers accept a `baseURL` override too, so you can route OpenAI or Anthropic traffic through a proxy while keeping their full feature set.
 
+Some gateways add their own events to the response stream, such as timings (`{"ttft": …, "elapsed_time": …}`). Moka skips events that aren't completion chunks or errors, so these gateways stream normally. Azure OpenAI's newer models (GPT-5, o-series) reject `max_tokens`; Moka notices and sends `max_completion_tokens` instead. If a gateway's streaming is unreliable in other ways, turn off **Stream responses** under the model's Advanced options (`"stream": false` in `moka.json`): Moka then asks for each reply in one response and shows it all at once. If your gateway uses a certificate from your company's own authority, see [Corporate networks](/deploy/corporate-networks/#company-certificates).
+
 ## Advanced options
 
 Toggle **Advanced** in the model form:

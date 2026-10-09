@@ -48,6 +48,7 @@ Missing variables resolve to an empty string.
 | `resourceName` | string? | Azure resource name |
 | `apiVersion` | string? | Azure API version |
 | `useChatApi` | boolean? | OpenAI: use Chat Completions instead of Responses |
+| `stream` | boolean? | `false`: ask for each reply in one response instead of a stream (for gateways that don't stream reliably). Default: stream |
 | `temperature` | number? | 0–2 |
 | `maxOutputTokens` | integer? | |
 | `providerOptions` | object? | Passed to the AI SDK as `providerOptions` |

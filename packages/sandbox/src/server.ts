@@ -2,6 +2,7 @@ import {
   agentSchema,
   catalogConfigSchema,
   discoverSkills,
+  errorMessage,
   exportCode,
   importMcpJson,
   loadCatalog,
@@ -176,7 +177,7 @@ export function createApp(options: ServerOptions): Hono {
     try {
       return c.json({ models: await engine.listModels(parsed.data) });
     } catch (error: any) {
-      return c.json({ models: [], error: error?.message ?? String(error) });
+      return c.json({ models: [], error: errorMessage(error) });
     }
   });
 

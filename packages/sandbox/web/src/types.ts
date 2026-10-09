@@ -11,6 +11,7 @@ export interface LlmProfile {
   resourceName?: string;
   apiVersion?: string;
   useChatApi?: boolean;
+  stream?: boolean;
   temperature?: number;
   maxOutputTokens?: number;
   providerOptions?: Record<string, unknown>;

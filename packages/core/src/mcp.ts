@@ -99,7 +99,7 @@ const CLIENT_INFO = { name: "moka", version: "0.1.0" };
  */
 const PASSTHROUGH_ENV = [
   "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "no_proxy", "all_proxy",
-  "NODE_EXTRA_CA_CERTS", "NODE_USE_ENV_PROXY", "SSL_CERT_FILE", "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE",
+  "NODE_EXTRA_CA_CERTS", "NODE_USE_SYSTEM_CA", "NODE_USE_ENV_PROXY", "SSL_CERT_FILE", "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE",
   "npm_config_registry", "NPM_CONFIG_REGISTRY", "PIP_INDEX_URL", "UV_INDEX_URL", "UV_DEFAULT_INDEX",
 ];
 
@@ -673,8 +673,30 @@ export function toolTimeout(config: McpServerConfig): number {
   return config.toolTimeoutMs ?? config.timeoutMs ?? 120_000;
 }
 
+/** Node's fetch says only "fetch failed"; the reason (DNS, refused, TLS…) is in its cause. */
+function withCause(error: Error): string {
+  let message = error.message;
+  const seen = new Set<unknown>([error]);
+  for (let cause = (error as any).cause; cause instanceof Error && !seen.has(cause); cause = (cause as any).cause) {
+    seen.add(cause);
+    if (!message.includes(cause.message)) message = message === "fetch failed" ? cause.message : `${message}: ${cause.message}`;
+  }
+  return message;
+}
+
+const CERT_ERROR = /self[- ]signed certificate|unable to (get local issuer|verify the first|get issuer) certificate|certificate (has expired|is not yet valid)|SELF_SIGNED_CERT_IN_CHAIN|UNABLE_TO_GET_ISSUER_CERT|UNABLE_TO_VERIFY_LEAF_SIGNATURE/i;
+
+/** What to do about the errors people hit on company networks. */
+export function withNetworkHint(message: string, env: NodeJS.ProcessEnv = process.env): string {
+  if (!CERT_ERROR.test(message) || message.includes("NODE_EXTRA_CA_CERTS")) return message;
+  const systemTrusted = env.NODE_USE_SYSTEM_CA === "1" || process.execArgv.includes("--use-system-ca");
+  return systemTrusted
+    ? `${message}. The server's certificate isn't trusted by Node or by your system. If it's your company's, ask IT for the root certificate (.pem) and restart Moka with NODE_EXTRA_CA_CERTS=/path/to/root.pem`
+    : `${message}. The server's certificate is signed by an authority Node doesn't trust, which is common on company networks. Use Node 22.19+ so Moka trusts the certificates your system trusts, or restart Moka with NODE_EXTRA_CA_CERTS=/path/to/company-root.pem`;
+}
+
 export function errorMessage(error: unknown): string {
-  if (error instanceof Error) return error.message;
+  if (error instanceof Error) return withNetworkHint(withCause(error));
   if (typeof error === "string") return error;
   try {
     return JSON.stringify(error);
