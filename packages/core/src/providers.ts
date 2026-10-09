@@ -3,7 +3,15 @@ import { createAzure } from "@ai-sdk/azure";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createOpenAI } from "@ai-sdk/openai";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
-import type { LanguageModel } from "ai";
+import { maxTokensFallbackFetch } from "./max-tokens.js";
+import { tolerantStreamFetch } from "./sse-filter.js";
+
+/**
+ * Fetch for chat-completions providers: skips gateway-specific stream events,
+ * and falls back to `max_completion_tokens` where `max_tokens` is rejected (Azure).
+ */
+const compatFetch = tolerantStreamFetch(maxTokensFallbackFetch());
+import { simulateStreamingMiddleware, wrapLanguageModel, type LanguageModel } from "ai";
 import { resolveRecord, resolveSecret, type LlmProfile, type ProviderKind } from "./config.js";
 
 export interface ProviderPreset {
@@ -38,14 +46,20 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
 ];
 
 export function createModel(profile: LlmProfile, env: NodeJS.ProcessEnv = process.env): LanguageModel {
+  const model = createProviderModel(profile, env);
+  // Streaming off: one plain request ("stream": false), replayed as a stream so the rest of Moka works the same.
+  return profile.stream === false && typeof model !== "string" ? wrapLanguageModel({ model, middleware: simulateStreamingMiddleware() }) : model;
+}
+
+function createProviderModel(profile: LlmProfile, env: NodeJS.ProcessEnv) {
   const apiKey = resolveSecret(profile.apiKey, env) || undefined;
   const baseURL = resolveSecret(profile.baseURL, env) || undefined;
   const headers = resolveRecord(profile.headers, env);
 
   switch (profile.provider) {
     case "openai": {
-      const provider = createOpenAI({ apiKey, baseURL, headers });
-      return profile.useChatApi ? provider.chat(profile.model) : provider(profile.model);
+      if (profile.useChatApi) return createOpenAI({ apiKey, baseURL, headers, fetch: compatFetch }).chat(profile.model);
+      return createOpenAI({ apiKey, baseURL, headers })(profile.model);
     }
     case "anthropic":
       return createAnthropic({ apiKey, baseURL, headers })(profile.model);
@@ -65,10 +79,12 @@ export function createModel(profile: LlmProfile, env: NodeJS.ProcessEnv = proces
         baseURL: baseURL ?? "http://localhost:11434/v1",
         apiKey,
         headers,
+        fetch: compatFetch,
       })(profile.model);
     case "openai-compatible":
       if (!baseURL) throw new Error(`Model "${profile.name}" needs a base URL.`);
-      return createOpenAICompatible({ name: "custom", baseURL, apiKey, headers, includeUsage: true })(profile.model);
+      // Gateways often add their own events (timings, metadata) to the stream: skip those.
+      return createOpenAICompatible({ name: "custom", baseURL, apiKey, headers, includeUsage: true, fetch: compatFetch })(profile.model);
   }
 }
 

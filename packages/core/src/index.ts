@@ -6,6 +6,8 @@ export * from "./skills.js";
 export * from "./agent.js";
 export * from "./lineage.js";
 export * from "./rpc-tracker.js";
+export { filterCompletionStream, tolerantStreamFetch } from "./sse-filter.js";
+export { maxTokensFallbackFetch } from "./max-tokens.js";
 export * from "./ui.js";
 export * from "./catalog.js";
 export * from "./interactions.js";

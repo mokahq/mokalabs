@@ -3,9 +3,10 @@ import starlight from "@astrojs/starlight";
 import { defineConfig } from "astro/config";
 import rehypeBaseLinks from "./plugins/rehype-base-links.mjs";
 
-// Deployed to GitHub Pages. Override with DOCS_SITE / DOCS_BASE for a custom domain (e.g. https://docs.mokalabs.dev, "/").
-const site = process.env.DOCS_SITE ?? "https://mokahq.github.io";
-const base = process.env.DOCS_BASE ?? "/mokalabs";
+// Deployed to GitHub Pages at https://mokalabs.dev. The Docs workflow passes the real
+// address (DOCS_SITE / DOCS_BASE), e.g. https://mokahq.github.io and "/mokalabs" without the domain.
+const site = process.env.DOCS_SITE ?? "https://mokalabs.dev";
+const base = process.env.DOCS_BASE ?? "/";
 
 export default defineConfig({
   site,
@@ -25,7 +26,7 @@ export default defineConfig({
       lastUpdated: true,
       customCss: ["./src/styles/theme.css"],
       head: [
-        { tag: "meta", attrs: { property: "og:image", content: `${site}${base}/og.png` } },
+        { tag: "meta", attrs: { property: "og:image", content: new URL(`${base.replace(/\/$/, "")}/og.png`, site).href } },
       ],
       sidebar: [
         {

@@ -26,12 +26,15 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # The site's real address: the custom domain (base "/") or <owner>.github.io/<repo>.
+      - id: pages
+        uses: actions/configure-pages@v5
       - name: Build docs
         run: pnpm --filter @mokalabs/docs build
         env:
-          # Set repository variables DOCS_SITE / DOCS_BASE for a custom domain (e.g. https://docs.mokalabs.dev and "/").
-          DOCS_SITE: ${{ vars.DOCS_SITE || format('https://{0}.github.io', github.repository_owner) }}
-          DOCS_BASE: ${{ vars.DOCS_BASE || format('/{0}', github.event.repository.name) }}
+          # From the Pages settings (custom domain included). Repository variables DOCS_SITE / DOCS_BASE override them.
+          DOCS_SITE: ${{ vars.DOCS_SITE || steps.pages.outputs.origin }}
+          DOCS_BASE: ${{ vars.DOCS_BASE || steps.pages.outputs.base_path || '/' }}
           ASTRO_TELEMETRY_DISABLED: "1"
       - uses: actions/upload-pages-artifact@v3
         with:

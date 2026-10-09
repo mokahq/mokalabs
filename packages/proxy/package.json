@@ -24,16 +24,25 @@
     "url": "git+https://github.com/mokahq/mokalabs.git",
     "directory": "packages/proxy"
   },
-  "homepage": "https://github.com/mokahq/mokalabs#readme",
+  "homepage": "https://mokalabs.dev/guides/proxy/",
+  "bugs": {
+    "url": "https://github.com/mokahq/mokalabs/issues"
+  },
   "keywords": [
     "mcp",
     "model-context-protocol",
+    "mcp-proxy",
     "proxy",
     "inspector",
     "debugging",
-    "copilot",
+    "json-rpc",
+    "github-copilot",
+    "vscode",
     "cursor",
-    "claude"
+    "claude",
+    "claude-code",
+    "windsurf",
+    "gemini"
   ],
   "engines": {
     "node": ">=20"

@@ -4,6 +4,7 @@ import { parseArgs } from "node:util";
 import { writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
+import { trustSystemCertificates } from "./system-ca.js";
 
 const HELP = `
   ☕ moka — any LLM, any MCP server, any skill. One command.
@@ -24,6 +25,7 @@ const HELP = `
         --no-open             don't open the browser
         --proxy <url>         send model/MCP traffic through this HTTP(S) proxy
                               (default: $HTTPS_PROXY / $HTTP_PROXY; $NO_PROXY is honoured)
+        --no-system-ca        don't trust the OS certificate store (keychain / Windows store)
     -v, --version             print version
     -h, --help                show this help
 
@@ -31,6 +33,7 @@ const HELP = `
     OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY, OPENROUTER_API_KEY, GROQ_API_KEY …
     are detected automatically on first run. Ollama on localhost is detected too.
     HTTPS_PROXY / HTTP_PROXY / NO_PROXY and NODE_EXTRA_CA_CERTS work behind corporate networks.
+    Certificates trusted by your OS (company CAs included) are trusted too, on Node 22.15+.
 `;
 
 function proxyFromEnv(env: NodeJS.ProcessEnv): string | undefined {
@@ -54,15 +57,27 @@ function redactUrl(url: string): string {
 }
 
 /**
- * Restart this process with NODE_USE_ENV_PROXY=1 so every fetch (LLM
- * providers, HTTP MCP servers, catalogs) goes through the proxy. Local
- * addresses always bypass it so Ollama and the UI keep working.
+ * Restart this process with settings Node only reads at startup:
+ * - proxy: NODE_USE_ENV_PROXY=1, so every fetch (LLM providers, HTTP MCP
+ *   servers, catalogs) goes through it. Local addresses always bypass it so
+ *   Ollama and the UI keep working.
+ * - systemCa: --use-system-ca, on Node versions that can't load the OS
+ *   certificate store at runtime.
  */
-function relaunchWithProxy(argv: string[], proxy: string): void {
-  const noProxy = [process.env.NO_PROXY ?? process.env.no_proxy, "localhost", "127.0.0.1", "::1"].filter(Boolean).join(",");
-  const env = { ...process.env, NODE_USE_ENV_PROXY: "1", NO_PROXY: noProxy, no_proxy: noProxy };
-  if (!proxyFromEnv(process.env)) Object.assign(env, { HTTPS_PROXY: proxy, HTTP_PROXY: proxy });
-  const child = spawn(process.execPath, ["--disable-warning=UNDICI-EHPA", ...process.execArgv, process.argv[1]!, ...argv], { stdio: "inherit", env });
+function relaunch(argv: string[], options: { proxy?: string; systemCa?: boolean }): void {
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  const flags = [...process.execArgv];
+  if (options.proxy) {
+    const noProxy = [process.env.NO_PROXY ?? process.env.no_proxy, "localhost", "127.0.0.1", "::1"].filter(Boolean).join(",");
+    Object.assign(env, { NODE_USE_ENV_PROXY: "1", NO_PROXY: noProxy, no_proxy: noProxy });
+    if (!proxyFromEnv(process.env)) Object.assign(env, { HTTPS_PROXY: options.proxy, HTTP_PROXY: options.proxy });
+    flags.unshift("--disable-warning=UNDICI-EHPA");
+  }
+  if (options.systemCa) {
+    flags.push("--use-system-ca");
+    env.NODE_USE_SYSTEM_CA = "1";
+  }
+  const child = spawn(process.execPath, [...flags, process.argv[1]!, ...argv], { stdio: "inherit", env });
   // The terminal delivers Ctrl+C to the child too; just wait for it to exit.
   const ignore = () => {};
   process.on("SIGINT", ignore);
@@ -115,6 +130,7 @@ async function main(): Promise<void> {
       token: { type: "string" },
       "no-auth": { type: "boolean", default: false },
       "no-open": { type: "boolean", default: false },
+      "no-system-ca": { type: "boolean", default: false },
       proxy: { type: "string" },
       version: { type: "boolean", short: "v" },
       help: { type: "boolean", short: "h" },
@@ -146,8 +162,10 @@ async function main(): Promise<void> {
   }
 
   const proxy = values.proxy ?? proxyFromEnv(process.env);
-  if (proxy && process.env.NODE_USE_ENV_PROXY !== "1" && nodeSupportsEnvProxy()) {
-    relaunchWithProxy(argv, proxy);
+  const needsProxy = !!proxy && process.env.NODE_USE_ENV_PROXY !== "1" && nodeSupportsEnvProxy();
+  const systemCa = trustSystemCertificates(process.env, !values["no-system-ca"]);
+  if (needsProxy || systemCa.mode === "relaunch") {
+    relaunch(argv, { proxy: needsProxy ? proxy : undefined, systemCa: systemCa.mode === "relaunch" });
     return;
   }
 
@@ -184,6 +202,9 @@ async function main(): Promise<void> {
         ? `  ${dim("   Proxy:")}   ${redactUrl(proxy)}${dim(" (NO_PROXY honoured)")}`
         : `  ${c(33)("   Proxy is set but Node " + process.versions.node + " can't use it. Upgrade to Node 22.21+ or 24.")}`,
     );
+  }
+  if (systemCa.mode === "loaded" || systemCa.mode === "flag") {
+    console.log(`  ${dim("   Certs:")}   ${dim("Node's + your system's (company CAs included)")}`);
   }
   if (!sandbox.token) console.log(`  ${c(31)("   Auth disabled — anyone who can reach this port can run commands.")}`);
   if (sandbox.host !== "127.0.0.1" && sandbox.host !== "localhost") {

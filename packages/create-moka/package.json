@@ -16,12 +16,18 @@
     "url": "git+https://github.com/mokahq/mokalabs.git",
     "directory": "packages/create-moka"
   },
+  "homepage": "https://mokalabs.dev",
+  "bugs": {
+    "url": "https://github.com/mokahq/mokalabs/issues"
+  },
   "keywords": [
     "moka",
     "mcp",
     "llm",
     "create",
     "scaffold",
+    "starter",
+    "template",
     "agent",
     "skills"
   ],

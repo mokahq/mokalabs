@@ -20,13 +20,20 @@
     "url": "git+https://github.com/mokahq/mokalabs.git",
     "directory": "packages/core"
   },
+  "homepage": "https://mokalabs.dev/reference/core/",
+  "bugs": {
+    "url": "https://github.com/mokahq/mokalabs/issues"
+  },
   "keywords": [
-    "llm",
     "mcp",
     "model-context-protocol",
+    "mcp-client",
+    "llm",
     "agent",
+    "ai-agents",
     "skills",
-    "ai-sdk"
+    "ai-sdk",
+    "tracing"
   ],
   "scripts": {
     "build": "tsup src/index.ts --format esm --dts --clean",

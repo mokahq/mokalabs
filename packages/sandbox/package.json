@@ -1,7 +1,7 @@
 {
   "name": "@mokalabs/sandbox",
   "version": "0.3.0",
-  "description": "Moka sandbox \u2014 chat with any LLM, plug in any MCP server or skill, and inspect every call. One command: npx @mokalabs/sandbox",
+  "description": "See every MCP message: chat with any LLM and MCP server, compare models, call tools, and see what your AI editor sends to your MCP servers. 100% local. One command: npx @mokalabs/sandbox",
   "license": "MIT",
   "type": "module",
   "bin": {
@@ -24,17 +24,33 @@
     "url": "git+https://github.com/mokahq/mokalabs.git",
     "directory": "packages/sandbox"
   },
-  "homepage": "https://github.com/mokahq/mokalabs#readme",
+  "homepage": "https://mokalabs.dev",
+  "bugs": {
+    "url": "https://github.com/mokahq/mokalabs/issues"
+  },
   "keywords": [
-    "llm",
     "mcp",
+    "model-context-protocol",
+    "mcp-client",
+    "mcp-inspector",
+    "llm",
+    "ai-agents",
+    "inspector",
+    "debugging",
+    "json-rpc",
     "playground",
     "sandbox",
-    "inspector",
-    "agent",
+    "generative-ui",
+    "a2ui",
+    "mcp-apps",
+    "ag-ui",
+    "a2a",
+    "langgraph",
     "skills",
     "openai",
     "anthropic",
+    "gemini",
+    "azure",
     "ollama"
   ],
   "engines": {

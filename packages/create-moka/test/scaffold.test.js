@@ -14,6 +14,9 @@ test("scaffold copies the template, restores dotfiles and names the package", ()
   assert.ok(existsSync(path.join(dir, "skills/brand-voice/SKILL.md")));
   const pkg = JSON.parse(readFileSync(path.join(dir, "package.json"), "utf8"));
   assert.equal(pkg.name, "my-demo");
+  // New projects get the Moka released with this create-moka, not the template's placeholder.
+  const own = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+  assert.equal(pkg.devDependencies["@mokalabs/sandbox"], `^${own.version}`);
   const config = JSON.parse(readFileSync(path.join(dir, "moka.json"), "utf8"));
   assert.equal(config.version, 1);
   assert.ok(config.workspaces.length >= 1);
