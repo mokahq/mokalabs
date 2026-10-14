@@ -1,6 +1,7 @@
 import { serve, type ServerType } from "@hono/node-server";
 import {
   ConfigStore,
+  detectLmStudio,
   detectOllama,
   detectProfiles,
   mokaHome,
@@ -66,10 +67,12 @@ export function resolveConfigPath(explicit: string | undefined, env: NodeJS.Proc
   return path.join(mokaHome(env), "config.json");
 }
 
+export const LM_STUDIO_URL = "http://localhost:1234/v1";
+
 /** Build a first-run config from whatever is available on this machine. */
 export async function seedConfig(config: MokaConfig, env: NodeJS.ProcessEnv): Promise<MokaConfig> {
   const llms = detectProfiles(env);
-  const ollamaModels = await detectOllama(env.OLLAMA_HOST ? normaliseOllama(env.OLLAMA_HOST) : undefined);
+  const [ollamaModels, lmStudioModels] = await Promise.all([detectOllama(env.OLLAMA_HOST ? normaliseOllama(env.OLLAMA_HOST) : undefined), detectLmStudio()]);
   if (ollamaModels.length > 0) {
     llms.push({
       id: "ollama",
@@ -78,6 +81,9 @@ export async function seedConfig(config: MokaConfig, env: NodeJS.ProcessEnv): Pr
       model: ollamaModels[0]!,
       baseURL: env.OLLAMA_HOST ? `${normaliseOllama(env.OLLAMA_HOST)}/v1` : undefined,
     });
+  }
+  if (lmStudioModels.length > 0) {
+    llms.push({ id: "lmstudio", name: "LM Studio", provider: "openai-compatible", model: lmStudioModels[0]!, baseURL: LM_STUDIO_URL });
   }
   const demo = { id: "moka-demo", name: "Moka demo tools", transport: "stdio" as const, command: DEMO_COMMAND, args: [] };
   const skill = {
@@ -102,7 +108,7 @@ export async function seedConfig(config: MokaConfig, env: NodeJS.ProcessEnv): Pr
             starterPrompts: w.starterPrompts ?? [
               "What time is it in Tokyo and Bengaluru right now?",
               "Roll 3d20 and compute the average with the calculator",
-              "Fetch https://example.com and summarise it",
+              "Make a one-page PDF with 5 easy office plants for low light",
               // The web UI hides this one when Moka branding is off (MOKA_STARTER in Chat.tsx).
               "What is Moka and how do I add my own MCP server?",
             ],
@@ -139,6 +145,7 @@ export async function startSandbox(options: StartOptions = {}): Promise<RunningS
     store,
     env,
     oauthStorePath: path.join(mokaHome(env), "oauth.json"),
+    toolPinsPath: path.join(mokaHome(env), "tool-pins.json"),
     resolveCommand: (command) =>
       command === DEMO_COMMAND ? { command: process.execPath, args: demoArgs } : undefined,
   });

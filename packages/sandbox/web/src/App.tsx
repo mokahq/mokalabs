@@ -1,12 +1,15 @@
 import { KeyRound } from "lucide-react";
 import { useEffect, useState } from "react";
 import { setToken } from "./api";
+import { BudgetDialog } from "./components/Budget";
 import { ChatView } from "./components/Chat";
 import { CompareView } from "./components/Compare";
 import { Inspector } from "./components/Inspector";
 import { InteractionCenter } from "./components/Interactions";
 import { CommandPalette, ExportDialog, Sidebar, Toasts, TopBar } from "./components/Shell";
+import { TestsView } from "./components/Tests";
 import { ToolRunner } from "./components/ToolRunner";
+import { PreviewPane } from "./components/Preview";
 import { ProxyView } from "./components/ProxyView";
 import { Button, Input, Spinner, cn } from "./components/ui";
 import { Settings } from "./settings/Settings";
@@ -21,6 +24,8 @@ export function App() {
   const sidebarOpen = useStore((s) => s.sidebarOpen);
   const inspectorOpen = useStore((s) => s.inspectorOpen);
   const presenter = useStore((s) => s.presenter);
+  // The preview pane gives way before the chat gets too narrow to read.
+  const previewing = useStore((s) => !!s.previewId) && view === "chat" && !presenter;
   const set = useStore((s) => s.set);
 
   useEffect(() => {
@@ -90,12 +95,14 @@ export function App() {
       <TopBar />
       <div className="flex min-h-0 flex-1">
         {sidebarOpen && !presenter && view === "chat" && <Sidebar />}
-        <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-bg">
+        <main className={cn("flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-bg", previewing && "md:min-w-[440px]")}>
           {view === "chat" && <ChatView />}
           {view === "compare" && <CompareView />}
           {view === "tools" && <ToolRunner />}
+          {view === "tests" && <TestsView />}
           {view === "proxy" && <ProxyView />}
         </main>
+        {previewing && <PreviewPane />}
         {/* The Proxy tab shows its own, wider detail pane. */}
         {inspectorOpen && !presenter && view !== "proxy" && (
           <aside className="hidden w-[380px] shrink-0 border-l border-line bg-panel/60 md:block">
@@ -105,6 +112,7 @@ export function App() {
       </div>
       <Settings />
       <ExportDialog />
+      <BudgetDialog />
       <CommandPalette />
       <InteractionCenter />
       <Toasts />

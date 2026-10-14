@@ -1,12 +1,12 @@
-import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { SubscribeRequestSchema, UnsubscribeRequestSchema } from "@modelcontextprotocol/sdk/types.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { acceptedContent, inputRequired, inputResponse, McpServer, ResourceTemplate } from "@modelcontextprotocol/server";
+import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import { randomUUID } from "node:crypto";
 import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { z } from "zod";
 import { bookingFormA2ui, DICE_APP_HTML, DICE_APP_URI } from "./demo-apps.js";
+import { EXTENSION, MIME, renderDocument, slug } from "./demo-docs.js";
 
 /**
  * A tiny, dependency-free MCP server bundled with Moka so the very first run
@@ -105,6 +105,8 @@ function htmlToText(html: string): string {
 
 const text = (value: string) => ({ content: [{ type: "text" as const, text: value }] });
 
+const ORDER = z.object({ drink: z.string(), size: z.string(), oatMilk: z.boolean().optional(), note: z.string().optional() });
+
 /** Where `flaky_write` keeps notes, so they survive the crash it simulates. */
 const NOTES_FILE = path.join(os.tmpdir(), "moka-demo-notes.txt");
 const readNotes = () => (existsSync(NOTES_FILE) ? readFileSync(NOTES_FILE, "utf8") || "(empty)" : "(empty)");
@@ -114,7 +116,7 @@ let standalone = false;
 export function createDemoServer(version: string): McpServer {
   const server = new McpServer(
     { name: "moka-demo", version },
-    { instructions: "Demo tools bundled with Moka. Use them to answer questions about time, math, dice, and web pages." },
+    { instructions: "Demo tools bundled with Moka. Use them to answer questions about time, math, dice, and web pages, and to make documents (create_document)." },
   );
 
   server.registerTool(
@@ -122,7 +124,7 @@ export function createDemoServer(version: string): McpServer {
     {
       title: "Current time",
       description: "Get the current date and time, optionally in a specific IANA timezone (e.g. Asia/Kolkata).",
-      inputSchema: { timezone: z.string().optional().describe("IANA timezone name") },
+      inputSchema: z.object({ timezone: z.string().optional().describe("IANA timezone name") }),
       annotations: { readOnlyHint: true },
     },
     async ({ timezone }) => {
@@ -141,7 +143,7 @@ export function createDemoServer(version: string): McpServer {
     {
       title: "Calculator",
       description: "Evaluate an arithmetic expression. Supports + - * / % ^, parentheses, pi, e, sqrt, abs, round, floor, ceil, sin, cos, tan, log, ln, exp, min, max, pow.",
-      inputSchema: { expression: z.string().describe("e.g. (2 + 3) * sqrt(16)") },
+      inputSchema: z.object({ expression: z.string().describe("e.g. (2 + 3) * sqrt(16)") }),
       annotations: { readOnlyHint: true },
     },
     async ({ expression }) => {
@@ -158,10 +160,10 @@ export function createDemoServer(version: string): McpServer {
     {
       title: "Roll dice",
       description: "Roll one or more dice. Shows an interactive dice roller (MCP App) to the user.",
-      inputSchema: {
+      inputSchema: z.object({
         sides: z.number().int().min(2).max(1000).default(6),
         count: z.number().int().min(1).max(100).default(1),
-      },
+      }),
       annotations: { readOnlyHint: true },
       _meta: { ui: { resourceUri: DICE_APP_URI } },
     },
@@ -179,10 +181,10 @@ export function createDemoServer(version: string): McpServer {
     {
       title: "Fetch URL",
       description: "Fetch a web page or JSON endpoint and return its text content (truncated).",
-      inputSchema: {
+      inputSchema: z.object({
         url: z.string().url(),
         maxChars: z.number().int().min(100).max(50_000).default(8_000),
-      },
+      }),
       annotations: { readOnlyHint: true, openWorldHint: true },
     },
     async ({ url, maxChars }) => {
@@ -205,7 +207,7 @@ export function createDemoServer(version: string): McpServer {
     {
       title: "Generate UUIDs",
       description: "Generate random v4 UUIDs.",
-      inputSchema: { count: z.number().int().min(1).max(50).default(1) },
+      inputSchema: z.object({ count: z.number().int().min(1).max(50).default(1) }),
       annotations: { readOnlyHint: true },
     },
     async ({ count }) => text(Array.from({ length: count }, () => randomUUID()).join("\n")),
@@ -225,10 +227,10 @@ export function createDemoServer(version: string): McpServer {
     {
       title: "Book a table",
       description: "Start a restaurant booking. Shows the user a booking form (A2UI); their confirmation comes back as a [ui action] message.",
-      inputSchema: {
+      inputSchema: z.object({
         restaurant: z.string().describe("Restaurant name"),
         partySize: z.number().int().min(1).max(12).default(2),
-      },
+      }),
     },
     async ({ restaurant, partySize }) => ({
       content: [
@@ -246,25 +248,35 @@ export function createDemoServer(version: string): McpServer {
     {
       title: "Order a coffee",
       description: "Order a coffee for the user. Asks the user directly for their drink, size and milk (MCP elicitation), so don't ask them yourself.",
-      inputSchema: { name: z.string().optional().describe("Who the coffee is for") },
+      inputSchema: z.object({ name: z.string().optional().describe("Who the coffee is for") }),
     },
-    async ({ name }) => {
-      if (!server.server.getClientCapabilities()?.elicitation) return text("This client can't ask the user for input (no elicitation support).");
-      const answer = await server.server.elicitInput({
-        message: `What can we get you${name ? `, ${name}` : ""}? ☕`,
-        requestedSchema: {
-          type: "object",
-          properties: {
-            drink: { type: "string", title: "Drink", enum: ["espresso", "flat white", "cappuccino", "cold brew"] },
-            size: { type: "string", title: "Size", enum: ["small", "medium", "large"], default: "medium" },
-            oatMilk: { type: "boolean", title: "Oat milk", default: false },
-            note: { type: "string", title: "Note for the barista" },
+    // Written once in the 2026-07-28 style: return `input_required`, read the
+    // answer when the client calls again. On 2025 connections the SDK sends a
+    // real elicitation/create request instead and calls this handler again.
+    async ({ name }, ctx) => {
+      const answer = inputResponse(ctx.mcpReq.inputResponses, "order");
+      if (answer.kind === "missing") {
+        return inputRequired({
+          inputRequests: {
+            order: inputRequired.elicit({
+              message: `What can we get you${name ? `, ${name}` : ""}? ☕`,
+              requestedSchema: {
+                type: "object",
+                properties: {
+                  drink: { type: "string", title: "Drink", enum: ["espresso", "flat white", "cappuccino", "cold brew"] },
+                  size: { type: "string", title: "Size", enum: ["small", "medium", "large"], default: "medium" },
+                  oatMilk: { type: "boolean", title: "Oat milk", default: false },
+                  note: { type: "string", title: "Note for the barista" },
+                },
+                required: ["drink", "size"],
+              },
+            }),
           },
-          required: ["drink", "size"],
-        },
-      });
-      if (answer.action !== "accept") return text(`The user ${answer.action === "decline" ? "declined" : "cancelled"} the order.`);
-      const c = answer.content as { drink: string; size: string; oatMilk?: boolean; note?: string };
+        });
+      }
+      if (answer.kind === "elicit" && answer.action !== "accept") return text(`The user ${answer.action === "decline" ? "declined" : "cancelled"} the order.`);
+      const c = acceptedContent(ctx.mcpReq.inputResponses, "order", ORDER);
+      if (!c) return { ...text("The order form came back incomplete."), isError: true };
       return text(`Order placed: ${c.size} ${c.drink}${c.oatMilk ? " with oat milk" : ""}${c.note ? ` (note: ${c.note})` : ""}. Ready in 4 minutes.`);
     },
   );
@@ -274,21 +286,26 @@ export function createDemoServer(version: string): McpServer {
     {
       title: "Brainstorm with the host's model",
       description: "Brainstorm three short ideas about a topic. The server borrows the client's model through MCP sampling.",
-      inputSchema: { topic: z.string().describe("What to brainstorm about") },
+      inputSchema: z.object({ topic: z.string().describe("What to brainstorm about") }),
     },
-    async ({ topic }) => {
-      if (!server.server.getClientCapabilities()?.sampling) return text("This client doesn't support MCP sampling.");
-      try {
-        const result = await server.server.createMessage({
-          systemPrompt: "You are a playful brainstorming partner. Reply with exactly three short bullet points.",
-          messages: [{ role: "user", content: { type: "text", text: `Three ideas for: ${topic}` } }],
-          maxTokens: 200,
+    // MCP sampling, 2026-07-28 style: ask for a completion in the result, and
+    // get it back in the retried call. 2025 clients get sampling/createMessage.
+    async ({ topic }, ctx) => {
+      const ideas = inputResponse(ctx.mcpReq.inputResponses, "ideas");
+      if (ideas.kind === "missing") {
+        return inputRequired({
+          inputRequests: {
+            ideas: inputRequired.createMessage({
+              systemPrompt: "You are a playful brainstorming partner. Reply with exactly three short bullet points.",
+              messages: [{ role: "user", content: { type: "text", text: `Three ideas for: ${topic}` } }],
+              maxTokens: 200,
+            }),
+          },
         });
-        const content = result.content as { type: string; text?: string };
-        return text(`Ideas from ${result.model}:\n${content.type === "text" ? content.text : "(non-text reply)"}`);
-      } catch (error: any) {
-        return { ...text(`Sampling failed: ${error?.message ?? error}`), isError: true };
       }
+      if (ideas.kind !== "sampling") return { ...text("Sampling failed: the client didn't return a completion."), isError: true };
+      const block = Array.isArray(ideas.result.content) ? ideas.result.content[0] : ideas.result.content;
+      return text(`Ideas from ${ideas.result.model}:\n${block?.type === "text" ? block.text : "(non-text reply)"}`);
     },
   );
 
@@ -298,22 +315,22 @@ export function createDemoServer(version: string): McpServer {
       title: "Backtest a strategy (slow)",
       description:
         "Backtest a simple trading strategy on historical prices (simulated). Takes about 90 seconds and reports progress every second: use it to test long-running tools, progress bars and client timeouts.",
-      inputSchema: {
+      inputSchema: z.object({
         symbol: z.string().default("AAPL").describe("Ticker to backtest"),
         years: z.number().int().min(1).max(20).default(5).describe("Years of history to replay"),
         seconds: z.number().int().min(1).max(300).default(90).describe("How long the simulation takes"),
-      },
+      }),
       annotations: { readOnlyHint: true },
     },
-    async ({ symbol, years, seconds }, extra) => {
-      const token = extra._meta?.progressToken;
+    async ({ symbol, years, seconds }, ctx) => {
+      const token = ctx.mcpReq._meta?.progressToken;
       for (let s = 1; s <= seconds; s++) {
         await new Promise((r) => setTimeout(r, 1000));
-        if (extra.signal.aborted) return text("Backtest cancelled.");
+        if (ctx.mcpReq.signal.aborted) return text("Backtest cancelled.");
         if (token !== undefined) {
           const year = new Date().getFullYear() - years + Math.min(years - 1, Math.floor((s / seconds) * years));
-          await extra
-            .sendNotification({ method: "notifications/progress", params: { progressToken: token, progress: s, total: seconds, message: `Replaying ${symbol} ${year}` } })
+          await ctx.mcpReq
+            .notify({ method: "notifications/progress", params: { progressToken: token, progress: s, total: seconds, message: `Replaying ${symbol} ${year}` } })
             .catch(() => {});
         }
       }
@@ -332,7 +349,7 @@ export function createDemoServer(version: string): McpServer {
       title: "Save a note (flaky)",
       description:
         "Save a note to the demo notebook. For testing interrupted calls: the server writes the note, then crashes before it can reply, like a flaky backend. If it fails, call read_notes to check whether the note was saved before retrying, so you don't save it twice.",
-      inputSchema: { note: z.string().describe("The note to save") },
+      inputSchema: z.object({ note: z.string().describe("The note to save") }),
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
     },
     async ({ note }) => {
@@ -349,10 +366,47 @@ export function createDemoServer(version: string): McpServer {
     {
       title: "Read the notebook",
       description: "List the notes saved in the demo notebook (by flaky_write). Use it to check whether a save went through.",
-      inputSchema: {},
+      inputSchema: z.object({}),
       annotations: { readOnlyHint: true },
     },
     async () => ({ content: [{ type: "text", text: readNotes() }] }),
+  );
+
+  server.registerTool(
+    "create_document",
+    {
+      title: "Create a document",
+      description:
+        "Write a document (PDF, Word .docx, HTML page or Markdown) from a title, sections and an optional table, and give it to the user. Moka opens it next to the chat. In a section body, lines starting with \"- \" are bullet points; a blank line starts a new paragraph.",
+      inputSchema: z.object({
+        title: z.string().describe("Document title"),
+        subtitle: z.string().optional().describe("One line under the title"),
+        format: z.enum(["pdf", "docx", "html", "markdown"]).default("pdf").describe("File type (default pdf)"),
+        sections: z
+          .array(z.object({ heading: z.string().optional(), body: z.string().describe("Paragraphs, and bullet points as lines starting with \"- \"") }))
+          .describe("The document's sections, in order"),
+        table: z
+          .object({ columns: z.array(z.string()), rows: z.array(z.array(z.string())) })
+          .optional()
+          .describe("An optional table at the end, e.g. a comparison"),
+      }),
+      annotations: { readOnlyHint: true, openWorldHint: false },
+    },
+    async ({ title, subtitle, format, sections, table }) => {
+      const file = `${slug(title)}.${EXTENSION[format]}`;
+      const rendered = renderDocument({ title, subtitle, sections, ...(table ? { table } : {}) }, format);
+      const uri = `moka://documents/${file}`;
+      const size = rendered.bytes?.length ?? Buffer.byteLength(rendered.text ?? "");
+      return {
+        content: [
+          { type: "text" as const, text: `Created ${file} (${Math.max(1, Math.round(size / 1024))} KB). The user can see it now.` },
+          {
+            type: "resource" as const,
+            resource: rendered.bytes ? { uri, mimeType: MIME[format], blob: Buffer.from(rendered.bytes).toString("base64") } : { uri, mimeType: MIME[format], text: rendered.text! },
+          },
+        ],
+      };
+    },
   );
 
   server.registerResource(
@@ -395,17 +449,20 @@ export function createDemoServer(version: string): McpServer {
   );
   const subscribed = new Set<string>();
   server.server.registerCapabilities({ resources: { subscribe: true, listChanged: true } });
-  server.server.setRequestHandler(SubscribeRequestSchema, async (request) => {
+  server.server.setRequestHandler("resources/subscribe", async (request) => {
     subscribed.add(request.params.uri);
     return {};
   });
-  server.server.setRequestHandler(UnsubscribeRequestSchema, async (request) => {
+  server.server.setRequestHandler("resources/unsubscribe", async (request) => {
     subscribed.delete(request.params.uri);
     return {};
   });
   const timer = setInterval(() => {
     tick++;
-    if (subscribed.has(BREW_URI)) void server.server.sendResourceUpdated({ uri: BREW_URI }).catch(() => {});
+    // 2025: only after resources/subscribe. 2026-07-28: the SDK delivers it to
+    // subscriptions/listen streams that asked for this URI.
+    const modern = (server.server.getNegotiatedProtocolVersion() ?? "") >= "2026-07-28";
+    if (modern || subscribed.has(BREW_URI)) void server.server.sendResourceUpdated({ uri: BREW_URI }).catch(() => {});
   }, 3000);
   timer.unref();
 
@@ -434,7 +491,7 @@ export function createDemoServer(version: string): McpServer {
     {
       title: "Plan a trip",
       description: "Ask the model to plan a trip using the demo tools.",
-      argsSchema: { city: z.string() },
+      argsSchema: z.object({ city: z.string() }),
     },
     ({ city }) => ({
       messages: [
@@ -449,8 +506,8 @@ export function createDemoServer(version: string): McpServer {
   return server;
 }
 
+/** Serves MCP 2026-07-28 and, for older clients, 2025-11-25 on stdio. */
 export async function runDemoServer(version: string): Promise<void> {
   standalone = true;
-  const server = createDemoServer(version);
-  await server.connect(new StdioServerTransport());
+  serveStdio(() => createDemoServer(version));
 }

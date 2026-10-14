@@ -31,11 +31,13 @@ curl -N -H "x-moka-token: $TOKEN" -H 'content-type: application/json' \
 | `llmId` | Optional; override the workspace's model |
 | `agentId` | Optional; talk to this remote agent instead |
 
+File parts the model can't take (a PDF for an OpenAI-compatible model, a Word file for any model) are replaced by text before the request: the part's `providerOptions.moka.text` if it has one, otherwise a note that the model can't read the file. The web UI puts the text it read from PDFs and Word files there.
+
 | Chunk `type` | Fields |
 |---|---|
 | `start` | `runId`, `model`, `profileId`, `tools` (count) |
 | `text` / `reasoning` | `text` (delta) |
-| `tool-call` | `id`, `name`, `tool`, `source`, `input` |
+| `tool-call` | `id`, `name`, `tool`, `source`, `serverId` (MCP tools), `input` |
 | `tool-result` | `id`, `output`, `isError`, `durationMs`, `ui?`, `raw?` |
 | `step` | `usage`, `finishReason` |
 | `finish` | `usage`, `durationMs`, `messages` — append these to your history for the next turn |
@@ -79,5 +81,11 @@ curl -N -H "x-moka-token: $TOKEN" -H 'content-type: application/json' \
 | `POST /api/events/ui` | Report `ui.rpc` / `ui.action` events |
 | `DELETE /api/events` | Clear the buffer |
 | `GET /api/sessions` · `GET/PUT/DELETE /api/sessions/:id` | Chat history |
+| `GET /api/budget?workspaceId=` | `{total, items, notConnected}`: estimated tokens the model reads before every message (system prompt, skills, instructions, each tool) |
+| `GET /api/security?workspaceId=` | `{servers}`: the [security check](/guides/security/) of each connected server: `findings` and `changes` |
+| `POST /api/security/:id/trust` | Trust a server's tools as they are now |
+| `POST /api/tests/run` | `{llmIds, workspaceId?, runs?, toolMode?: "run"\|"read-only"\|"none", testIds?}` → NDJSON stream of [test](/guides/tests/) results |
+| `POST /api/tests/suggest` | `{workspaceId?, count?}` → `{tests}` proposed by the workspace's model |
+| `GET /api/local-models` | `{ollama, lmstudio}`: models of local servers running now |
 
 <Aside type="caution">The API is local-first and may evolve between minor versions. For a stable programmatic interface, use [`@mokalabs/core`](/reference/core/).</Aside>

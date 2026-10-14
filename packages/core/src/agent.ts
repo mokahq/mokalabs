@@ -1,4 +1,5 @@
 import { dynamicTool, jsonSchema, stepCountIs, streamText, type ModelMessage, type ToolSet } from "ai";
+import { adaptAttachments } from "./attachments.js";
 import type { LlmProfile, McpServerConfig, Workspace } from "./config.js";
 import type { EventBus } from "./events.js";
 import {
@@ -40,6 +41,8 @@ export type ChatChunk =
       name: string;
       tool: string;
       source: string;
+      /** The MCP server that runs the tool (absent for skills and built-ins). */
+      serverId?: string;
       input: unknown;
       /** An earlier call in this run with the same tool and arguments, for tools that may write. */
       duplicateOf?: string;
@@ -86,7 +89,15 @@ export interface RunAgentOptions {
   catalogs?: LoadedCatalog[];
   /** Called before an MCP tool runs; resolve false to block the call. */
   authorizeTool?: (request: ToolAuthorization) => Promise<boolean>;
+  /**
+   * Which MCP tools really run (tool tests): all (default), only those marked
+   * read-only, or none. Tools that don't run return a note saying so, and the
+   * model carries on.
+   */
+  toolMode?: ToolMode;
 }
+
+export type ToolMode = "run" | "read-only" | "none";
 
 export interface ToolAuthorization {
   runId: string;
@@ -163,7 +174,7 @@ export function mcpContentToText(result: { content?: unknown[]; structuredConten
   return parts.join("\n");
 }
 
-function normaliseSchema(schema: Record<string, unknown> | undefined): Record<string, unknown> {
+export function normaliseSchema(schema: Record<string, unknown> | undefined): Record<string, unknown> {
   const s = { ...(schema ?? {}) };
   if (s.type !== "object") s.type = "object";
   if (!s.properties) s.properties = {};
@@ -300,7 +311,7 @@ export async function* runAgent(options: RunAgentOptions): AsyncGenerator<ChatCh
     const result = streamText({
       model: createModel(llm, options.env),
       system: system || undefined,
-      messages: options.messages,
+      messages: adaptAttachments(options.messages, llm.provider),
       tools: Object.keys(tools).length ? tools : undefined,
       stopWhen: stepCountIs(workspace.maxSteps ?? 12),
       temperature: llm.temperature,
@@ -402,6 +413,7 @@ export async function* runAgent(options: RunAgentOptions): AsyncGenerator<ChatCh
             name: part.toolName,
             tool: binding.tool,
             source: binding.source,
+            ...(binding.serverId ? { serverId: binding.serverId } : {}),
             input: part.input,
             ...(duplicateOf ? { duplicateOf } : {}),
             ...(lineage ? { lineage } : {}),
@@ -497,6 +509,11 @@ function mcpToolToAiTool(mcpTool: McpTool, server: McpServerConfig, options: Run
     description: mcpTool.description ?? mcpTool.title ?? mcpTool.name,
     inputSchema: jsonSchema(normaliseSchema(mcpTool.inputSchema) as any),
     execute: async (input: any, { abortSignal, toolCallId }) => {
+      const mode = options.toolMode ?? "run";
+      if (mode === "none" || (mode === "read-only" && mcpTool.annotations?.readOnlyHint !== true)) {
+        options.bus.emit({ kind: "log", runId: options.runId, serverId: server.id, title: `${mcpTool.name} not run (test run, ${mode === "none" ? "no tools run" : "only read-only tools run"})`, data: { tool: mcpTool.name, input } });
+        return `[Test run: ${mcpTool.name} was not executed, so there is no real result. Assume it succeeded and continue.]`;
+      }
       if (options.authorizeTool) {
         const allowed = await options.authorizeTool({ runId: options.runId, toolCallId, server, tool: mcpTool, input, signal: abortSignal });
         if (!allowed) throw withErrorClass(new Error("The user declined to run this tool. Ask them how to proceed instead of retrying."), "declined");

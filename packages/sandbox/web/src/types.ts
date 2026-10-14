@@ -46,6 +46,8 @@ export interface McpServerConfig {
   approval?: { default?: ApprovalMode; tools?: Record<string, ApprovalMode> };
   oauth?: boolean | { clientId?: string; clientSecret?: string; scopes?: string[] };
   sampling?: "ask" | "auto" | "deny";
+  /** MCP revision: auto (2026-07-28 if the server has it, else 2025), 2025 or 2026. */
+  protocol?: "auto" | "2025" | "2026";
 }
 
 export type ApprovalMode = "auto" | "ask";
@@ -134,6 +136,7 @@ export interface Workspace {
   maxSteps?: number;
   generativeUi?: boolean | GenerativeUiConfig;
   requireApproval?: boolean;
+  tests?: ToolTest[];
 }
 
 export interface MokaConfig {
@@ -198,6 +201,8 @@ export interface McpServerState {
   stderr: string[];
   /** HTTP/SSE servers: the latest exchange with the endpoint, secret values masked. */
   http?: HttpExchange;
+  /** The negotiated MCP revision; `modern` is 2026-07-28 and later. */
+  protocol?: { version?: string; era: "modern" | "legacy" };
 }
 
 export interface HttpExchange {
@@ -257,6 +262,10 @@ export interface MokaEvent {
     outcome?: "ok" | "error" | "cancelled" | "late" | "unanswered";
     /** For tools/call: the tool call (`tool.call` data.id) this message belongs to. */
     callId?: string;
+    /** MCP 2026-07-28: what an `input_required` result asks for. */
+    inputRequired?: Array<{ key: string; method: string }>;
+    /** MCP 2026-07-28: the round of a request retried with the client's answers (2 = first retry). */
+    round?: number;
   };
   /** Parent event, e.g. the AG-UI step (graph node) that emitted this one. */
   parentId?: string;
@@ -281,7 +290,7 @@ export type ChatChunk =
   | { type: "start"; runId: string; model: string; profileId: string; tools: number }
   | { type: "text"; text: string }
   | { type: "reasoning"; text: string }
-  | { type: "tool-call"; id: string; name: string; tool: string; source: string; input: unknown; duplicateOf?: string; lineage?: ToolLineage }
+  | { type: "tool-call"; id: string; name: string; tool: string; source: string; serverId?: string; input: unknown; duplicateOf?: string; lineage?: ToolLineage }
   | {
       type: "tool-result";
       id: string;
@@ -324,6 +333,7 @@ export type Part =
       name: string;
       tool: string;
       source: string;
+      serverId?: string;
       input: unknown;
       output?: unknown;
       isError?: boolean;
@@ -348,6 +358,7 @@ export interface ProxySession {
   serverId: string;
   client: string;
   clientInfo?: { name?: string; version?: string };
+  protocolVersion?: string;
   name: string;
   command: string;
   args: string[];
@@ -407,4 +418,70 @@ export interface Bootstrap {
   skills: LoadedSkill[];
   catalogs: LoadedCatalog[];
   interactions: Interaction[];
+}
+
+/** What a workspace's model reads before every conversation, estimated in tokens (see contextBudget in core). */
+export interface BudgetItem {
+  kind: "system" | "skills" | "instructions" | "tool";
+  name: string;
+  source: string;
+  serverId?: string;
+  tokens: number;
+  hidden?: boolean;
+}
+
+export interface ContextBudget {
+  total: number;
+  items: BudgetItem[];
+  notConnected: Array<{ id: string; name: string; status: string }>;
+}
+
+/** The MCP security check (see security.ts in core). */
+export interface SecurityFinding {
+  id: string;
+  severity: "high" | "medium" | "info";
+  title: string;
+  detail: string;
+  where: string;
+  evidence?: { before: string; match: string; after: string };
+}
+
+export interface ToolChange {
+  tool: string;
+  kind: "changed" | "added" | "removed";
+  since?: number;
+  before?: { description?: string; schema?: string };
+  after?: { description?: string; schema?: string };
+}
+
+export interface ServerSecurity {
+  serverId: string;
+  name: string;
+  findings: SecurityFinding[];
+  changes: ToolChange[];
+}
+
+/** A tool test (see tests.ts in core). */
+export interface ToolTest {
+  id: string;
+  name?: string;
+  prompt: string;
+  expectTools?: string[];
+  forbidTools?: string[];
+  expectArgs?: Record<string, Record<string, unknown>>;
+  answerIncludes?: string[];
+}
+
+export interface TestResult {
+  testId: string;
+  llmId: string;
+  run: number;
+  passed: boolean;
+  reasons: string[];
+  calls: Array<{ tool: string; server?: string; input: unknown }>;
+  text: string;
+  durationMs: number;
+  usage?: { inputTokens?: number; outputTokens?: number; totalTokens?: number };
+  error?: string;
+  runId: string;
 }

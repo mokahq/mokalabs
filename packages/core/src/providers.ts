@@ -122,6 +122,18 @@ export async function detectOllama(baseURL = "http://localhost:11434", timeoutMs
   }
 }
 
+/** Models loaded in LM Studio's local server (OpenAI-compatible, port 1234 by default), embedding models left out. */
+export async function detectLmStudio(baseURL = "http://localhost:1234/v1", timeoutMs = 600): Promise<string[]> {
+  try {
+    const res = await fetch(`${baseURL}/models`, { signal: AbortSignal.timeout(timeoutMs) });
+    if (!res.ok) return [];
+    const body = (await res.json()) as { data?: Array<{ id: string }> };
+    return (body.data ?? []).map((m) => m.id).filter((id) => !/embed/i.test(id));
+  } catch {
+    return [];
+  }
+}
+
 /** List models available for a profile by asking the provider's API. */
 export async function listModels(profile: LlmProfile, env: NodeJS.ProcessEnv = process.env): Promise<string[]> {
   const apiKey = resolveSecret(profile.apiKey, env) || undefined;

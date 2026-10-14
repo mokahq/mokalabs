@@ -15,6 +15,15 @@ const HELP = `
     moka init                 write a starter moka.json in this folder
     moka demo-server          run the bundled demo MCP server on stdio
     moka demo-agent [--port]  run a demo A2A + AG-UI agent (default port 4100)
+    moka test [config.json]   run the workspace's tool tests; exit code 1 if any fail (for CI)
+
+  moka test
+    -m, --models <a,b>        model ids, names or model names (default: the workspace's model)
+    -w, --workspace <id>      workspace (default: the active one)
+        --runs <n>            runs per test and model, to catch flaky behaviour (default 1)
+        --tools <mode>        read-only (default): only tools marked read-only really run;
+                              run: every tool runs; none: no tool runs
+        --json                print results as JSON
 
   Options
     -p, --port <n>            port to listen on (default 4000, or $PORT)
@@ -102,6 +111,72 @@ function openBrowser(url: string): void {
   }
 }
 
+/** `moka test`: run a workspace's tool tests on one or more models, for CI. Returns the exit code. */
+async function runTests(configPath: string | undefined, values: { models?: string; workspace?: string; runs?: string; tools?: string; json?: boolean }): Promise<number> {
+  const { startSandbox } = await import("./index.js");
+  const { summarize } = await import("@mokalabs/core");
+  const toolMode = (values.tools ?? "read-only") as "run" | "read-only" | "none";
+  if (!["run", "read-only", "none"].includes(toolMode)) {
+    console.error(`✗ --tools must be run, read-only or none`);
+    return 2;
+  }
+  const runs = values.runs ? Number(values.runs) : 1;
+  if (!Number.isInteger(runs) || runs < 1 || runs > 20) {
+    console.error(`✗ --runs must be a whole number from 1 to 20`);
+    return 2;
+  }
+  const sandbox = await startSandbox({ port: 0, host: "127.0.0.1", configPath, token: false, ui: false });
+  try {
+    const engine = sandbox.engine;
+    const config = engine.getConfig();
+    const workspace = engine.workspace(values.workspace);
+    if (values.workspace && workspace.id !== values.workspace) {
+      console.error(`✗ No workspace "${values.workspace}". Workspaces: ${config.workspaces.map((w) => w.id).join(", ")}`);
+      return 2;
+    }
+    const tests = workspace.tests ?? [];
+    if (!tests.length) {
+      console.error(`✗ Workspace "${workspace.name}" has no tests. Add some in Moka's Tests view, or under "tests" in ${sandbox.configPath}.`);
+      return 2;
+    }
+    const wanted = values.models ? values.models.split(",").map((m) => m.trim()).filter(Boolean) : [workspace.llmId ?? config.llms[0]?.id].filter((m): m is string => !!m);
+    const llms = wanted.map((m) => config.llms.find((l) => l.id === m || l.name === m || l.model === m));
+    const missing = wanted.filter((_, i) => !llms[i]);
+    if (missing.length || !llms.length) {
+      console.error(`✗ Unknown model${missing.length === 1 ? "" : "s"}: ${missing.join(", ") || "(none configured)"}. Models: ${config.llms.map((l) => l.id).join(", ")}`);
+      return 2;
+    }
+    const label = new Map(llms.map((l) => [l!.id, `${l!.name} (${l!.model})`]));
+    const name = new Map(tests.map((t) => [t.id, t.name ?? t.prompt.slice(0, 60)]));
+    const tty = process.stdout.isTTY && !values.json;
+    const paint = (code: number) => (s: string) => (tty ? `\x1b[${code}m${s}\x1b[0m` : s);
+    const [green, red, dim] = [paint(32), paint(31), paint(2)];
+    if (!values.json) console.log(`\n  Testing ${tests.length} test${tests.length === 1 ? "" : "s"} × ${llms.length} model${llms.length === 1 ? "" : "s"}${runs > 1 ? ` × ${runs} runs` : ""} in ${workspace.name} ${dim(`(tools: ${toolMode})`)}\n`);
+    const results = [];
+    for await (const r of engine.runTests({ workspaceId: workspace.id, llmIds: llms.map((l) => l!.id), runs, toolMode })) {
+      results.push(r);
+      if (values.json) continue;
+      const head = `  ${r.passed ? green("✓") : red("✗")} ${label.get(r.llmId)}  ${name.get(r.testId)}${runs > 1 ? dim(` #${r.run}`) : ""} ${dim(`${(r.durationMs / 1000).toFixed(1)}s`)}`;
+      console.log(head);
+      for (const reason of r.reasons) console.log(`      ${red(reason)}`);
+    }
+    const summary = summarize(results);
+    if (values.json) {
+      console.log(JSON.stringify({ workspace: workspace.id, toolMode, runs, summary, results }, null, 2));
+    } else {
+      console.log("");
+      for (const s of summary) {
+        const pct = Math.round((s.passed / s.total) * 100);
+        console.log(`  ${(s.passed === s.total ? green : red)(`${s.passed}/${s.total}`.padStart(7))}  ${String(pct).padStart(3)}%  ${label.get(s.llmId)}  ${dim(`avg ${(s.avgMs / 1000).toFixed(1)}s${s.avgTokens ? ` · ${s.avgTokens} tokens` : ""}`)}`);
+      }
+      console.log("");
+    }
+    return results.every((r) => r.passed) ? 0 : 1;
+  } finally {
+    await sandbox.close();
+  }
+}
+
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
   const command = argv[0];
@@ -132,6 +207,12 @@ async function main(): Promise<void> {
       "no-open": { type: "boolean", default: false },
       "no-system-ca": { type: "boolean", default: false },
       proxy: { type: "string" },
+      // moka test
+      models: { type: "string", short: "m" },
+      workspace: { type: "string", short: "w" },
+      runs: { type: "string" },
+      tools: { type: "string" },
+      json: { type: "boolean", default: false },
       version: { type: "boolean", short: "v" },
       help: { type: "boolean", short: "h" },
     },
@@ -166,6 +247,11 @@ async function main(): Promise<void> {
   const systemCa = trustSystemCertificates(process.env, !values["no-system-ca"]);
   if (needsProxy || systemCa.mode === "relaunch") {
     relaunch(argv, { proxy: needsProxy ? proxy : undefined, systemCa: systemCa.mode === "relaunch" });
+    return;
+  }
+
+  if (positionals[0] === "test") {
+    process.exitCode = await runTests(positionals[1] ?? values.config, values);
     return;
   }
 

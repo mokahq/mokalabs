@@ -25,10 +25,14 @@ import { api } from "../api";
 import { uid } from "../runner";
 import { useStore } from "../store";
 import type { Attachment, Part, UiMessage } from "../types";
+import { DOCX, documentText } from "../extract";
 import { REPO_URL } from "../links";
+import { previewKind } from "../preview";
 import { MokaPortrait, useMokaBranding } from "./Moka";
 import { ApprovalBar, usePendingApproval } from "./Interactions";
 import { Markdown } from "./Markdown";
+import { BudgetBadge } from "./Budget";
+import { ToolFiles } from "./Preview";
 import { ToolUi } from "./ToolUi";
 import { Badge, Button, CopyButton, IconButton, JsonView, Kbd, Spinner, cn, formatMs, formatNumber } from "./ui";
 
@@ -115,11 +119,7 @@ function EmptyChat() {
               </Badge>
             </button>
           )}
-          <button onClick={() => openSettings("mcp")}>
-            <Badge tone="info">
-              <Wrench className="h-3 w-3" /> {toolCount} tools · {workspace.mcpServerIds.length} servers
-            </Badge>
-          </button>
+          <BudgetBadge toolCount={toolCount} servers={workspace.mcpServerIds.length} />
           <button onClick={() => openSettings("skills")}>
             <Badge tone="violet">
               <Sparkles className="h-3 w-3" /> {wsSkills.length} skills
@@ -195,6 +195,7 @@ function MessageView({ message, live, last }: { message: UiMessage; live: boolea
   const set = useStore((s) => s.set);
   const events = useStore((s) => s.events);
   const toast = useStore((s) => s.toast);
+  const openPreview = useStore((s) => s.openPreview);
   const hasEvents = Boolean(message.meta?.runId && events.some((e) => e.runId === message.meta!.runId));
 
   if (message.role === "user") {
@@ -216,9 +217,11 @@ function MessageView({ message, live, last }: { message: UiMessage; live: boolea
           <div className="flex max-w-[85%] flex-wrap justify-end gap-1.5">
             {files.map((f) =>
               f.attachment.kind === "image" && f.attachment.dataUrl ? (
-                <img key={f.attachment.id} src={f.attachment.dataUrl} alt={f.attachment.name} className="max-h-48 max-w-64 rounded-xl border border-line object-cover" />
+                <button key={f.attachment.id} onClick={() => openPreview(f.attachment.id)} title={`Open ${f.attachment.name}`}>
+                  <img src={f.attachment.dataUrl} alt={f.attachment.name} className="max-h-48 max-w-64 rounded-xl border border-line object-cover hover:border-accent/50" />
+                </button>
               ) : (
-                <AttachmentChip key={f.attachment.id} attachment={f.attachment} />
+                <AttachmentChip key={f.attachment.id} attachment={f.attachment} onOpen={() => openPreview(f.attachment.id)} />
               ),
             )}
           </div>
@@ -266,7 +269,7 @@ function MessageView({ message, live, last }: { message: UiMessage; live: boolea
           </div>
         )}
         {message.parts.map((part, i) => (
-          <PartView key={i} part={part} live={live && i === message.parts.length - 1} />
+          <PartView key={i} part={part} messageId={message.id} live={live && i === message.parts.length - 1} />
         ))}
         {meta.error && (
           <div className="flex items-start gap-3 rounded-xl border border-err/25 bg-err/5 px-4 py-3 text-sm">
@@ -300,6 +303,7 @@ function MessageView({ message, live, last }: { message: UiMessage; live: boolea
             </span>
           )}
           {meta.firstTokenMs !== undefined && <span>TTFT {formatMs(meta.firstTokenMs)}</span>}
+          {tokensPerSecond(meta, toolParts) && <span title="Output tokens per second, after the first token">{tokensPerSecond(meta, toolParts)} tok/s</span>}
           {meta.usage?.totalTokens !== undefined && (
             <span>
               {formatNumber(meta.usage.inputTokens)} in · {formatNumber(meta.usage.outputTokens)} out
@@ -336,15 +340,27 @@ function MessageView({ message, live, last }: { message: UiMessage; live: boolea
   );
 }
 
-function PartView({ part, live }: { part: Part; live: boolean }) {
+/** Generation speed of a reply without tool calls (tool time would skew it): output tokens over the time after the first token. */
+export function tokensPerSecond(meta: NonNullable<UiMessage["meta"]>, toolParts: number): number | undefined {
+  const out = meta.usage?.outputTokens;
+  if (toolParts > 0 || !out || out < 8 || meta.durationMs === undefined || meta.firstTokenMs === undefined) return undefined;
+  const seconds = (meta.durationMs - meta.firstTokenMs) / 1000;
+  return seconds >= 0.2 ? Math.round(out / seconds) : undefined;
+}
+
+function PartView({ part, messageId, live }: { part: Part; messageId: string; live: boolean }) {
   if (part.type === "attachment") return <AttachmentChip attachment={part.attachment} />;
-  if (part.type === "text") return <Markdown text={part.text} className={live ? "caret" : undefined} />;
+  if (part.type === "text") {
+    // A reply that is a whole HTML page without a code fence: show it like one.
+    const text = !live && /^\s*(<!doctype html|<html[\s>])/i.test(part.text) ? `\`\`\`\`html\n${part.text.trim()}\n\`\`\`\`` : part.text;
+    return <Markdown text={text} className={live ? "caret" : undefined} messageId={live ? undefined : messageId} />;
+  }
   if (part.type === "reasoning") return <Reasoning text={part.text} live={live} />;
-  if (!part.ui) return <ToolCard part={part} />;
   return (
     <div className="space-y-2">
       <ToolCard part={part} />
-      <ToolUi part={part} />
+      {part.ui && <ToolUi part={part} />}
+      {part.status === "done" && <ToolFiles part={part} messageId={messageId} />}
     </div>
   );
 }
@@ -505,16 +521,24 @@ function readAs(file: File, as: "text" | "dataUrl"): Promise<string> {
 
 async function toAttachment(file: File): Promise<Attachment> {
   if (file.size > MAX_ATTACHMENT) throw new Error(`${file.name} is larger than 10 MB`);
-  const mediaType = file.type || "application/octet-stream";
+  const kind = previewKind(file.type, file.name);
+  const mediaType = file.type || (kind === "pdf" ? "application/pdf" : kind === "docx" ? DOCX : "application/octet-stream");
   const base = { id: uid("f"), name: file.name || "pasted", mediaType, size: file.size };
   if (mediaType.startsWith("image/")) return { ...base, kind: "image", dataUrl: await readAs(file, "dataUrl") };
   if (mediaType.startsWith("text/") || mediaType.includes("json") || TEXT_EXT.test(file.name)) return { ...base, kind: "text", text: await readAs(file, "text") };
-  return { ...base, kind: "file", dataUrl: await readAs(file, "dataUrl") };
+  const dataUrl = await readAs(file, "dataUrl");
+  // PDFs and Word files: read the text now, for models that can't take the file itself.
+  const text = await documentText(base.name, mediaType, dataUrl).catch(() => undefined);
+  return { ...base, kind: "file", dataUrl, ...(text ? { text } : {}) };
 }
 
-function AttachmentChip({ attachment, onRemove }: { attachment: Pick<Attachment, "name" | "kind" | "dataUrl" | "size" | "uri">; onRemove?: () => void }) {
+function AttachmentChip({ attachment, onRemove, onOpen }: { attachment: Pick<Attachment, "name" | "kind" | "dataUrl" | "size" | "uri">; onRemove?: () => void; onOpen?: () => void }) {
   return (
-    <span className="group inline-flex max-w-56 items-center gap-1.5 rounded-lg border border-line bg-panel-2/70 py-1 pr-1.5 pl-1 text-[12px]">
+    <span
+      className={cn("group inline-flex max-w-56 items-center gap-1.5 rounded-lg border border-line bg-panel-2/70 py-1 pr-1.5 pl-1 text-[12px]", onOpen && "cursor-pointer hover:border-accent/50")}
+      onClick={onOpen}
+      title={onOpen ? `Open ${attachment.name}` : undefined}
+    >
       {attachment.kind === "image" && attachment.dataUrl ? (
         <img src={attachment.dataUrl} alt="" className="h-7 w-7 rounded object-cover" />
       ) : attachment.kind === "resource" ? (

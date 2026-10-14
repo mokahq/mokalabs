@@ -1,8 +1,10 @@
 import { create } from "zustand";
 import { api, subscribeEvents } from "./api";
+import { isDocument, isFullPage, previewKind, replyArtifacts, toolFiles } from "./preview";
 import { runTurn, uid } from "./runner";
 import type {
   Attachment,
+  TestResult,
   Bootstrap,
   Interaction,
   LoadedCatalog,
@@ -17,7 +19,7 @@ import type {
   Workspace,
 } from "./types";
 
-export type View = "chat" | "compare" | "tools" | "proxy";
+export type View = "chat" | "compare" | "tools" | "tests" | "proxy";
 export type SettingsTab = "models" | "agents" | "mcp" | "skills" | "genui" | "workspaces" | "config";
 
 interface Toast {
@@ -68,11 +70,18 @@ interface State {
   toolTarget?: { serverId: string; tool?: string };
   sidebarOpen: boolean;
   inspectorOpen: boolean;
+  /** The file open in the preview pane (see preview.ts), if any. */
+  previewId?: string;
+  openPreview: (id?: string) => void;
   presenter: boolean;
   theme: "dark" | "light";
   settingsOpen: boolean;
   settingsTab: SettingsTab;
   exportOpen: boolean;
+  /** Tool test results, kept while switching views (Tests.tsx). */
+  testResults: TestResult[];
+  /** The context budget dialog (Budget.tsx). */
+  budgetOpen: boolean;
   paletteOpen: boolean;
   toasts: Toast[];
 
@@ -99,6 +108,10 @@ interface State {
   rerun: (messageId: string) => Promise<void>;
 
   newChat: () => void;
+  /** A new chat in a workspace, switching to it. */
+  newChatIn: (workspaceId: string) => Promise<void>;
+  /** A new workspace with the current one's model, MCP servers and skills. */
+  createWorkspace: (name: string) => Promise<void>;
   openSession: (id: string) => Promise<void>;
   deleteSession: (id: string) => Promise<void>;
   /** Play a saved chat back with typing animation, no model needed (offline demos). */
@@ -110,6 +123,12 @@ interface State {
 
   set: (patch: Partial<State>) => void;
   openSettings: (tab?: SettingsTab) => void;
+  /** Bumped after trusting a server's tools, so security checks reload. */
+  securityVersion: number;
+  bumpSecurity: () => void;
+  /** Settings → MCP servers, on this server. */
+  openServer: (serverId: string) => void;
+  settingsServerId?: string;
   toggleTheme: () => void;
   clearEvents: () => Promise<void>;
   toast: (message: string, kind?: Toast["kind"]) => void;
@@ -175,12 +194,15 @@ export const useStore = create<State>((set, get) => ({
 
   view: "chat",
   sidebarOpen: pref("sidebar", true),
+  openPreview: (id) => set({ previewId: id }),
   inspectorOpen: pref("inspector", true),
   presenter: false,
   theme: document.documentElement.classList.contains("dark") ? "dark" : "light",
   settingsOpen: false,
   settingsTab: "models",
   exportOpen: false,
+  budgetOpen: false,
+  testResults: [],
   paletteOpen: false,
   toasts: [],
 
@@ -349,6 +371,18 @@ export const useStore = create<State>((set, get) => ({
     });
     const sessionId = base.id;
     const placeholder: UiMessage = { id: uid("a"), role: "assistant", parts: [], meta: {} };
+    // A document a tool returns opens in the preview pane, like a file an agent made (once per file).
+    const seenFiles = new Set<string>();
+    const autoPreview = (message: UiMessage) => {
+      for (const part of message.parts) {
+        if (part.type !== "tool" || part.status !== "done") continue;
+        for (const file of toolFiles(part, placeholder.id)) {
+          if (seenFiles.has(file.id)) continue;
+          seenFiles.add(file.id);
+          if (isDocument(previewKind(file.mediaType, file.name)) && get().session.id === sessionId) set({ previewId: file.id });
+        }
+      }
+    };
     set((s) => ({ session: { ...s.session, messages: [...s.session.messages, placeholder] } }));
 
     const result = await runTurn({
@@ -357,6 +391,7 @@ export const useStore = create<State>((set, get) => ({
       signal: controller.signal,
       onUpdate: (message) => {
         if (get().session.id !== sessionId) return;
+        autoPreview(message);
         set((s) => ({
           session: { ...s.session, messages: [...s.session.messages.slice(0, -1), { ...message, id: placeholder.id }] },
         }));
@@ -364,6 +399,9 @@ export const useStore = create<State>((set, get) => ({
     });
 
     if (get().session.id === sessionId) {
+      // A whole HTML page in the reply opens next to the chat, like a document a tool made.
+      const page = replyArtifacts({ ...result.message, id: placeholder.id }).filter((a) => a.mediaType === "text/html" && isFullPage("html", a.text ?? "")).pop();
+      if (page) set({ previewId: page.id });
       set((s) => ({
         streaming: false,
         controller: undefined,
@@ -420,7 +458,32 @@ export const useStore = create<State>((set, get) => ({
   newChat: () => {
     get().controller?.abort();
     set({ replaying: false });
-    set({ session: freshSession(get().config.activeWorkspaceId), view: "chat", streaming: false });
+    // In the current chat's workspace.
+    set({ session: freshSession(get().workspace().id), view: "chat", streaming: false, previewId: undefined });
+  },
+
+  newChatIn: async (workspaceId) => {
+    if (get().config.activeWorkspaceId !== workspaceId) await get().setActiveWorkspace(workspaceId);
+    get().controller?.abort();
+    set({ replaying: false, view: "chat", streaming: false, previewId: undefined, session: freshSession(workspaceId) });
+  },
+
+  createWorkspace: async (name) => {
+    const { config } = get();
+    const current = get().workspace();
+    const base = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "workspace";
+    let id = base;
+    for (let n = 2; config.workspaces.some((w) => w.id === id); n++) id = `${base}-${n}`;
+    const workspace = {
+      id,
+      name,
+      ...(current.llmId ? { llmId: current.llmId } : {}),
+      ...(current.agentId ? { agentId: current.agentId } : {}),
+      mcpServerIds: [...current.mcpServerIds],
+      skillIds: [...current.skillIds],
+    };
+    if (!(await get().saveConfig({ ...config, workspaces: [...config.workspaces, workspace] }, `Created ${name}`))) return;
+    await get().newChatIn(id);
   },
 
   openSession: async (id) => {
@@ -430,6 +493,7 @@ export const useStore = create<State>((set, get) => ({
       set({
         view: "chat",
         streaming: false,
+        previewId: undefined,
         session: {
           id: session.id,
           title: session.title,
@@ -439,6 +503,8 @@ export const useStore = create<State>((set, get) => ({
           modelMessages: session.data?.modelMessages ?? [],
         },
       });
+      // A chat from another workspace: make sure its MCP servers are up.
+      for (const sid of get().workspace().mcpServerIds) if ((get().mcp[sid]?.status ?? "idle") === "idle") void get().connectServer(sid);
     } catch (error: any) {
       get().toast(error?.message ?? "Could not open chat", "error");
     }
@@ -554,6 +620,9 @@ export const useStore = create<State>((set, get) => ({
   },
 
   openSettings: (tab) => set({ settingsOpen: true, settingsTab: tab ?? get().settingsTab }),
+  securityVersion: 0,
+  bumpSecurity: () => set({ securityVersion: get().securityVersion + 1 }),
+  openServer: (serverId) => set({ settingsOpen: true, settingsTab: "mcp", settingsServerId: serverId }),
 
   toggleTheme: () => {
     const theme = get().theme === "dark" ? "light" : "dark";
@@ -608,7 +677,8 @@ function toModelContent(text: string, attachments: Attachment[]): unknown[] {
   const parts: unknown[] = [];
   for (const a of attachments) {
     if (a.kind === "image" && a.dataUrl) parts.push({ type: "image", image: a.dataUrl, mediaType: a.mediaType });
-    else if (a.kind === "file" && a.dataUrl) parts.push({ type: "file", data: a.dataUrl, mediaType: a.mediaType, filename: a.name });
+    // The text read from a PDF or Word file rides along, for models that can't take the file (see adaptAttachments in core).
+    else if (a.kind === "file" && a.dataUrl) parts.push({ type: "file", data: a.dataUrl, mediaType: a.mediaType, filename: a.name, ...(a.text ? { providerOptions: { moka: { text: a.text } } } : {}) });
     else if (a.kind === "resource") parts.push({ type: "text", text: `<resource uri="${a.uri}" server="${a.serverId}">\n${a.text ?? ""}\n</resource>` });
     else parts.push({ type: "text", text: `<file name="${a.name}">\n${a.text ?? ""}\n</file>` });
   }

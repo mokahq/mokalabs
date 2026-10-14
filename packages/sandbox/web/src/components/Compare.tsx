@@ -1,9 +1,9 @@
-import { Clock, Coins, GitCompareArrows, Hammer, Plus, Timer, X } from "lucide-react";
+import { Clock, Coins, Gauge, GitCompareArrows, Hammer, Plus, Timer, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { runTurn, uid } from "../runner";
 import { useStore } from "../store";
 import type { UiMessage } from "../types";
-import { Composer, ToolCard } from "./Chat";
+import { Composer, ToolCard, tokensPerSecond } from "./Chat";
 import { Markdown } from "./Markdown";
 import { ToolUi } from "./ToolUi";
 import { Button, Empty, IconButton, Select, Spinner, cn, formatMs, formatNumber } from "./ui";
@@ -157,6 +157,11 @@ function LaneView({ lane, busy, canRemove, onModel, onRemove }: { lane: Lane; bu
         <span className="inline-flex items-center gap-1" title="Time to first token (last turn)">
           <Timer className="h-3 w-3" /> {formatMs(last?.meta?.firstTokenMs) || "–"}
         </span>
+        {last?.meta && tokensPerSecond(last.meta, last.parts.filter((p) => p.type === "tool").length) && (
+          <span className="inline-flex items-center gap-1" title="Output tokens per second (last turn, without tool calls)">
+            <Gauge className="h-3 w-3" /> {tokensPerSecond(last.meta, 0)} tok/s
+          </span>
+        )}
         <span className="inline-flex items-center gap-1" title="Tokens">
           <Coins className="h-3 w-3" /> {formatNumber(totals.tokens || undefined)}
         </span>

@@ -25,6 +25,14 @@ npx @mokalabs/sandbox
 
 ---
 
+## Test your tools across models
+
+Write prompts with the tools a model should (and shouldn't) call, and run them on local and cloud models at once, several times each. See which model picks the right tool with the right arguments, and why a run failed. **Suggest tests** writes a first set from your tools.
+
+<img src="docs/assets/tests.gif" alt="Moka suggests four tool tests, runs them three times on two local models, and shows a failed run's wrong argument" width="100%" />
+
+Tests live in your `moka.json`, and `npx @mokalabs/sandbox test --models a,b --runs 3` runs them in CI (exit code 1 on failure). Tools that may write don't run during tests. [Tool tests guide →](https://mokalabs.dev/guides/tests/)
+
 ## Compare models
 
 Run one prompt against several models with the same MCP tools, side by side: answers, tool calls, latency and tokens.
@@ -39,7 +47,7 @@ Pick any tool, resource or prompt from your MCP servers and run it from a form g
 
 <img src="docs/assets/tools.gif" alt="The Tools view: a form for get_time, then slow_backtest with live progress, every call in the inspector" width="100%" />
 
-stdio, Streamable HTTP and SSE servers, with OAuth sign-in, elicitation and sampling. Add servers from a gallery or paste your Claude Desktop, Cursor or VS Code `mcp.json`. [Tool runner guide →](https://mokalabs.dev/guides/tool-runner/)
+stdio, Streamable HTTP and SSE servers, with OAuth sign-in, elicitation and sampling, on MCP 2026-07-28 and the 2025 revisions ([what changed →](https://mokalabs.dev/guides/mcp-2026/)). Add servers from a gallery or paste your Claude Desktop, Cursor or VS Code `mcp.json`. [Tool runner guide →](https://mokalabs.dev/guides/tool-runner/)
 
 ## See what your AI editor sends to your MCP servers
 
@@ -62,6 +70,14 @@ Chat with any model and your MCP servers. The inspector shows every LLM step, to
 
 Retries of a tool call are grouped as attempts, with a warning when a retry may have written twice. You can also see a call's arguments as the model streamed them and as the server received them. [Inspector guide →](https://mokalabs.dev/guides/inspector/)
 
+## Pages, diagrams and files, next to the chat
+
+Ask any model for an HTML dashboard and it opens beside the chat; Mermaid diagrams draw in place. Documents your tools make (PDF, Word, HTML, CSV) open there too. Attach PDFs and Word files: models that read PDFs get the file, and local models (LM Studio, Ollama) get its text, read in your browser.
+
+<img src="docs/assets/files.gif" alt="A model writes an HTML dashboard that opens next to the chat and draws a Mermaid diagram; a tool makes a PDF; an attached PDF opens too" width="100%" />
+
+Pages run sandboxed, and a banner shows any host they load from, with one click to block it. MCP servers can return files as images, embedded resources or resource links. [Files guide →](https://mokalabs.dev/guides/chat/)
+
 ## Generative UI, from your own agent
 
 Point Moka at a LangGraph, CopilotKit or ADK agent over AG-UI or A2A, and get a chat UI, generative UI and the inspector for it. Tools that answer with [A2UI](https://github.com/google/A2UI) render as real forms and cards. Button presses go back to the agent.
@@ -70,10 +86,15 @@ Point Moka at a LangGraph, CopilotKit or ADK agent over AG-UI or A2A, and get a 
 
 The agent in this clip is in [`examples/langgraph-a2ui`](examples/langgraph-a2ui). Moka also renders [MCP Apps](https://github.com/modelcontextprotocol/ext-apps), and any model can answer with A2UI through the built-in `render_ui` tool. [Generative UI guide →](https://mokalabs.dev/generative-ui/overview/)
 
+## Know what your MCP servers tell the model
+
+- **Security check.** Every server is checked as it connects: hidden instructions (`<IMPORTANT>`, "don't tell the user"), invisible characters, requests for SSH keys or `mcp.json`, tools shadowing another server's, and tools that **changed since you trusted them**, with a before/after diff. Servers your editor uses are checked too, through the proxy. [Security guide →](https://mokalabs.dev/guides/security/)
+- **Context budget.** Tool definitions go with every message. Moka shows how many tokens each server and tool costs, and lets you hide the ones a workspace doesn't need. [MCP servers guide →](https://mokalabs.dev/guides/mcp-servers/)
+
 ## More
 
 - **Agent Skills.** Point Moka at a `SKILL.md` folder (including `~/.claude/skills`). Skills load on demand, the same way Claude loads them.
-- **Workspaces.** Model + MCP servers + skills + system prompt + starter prompts, one per demo. Presenter mode, tool approvals and a ⌘K palette help with live demos.
+- **Workspaces.** Model + MCP servers + skills + system prompt + starter prompts, one per demo, with chats grouped by workspace in the sidebar. Presenter mode, tool approvals and a ⌘K palette help with live demos.
 - **Replay.** Replay any saved chat offline, with no model calls.
 - **Export to code.** Turn a workspace into Vercel AI SDK (TypeScript) or LangGraph (Python) code, or an `mcp.json`.
 - **Works at work.** `HTTPS_PROXY`/`NO_PROXY`, custom CAs, and a zero-dependency package for curated registries.

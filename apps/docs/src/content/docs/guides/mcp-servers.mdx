@@ -81,6 +81,16 @@ Tools are exposed to models as `<serverId>__<toolName>` (sanitised to letters, n
 Tools that declare MCP Apps `visibility: ["app"]` are never shown to the model — only their UI can call them. See [MCP Apps](/generative-ui/mcp-apps/).
 </Aside>
 
+## Context budget
+
+Every tool definition is sent to the model with every message, before the conversation even starts. The badge on an empty chat shows the total (*15 tools · 2 servers · ≈3.2k tokens*); click it to see where the tokens go: system prompt, skills, server instructions and each tool, biggest first, with a switch to hide each tool. Settings shows the same estimate next to each tool.
+
+It warns when the total takes more than half of an 8K context window (a common setting for local models), or when there are more than 40 tools, where models start picking the wrong one. Estimates use about 4 characters per token; the inspector has each step's exact input tokens.
+
+## Security check
+
+Moka checks each server's tools for hidden instructions, invisible characters, requests for secrets, shadowing and changes since you first connected. See [Security check](/guides/security/).
+
 ## Connection lifecycle
 
 - Servers connect **lazily** — when a workspace that uses them is opened, when you chat, or when you click **Connect**.

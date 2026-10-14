@@ -228,6 +228,7 @@ export function ProxyView() {
             {stats.errors > 0 && <Chip tone="err">{stats.errors} error{stats.errors === 1 ? "" : "s"}</Chip>}
             {latest && <Chip>{latest.live ? "running" : `stopped ${timeAgo(latest.endedAt ?? latest.lastAt)}`}</Chip>}
             {latest?.clientInfo?.name && <Chip>client: {latest.clientInfo.name} {latest.clientInfo.version}</Chip>}
+            {latest?.protocolVersion && <Chip>MCP {latest.protocolVersion}</Chip>}
             <span className="flex-1" />
             <ExportMenu onExport={(redact) => void exportSessions(groups.flatMap((g) => g.sessions.map((s) => s.id)), [client?.client, server?.name], redact)} />
             <div className="flex flex-wrap gap-1">

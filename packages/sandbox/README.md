@@ -27,6 +27,12 @@ Any model, any MCP server. The inspector shows every LLM step, tool call and raw
 
 ![A chat with MCP tool calls, then the inspector's paired JSON-RPC request and response](https://raw.githubusercontent.com/mokahq/mokalabs/main/docs/assets/chat.gif)
 
+## Test your tools across models
+
+Prompts with the tools a model should (and shouldn't) call, run on several models, several times each. **Suggest tests** writes a first set from your tools; `moka test` runs them in CI.
+
+![Tool tests run on two local models, three times each, with a failed run's wrong argument](https://raw.githubusercontent.com/mokahq/mokalabs/main/docs/assets/tests.gif)
+
 ## Compare models
 
 One prompt, the same MCP tools, several models side by side: answers, tool calls, latency and tokens.
@@ -49,6 +55,16 @@ npx @mokalabs/sandbox        # → Proxy tab
 ```
 
 ![Each editor's MCP traffic in the Proxy tab, with a timed-out call and its retry flagged](https://raw.githubusercontent.com/mokahq/mokalabs/main/docs/assets/proxy.gif)
+
+## Pages, diagrams and files
+
+HTML pages a model writes open next to the chat, Mermaid diagrams draw in place, and documents your tools make (PDF, Word, HTML, CSV) open there too. Attach PDFs and Word files: local models (LM Studio, Ollama) get their text, read in your browser.
+
+![An HTML dashboard opens next to the chat, a Mermaid diagram draws in place, a tool makes a PDF](https://raw.githubusercontent.com/mokahq/mokalabs/main/docs/assets/files.gif)
+
+## Security check and context budget
+
+Every MCP server is checked for tool poisoning, invisible characters, shadowing and tools that change after you trusted them. And Moka shows how many tokens each server's tool definitions cost on every request.
 
 ## Generative UI, from your own agent
 
@@ -82,6 +98,7 @@ moka [config.json] [options]          after: npm i -g @mokalabs/sandbox
 moka init                             write a starter moka.json in this folder
 moka demo-server                      run the bundled demo MCP server on stdio
 moka demo-agent [--port]              run a demo A2A + AG-UI agent
+moka test [config.json] [--models a,b] [--runs n]   run tool tests (CI)
 
 -p, --port <n>        port (default 4000, or $PORT)
 -H, --host <host>     interface to bind (default 127.0.0.1)

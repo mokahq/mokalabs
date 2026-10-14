@@ -50,4 +50,6 @@ Try it: *"Brainstorm names for a dino café"* calls the demo server's `brainstor
 | `"auto"` | Allow without asking |
 | `"deny"` | Don't advertise sampling to this server |
 
+With MCP 2026-07-28 servers, both arrive inside the tool call (`input_required`) instead of as separate requests, and Moka calls the tool again with your answer. You see the same prompts. See [MCP 2026-07-28](/guides/mcp-2026/#how-sampling-works-now).
+
 Both requests go through the same queue as [tool approvals](/guides/approvals/). They're cancelled if you stop the chat, and appear in the inspector as `interaction.request` / `interaction.resolved`.
