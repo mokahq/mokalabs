@@ -4,6 +4,8 @@ import {
   discoverSkills,
   errorMessage,
   exportCode,
+  detectLmStudio,
+  detectOllama,
   importMcpJson,
   loadCatalog,
   loadSkill,
@@ -57,6 +59,7 @@ const ENV_HINTS = [
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
+  ".mjs": "text/javascript; charset=utf-8",
   ".css": "text/css; charset=utf-8",
   ".svg": "image/svg+xml",
   ".png": "image/png",
@@ -116,6 +119,23 @@ export function createApp(options: ServerOptions): Hono {
   });
 
   // --- bootstrap / config -----------------------------------------------------
+  // What the model reads before every conversation (system prompt, skills, tools), estimated in tokens.
+  app.get("/api/budget", async (c) => c.json(await engine.contextBudget(c.req.query("workspaceId") || undefined)));
+
+  // The security check of the workspace's connected MCP servers (tool poisoning, shadowing, changed tools).
+  app.get("/api/security", async (c) => c.json({ servers: await engine.securityReport(c.req.query("workspaceId") || undefined) }));
+  app.post("/api/security/:id/trust", async (c) => {
+    await engine.trustTools(c.req.param("id"));
+    return c.json({ ok: true, report: await engine.serverSecurity(c.req.param("id")) });
+  });
+
+  // Local model servers running right now (Ollama, LM Studio), to offer adding them.
+  app.get("/api/local-models", async (c) => {
+    const ollamaHost = env.OLLAMA_HOST ? (env.OLLAMA_HOST.startsWith("http") ? env.OLLAMA_HOST : `http://${env.OLLAMA_HOST}`).replace(/\/+$/, "") : undefined;
+    const [ollama, lmstudio] = await Promise.all([detectOllama(ollamaHost), detectLmStudio()]);
+    return c.json({ ollama, lmstudio });
+  });
+
   app.get("/api/bootstrap", async (c) => {
     const config = engine.getConfig();
     const [skills, catalogs] = await Promise.all([engine.loadSkills(), engine.loadCatalogs()]);
@@ -373,6 +393,34 @@ export function createApp(options: ServerOptions): Hono {
         await s.write(`${JSON.stringify(chunk)}\n`);
       }
     });
+  });
+
+  // --- Tool tests: a workspace's tests on several models, results as they finish ---
+  app.post("/api/tests/run", async (c) => {
+    const req = await body<{ workspaceId?: string; llmIds: string[]; runs?: number; toolMode?: "run" | "read-only" | "none"; testIds?: string[] }>(c);
+    if (!Array.isArray(req.llmIds) || req.llmIds.length === 0) return badRequest(c, "llmIds must list at least one model");
+    if (req.toolMode && !["run", "read-only", "none"].includes(req.toolMode)) return badRequest(c, "toolMode must be run, read-only or none");
+    c.header("Content-Type", "application/x-ndjson; charset=utf-8");
+    c.header("Cache-Control", "no-cache, no-transform");
+    c.header("X-Accel-Buffering", "no");
+    const controller = new AbortController();
+    c.req.raw.signal?.addEventListener("abort", () => controller.abort(), { once: true });
+    return stream(c, async (s) => {
+      s.onAbort(() => controller.abort());
+      for await (const result of engine.runTests({ ...req, signal: controller.signal })) {
+        if (s.aborted) break;
+        await s.write(`${JSON.stringify(result)}\n`);
+      }
+    });
+  });
+
+  app.post("/api/tests/suggest", async (c) => {
+    const req = await body<{ workspaceId?: string; count?: number }>(c);
+    try {
+      return c.json({ tests: await engine.suggestTests(req.workspaceId, req.count) });
+    } catch (error) {
+      return c.json({ error: errorMessage(error) }, 400);
+    }
   });
 
   // --- Inspector event stream -------------------------------------------------

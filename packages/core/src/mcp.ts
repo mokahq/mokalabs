@@ -1,21 +1,6 @@
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
-import { getDefaultEnvironment, StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { auth, UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js";
-import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
-import {
-  CreateMessageRequestSchema,
-  ElicitRequestSchema,
-  PromptListChangedNotificationSchema,
-  ResourceListChangedNotificationSchema,
-  ResourceUpdatedNotificationSchema,
-  ToolListChangedNotificationSchema,
-  ErrorCode,
-  McpError,
-  type CreateMessageRequest,
-  type CreateMessageResult,
-} from "@modelcontextprotocol/sdk/types.js";
+import { getDefaultEnvironment, StdioClientTransport } from "@modelcontextprotocol/client/stdio";
+import { auth, Client, ProtocolError, ProtocolErrorCode, SdkError, SdkErrorCode, SSEClientTransport, StreamableHTTPClientTransport, UnauthorizedError } from "@modelcontextprotocol/client";
+import type { Transport, CreateMessageRequest, CreateMessageResult, McpSubscription, VersionNegotiationOptions } from "@modelcontextprotocol/client";
 import type { InteractionBroker } from "./interactions.js";
 import { MokaOAuthProvider, oauthSettings, type OAuthStore } from "./oauth.js";
 import { resolveRecord, resolveSecret, type McpServerConfig } from "./config.js";
@@ -62,6 +47,8 @@ export interface McpServerState {
   oauth?: { signedIn: boolean };
   /** HTTP/SSE servers: the latest exchange with the endpoint, secret values masked. */
   http?: HttpExchange;
+  /** The negotiated MCP revision: `modern` is 2026-07-28 and later (no handshake, `server/discover`). */
+  protocol?: { version?: string; era: "modern" | "legacy" };
 }
 
 interface Connection {
@@ -76,6 +63,11 @@ interface Connection {
   calls?: { tool: string; args: string; callId: string }[];
   /** Ids of recent late replies (answers to requests Moka had cancelled). */
   late?: Set<string>;
+  /** 2026-07-28 servers: the open `subscriptions/listen` stream. */
+  listening?: McpSubscription;
+  tracker?: RpcTracker;
+  /** A `server/discover` went over this connection's transport. */
+  discovered?: boolean;
 }
 
 /** Host hooks for server-initiated requests (elicitation, sampling). */
@@ -209,6 +201,8 @@ export class McpManager {
         conn.client = client;
         conn.transport = transport;
         await withTimeout(client.connect(transport, { timeout }), timeout, `Timed out connecting to ${config.name}`);
+        state.protocol = { version: client.getNegotiatedProtocolVersion(), era: client.getProtocolEra() ?? "legacy" };
+        this.showProbe(conn, client, started);
 
         const caps = client.getServerCapabilities() ?? {};
         const info = client.getServerVersion();
@@ -220,12 +214,14 @@ export class McpManager {
           state.resources = await this.listAllResources(client);
           state.resourceTemplates = await this.listAllTemplates(client);
           state.canSubscribe = Boolean((caps.resources as { subscribe?: boolean }).subscribe);
-          // Keep subscriptions across reconnects.
-          const wanted = [...(this.subscriptions.get(config.id) ?? [])];
-          if (state.canSubscribe) {
-            await Promise.all(wanted.map((uri) => client.subscribeResource({ uri }).catch(() => undefined)));
-            state.subscriptions = wanted;
-          }
+        }
+        // Keep subscriptions across reconnects.
+        const wanted = [...(this.subscriptions.get(config.id) ?? [])];
+        if (state.protocol.era === "modern") {
+          await this.relisten(conn).catch(() => undefined);
+        } else if (state.canSubscribe) {
+          await Promise.all(wanted.map((uri) => client.subscribeResource({ uri }).catch(() => undefined)));
+          state.subscriptions = wanted;
         }
         state.status = "connected";
         state.error = undefined;
@@ -259,15 +255,33 @@ export class McpManager {
     return conn.pending;
   }
 
+  /**
+   * On stdio the SDK asks `server/discover` on a short-lived copy of the
+   * server, so the exchange never crosses the session's pipe. Show it in the
+   * RPC log anyway, marked as such, so the negotiation isn't invisible.
+   */
+  private showProbe(conn: Connection, client: Client, started: number): void {
+    const { config, state, tracker } = conn;
+    if (conn.discovered || !tracker || protocolSetting(config) === "2025") return;
+    const discover = client.getDiscoverResult();
+    if (state.protocol?.era === "modern" && discover) {
+      const request = { jsonrpc: "2.0", id: "discover", method: "server/discover", params: {} };
+      tracker.record("out", request, started, { title: "server/discover · asked on a separate copy of the server" });
+      tracker.record("in", { jsonrpc: "2.0", id: "discover", result: discover }, Date.now(), { title: `result · server/discover: ${state.protocol.version}` });
+    } else if (state.protocol?.era === "legacy") {
+      this.bus.emit({ kind: "mcp.log", level: "info", serverId: config.id, title: `${config.name}: doesn't support server/discover, using MCP 2025 (initialize)` });
+    }
+  }
+
   /** A client that can answer elicitation and sampling requests when the host supports them. */
   private createClient(config: McpServerConfig): Client {
     const { interactions, sample } = this.hooks;
     const capabilities: Record<string, object> = {};
     if (interactions) capabilities.elicitation = { form: {}, url: {} };
     if (interactions && sample && config.sampling !== "deny") capabilities.sampling = {};
-    const client = new Client(CLIENT_INFO, { capabilities });
+    const client = new Client(CLIENT_INFO, { capabilities, versionNegotiation: versionNegotiation(config) });
     if (capabilities.elicitation) {
-      client.setRequestHandler(ElicitRequestSchema, async (request, extra) => {
+      client.setRequestHandler("elicitation/create", async (request, ctx) => {
         const params = request.params as any;
         const url = params.mode === "url";
         const answer = await interactions!.request(
@@ -280,14 +294,14 @@ export class McpManager {
             requestedSchema: url ? undefined : params.requestedSchema,
             url: url ? params.url : undefined,
           },
-          extra.signal,
+          ctx.mcpReq.signal,
         );
         if (answer.action !== "accept") return { action: answer.action };
         return url ? { action: "accept" } : { action: "accept", content: (answer.content ?? {}) as Record<string, string | number | boolean | string[]> };
       });
     }
     if (capabilities.sampling) {
-      client.setRequestHandler(CreateMessageRequestSchema, async (request, extra) => {
+      client.setRequestHandler("sampling/createMessage", async (request, ctx) => {
         const params = request.params;
         if (config.sampling !== "auto") {
           const answer = await interactions!.request(
@@ -300,11 +314,11 @@ export class McpManager {
               maxTokens: params.maxTokens,
               modelHint: params.modelPreferences?.hints?.[0]?.name,
             },
-            extra.signal,
+            ctx.mcpReq.signal,
           );
-          if (!answer.approved) throw new McpError(ErrorCode.InvalidRequest, "User rejected sampling request");
+          if (!answer.approved) throw new ProtocolError(ProtocolErrorCode.InvalidRequest, "User rejected sampling request");
         }
-        return sample!(params, config, extra.signal);
+        return sample!(params, config, ctx.mcpReq.signal);
       });
     }
     return client;
@@ -313,7 +327,7 @@ export class McpManager {
   /** React to server-pushed notifications: resource updates and list changes. */
   private listen(conn: Connection, client: Client): void {
     const { config, state } = conn;
-    client.setNotificationHandler(ResourceUpdatedNotificationSchema, (notification) => {
+    client.setNotificationHandler("notifications/resources/updated", (notification) => {
       const uri = notification.params.uri;
       this.bus.emit({ kind: "resource.updated", serverId: config.id, title: `${config.name}: ${uri} updated`, data: { uri } });
     });
@@ -325,18 +339,18 @@ export class McpManager {
         // the next reconnect will pick it up
       }
     };
-    client.setNotificationHandler(ResourceListChangedNotificationSchema, () =>
+    client.setNotificationHandler("notifications/resources/list_changed", () =>
       refresh("resources", async () => {
         state.resources = await this.listAllResources(client);
         state.resourceTemplates = await this.listAllTemplates(client);
       }),
     );
-    client.setNotificationHandler(ToolListChangedNotificationSchema, () =>
+    client.setNotificationHandler("notifications/tools/list_changed", () =>
       refresh("tools", async () => {
         state.tools = await this.listAllTools(client);
       }),
     );
-    client.setNotificationHandler(PromptListChangedNotificationSchema, () =>
+    client.setNotificationHandler("notifications/prompts/list_changed", () =>
       refresh("prompts", async () => {
         state.prompts = (await client.listPrompts()).prompts as any;
       }),
@@ -505,7 +519,11 @@ export class McpManager {
         setTimeout(() => late.delete(rpcId), 10_000).unref?.();
       },
     });
-    const record = (direction: "in" | "out", message: any) => void tracker.record(direction, message);
+    conn.tracker = tracker;
+    const record = (direction: "in" | "out", message: any) => {
+      if (message?.method === "server/discover") conn.discovered = true;
+      tracker.record(direction, message);
+    };
 
     const send = transport.send.bind(transport);
     transport.send = async (message, options) => {
@@ -563,7 +581,7 @@ export class McpManager {
     const pending = options.callId ? { tool: toolName, args: stableJson(args), callId: options.callId } : undefined;
     if (pending) (conn.calls ??= []).push(pending);
     try {
-      const result = await conn.client.callTool({ name: toolName, arguments: args }, undefined, {
+      const result = await conn.client.callTool({ name: toolName, arguments: args }, {
         signal: options.signal,
         timeout,
         resetTimeoutOnProgress: config.resetTimeoutOnProgress ?? true,
@@ -586,7 +604,7 @@ export class McpManager {
       return result as any;
     } catch (error: any) {
       if (options.signal?.aborted) throw withErrorClass(error, "cancelled");
-      if (error?.code === ErrorCode.RequestTimeout) {
+      if (error?.code === SdkErrorCode.RequestTimeout) {
         throw withErrorClass(
           new Error(
             `No answer from ${config.name} after ${formatWait(timeout)} (tool timeout), so Moka stopped waiting. The server may still be working; a late reply shows up in the inspector.`,
@@ -594,9 +612,12 @@ export class McpManager {
           "timeout",
         );
       }
-      // A JSON-RPC error, or a reply that doesn't parse: the server answered. A dropped connection is an
-      // McpError too (ConnectionClosed); anything else (network, HTTP, crash) is the transport.
-      const answered = (error instanceof McpError && error.code !== ErrorCode.ConnectionClosed) || error?.name === "ZodError";
+      // The server answered: a JSON-RPC error, a reply that doesn't parse, or a multi-round-trip flow that never finished.
+      // A dropped connection, a send failure, network, HTTP or a crash is the transport.
+      const answered =
+        error instanceof ProtocolError ||
+        (error instanceof SdkError && (error.code === SdkErrorCode.InvalidResult || error.code === SdkErrorCode.InputRequiredRoundsExceeded)) ||
+        error?.name === "ZodError";
       if (answered) throw withErrorClass(error, "protocol");
       throw withErrorClass(error, "transport");
     } finally {
@@ -615,8 +636,14 @@ export class McpManager {
     const conn = this.connections.get(serverId);
     if (!conn?.client) throw new Error("Server not connected");
     if (!conn.state.canSubscribe) throw new Error(`${conn.config.name} does not support resource subscriptions`);
-    await conn.client.subscribeResource({ uri });
     const set = this.subscriptions.get(serverId) ?? new Set<string>();
+    if (conn.state.protocol?.era === "modern") {
+      set.add(uri);
+      this.subscriptions.set(serverId, set);
+      await this.relisten(conn);
+      return conn.state.subscriptions;
+    }
+    await conn.client.subscribeResource({ uri });
     set.add(uri);
     this.subscriptions.set(serverId, set);
     conn.state.subscriptions = [...set];
@@ -627,9 +654,51 @@ export class McpManager {
     const conn = this.connections.get(serverId);
     const set = this.subscriptions.get(serverId);
     set?.delete(uri);
+    if (conn?.client && conn.state.protocol?.era === "modern") {
+      await this.relisten(conn).catch(() => undefined);
+      return conn.state.subscriptions;
+    }
     if (conn?.client && conn.state.canSubscribe) await conn.client.unsubscribeResource({ uri }).catch(() => undefined);
     if (conn) conn.state.subscriptions = [...(set ?? [])];
     return conn?.state.subscriptions ?? [];
+  }
+
+  /**
+   * 2026-07-28 has no `resources/subscribe` and no unsolicited notifications:
+   * the client opens one `subscriptions/listen` stream with everything it
+   * wants. Changing the set means replacing the stream.
+   */
+  private async relisten(conn: Connection): Promise<void> {
+    const { client, config, state } = conn;
+    if (!client) return;
+    const previous = conn.listening;
+    conn.listening = undefined;
+    await previous?.close().catch(() => undefined);
+    const caps = client.getServerCapabilities() ?? {};
+    const wanted = [...(this.subscriptions.get(config.id) ?? [])];
+    const filter = {
+      ...((caps.tools as { listChanged?: boolean } | undefined)?.listChanged ? { toolsListChanged: true } : {}),
+      ...((caps.prompts as { listChanged?: boolean } | undefined)?.listChanged ? { promptsListChanged: true } : {}),
+      ...((caps.resources as { listChanged?: boolean } | undefined)?.listChanged ? { resourcesListChanged: true } : {}),
+      ...(state.canSubscribe && wanted.length ? { resourceSubscriptions: wanted } : {}),
+    };
+    if (!Object.keys(filter).length) {
+      state.subscriptions = [];
+      return;
+    }
+    const subscription = await client.listen(filter);
+    const opened = Date.now();
+    conn.listening = subscription;
+    state.subscriptions = subscription.honoredFilter.resourceSubscriptions ?? [];
+    void subscription.closed.then((how) => {
+      if (conn.listening !== subscription || how === "local") return;
+      conn.listening = undefined;
+      if (this.connections.get(config.id) !== conn || state.status !== "connected") return;
+      const lost = () => this.bus.emit({ kind: "mcp.log", level: "warn", serverId: config.id, title: `${config.name}: the server closed the subscription stream (${how})` });
+      // The stream dropped: open it again, unless the server keeps closing it straight away.
+      if (Date.now() - opened < 5_000) return lost();
+      void this.relisten(conn).catch(lost);
+    });
   }
 
   async getPrompt(serverId: string, name: string, args: Record<string, string> = {}): Promise<unknown> {
@@ -643,6 +712,9 @@ export class McpManager {
     if (!conn) return;
     this.connections.delete(id);
     await conn.pending?.catch(() => {});
+    const listening = conn.listening;
+    conn.listening = undefined;
+    await listening?.close().catch(() => {});
     await conn.client?.close().catch(() => {});
     await conn.transport?.close().catch(() => {});
     conn.state.status = "idle";
@@ -663,9 +735,25 @@ export class McpManager {
       serverId: state.id,
       level: state.status === "error" ? "error" : "info",
       durationMs,
-      data: { status: state.status, error: state.error, serverInfo: state.serverInfo, tools: state.tools.length },
+      data: { status: state.status, error: state.error, serverInfo: state.serverInfo, tools: state.tools.length, protocol: state.protocol },
     });
   }
+}
+
+/** The MCP revision to speak, from the server's `protocol` setting (see McpServerConfig). */
+export function protocolSetting(config: McpServerConfig): "auto" | "2025" | "2026" {
+  if (config.protocol) return config.protocol;
+  if (config.command === "moka:demo") return "auto";
+  return config.transport === "http" ? "auto" : "2025";
+}
+
+function versionNegotiation(config: McpServerConfig): VersionNegotiationOptions | undefined {
+  const setting = protocolSetting(config);
+  if (setting === "2026") return { mode: { pin: "2026-07-28" } };
+  // A legacy server answers the probe with an error straight away; one that
+  // ignores it is legacy too on stdio. Don't make it wait for the full timeout.
+  if (setting === "auto") return { mode: "auto", probe: { timeoutMs: Math.min(config.timeoutMs ?? 10_000, 10_000) } };
+  return undefined;
 }
 
 /** The tool-call timeout for a server. */

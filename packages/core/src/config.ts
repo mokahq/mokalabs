@@ -78,6 +78,13 @@ export const mcpServerSchema = z.object({
       z.object({ clientId: z.string().optional(), clientSecret: z.string().optional(), scopes: z.array(z.string()).optional() }),
     ])
     .optional(),
+  /**
+   * MCP protocol revision. `2025` is the classic handshake (2025-11-25 and
+   * earlier); `2026` requires 2026-07-28; `auto` asks the server with
+   * `server/discover` and falls back to 2025. Default: `auto` for http,
+   * `2025` for stdio and sse.
+   */
+  protocol: z.enum(["auto", "2025", "2026"]).optional(),
   /** MCP sampling requests from this server: ask the user (default), allow, or refuse. */
   sampling: z.enum(["ask", "auto", "deny"]).optional(),
   /**
@@ -170,6 +177,23 @@ export const generativeUiSchema = z.object({
 });
 export type GenerativeUiConfig = z.infer<typeof generativeUiSchema>;
 
+/** A tool test: a prompt, and what a model should (and shouldn't) do with the workspace's tools. */
+export const toolTestSchema = z.object({
+  id: z.string().min(1),
+  /** A short name; the prompt is shown when it's missing. */
+  name: z.string().optional(),
+  prompt: z.string().min(1),
+  /** MCP tools the model must call (any order). */
+  expectTools: z.array(z.string()).optional(),
+  /** Tools the model must not call (negative tests). */
+  forbidTools: z.array(z.string()).optional(),
+  /** Arguments the expected tools must be called with, by tool name (partial match; strings ignore case). */
+  expectArgs: z.record(z.string(), z.record(z.string(), z.unknown())).optional(),
+  /** Text the final answer must contain (ignoring case). */
+  answerIncludes: z.array(z.string()).optional(),
+});
+export type ToolTest = z.infer<typeof toolTestSchema>;
+
 export const workspaceSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
@@ -185,6 +209,8 @@ export const workspaceSchema = z.object({
   generativeUi: z.union([z.boolean(), generativeUiSchema]).optional(),
   /** Ask before every MCP tool call in this workspace (overrides per-server settings). */
   requireApproval: z.boolean().optional(),
+  /** Tool tests for this workspace's servers, run across models (Tests view, `moka test`). */
+  tests: z.array(toolTestSchema).optional(),
 });
 export type Workspace = z.infer<typeof workspaceSchema>;
 

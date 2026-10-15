@@ -421,8 +421,9 @@ function indexAttempts(events: MokaEvent[]) {
       const attempt = byCall.get(d.id);
       if (attempt) attempt.end = e;
     } else if (e.rpc?.callId && e.rpc.method === "tools/call" && !e.rpc.pairId) {
+      // Later rounds of a 2026-07-28 call (retried with the client's answers) are the same attempt.
       const attempt = byCall.get(e.rpc.callId);
-      if (attempt) attempt.request = e;
+      if (attempt && !e.rpc.round) attempt.request = e;
     }
   }
   return { byCall, byLineage };
@@ -628,6 +629,10 @@ export function requestStatus(e: MokaEvent, answers: Map<string, MokaEvent[]>): 
     };
   }
   if (cancelled) return { label: late ? "cancelled · late reply" : "cancelled", tone: "border-warn/30 bg-warn/10 text-warn", title: `Cancelled after ${formatMs(cancelled.durationMs)}${late ? `; the server still replied after ${formatMs(late.durationMs)} (ignored)` : ""}.` };
+  if (reply?.rpc?.inputRequired) {
+    const asks = reply.rpc.inputRequired.map((a) => a.method).join(", ");
+    return { label: `input required · ${formatMs(reply.durationMs)}`, tone: "border-accent/30 bg-accent/10 text-accent", title: `The server needs ${asks || "input"} first; the client sends the request again with the answers (MCP 2026-07-28).` };
+  }
   if (reply?.rpc?.outcome === "error") return { label: `error · ${formatMs(reply.durationMs)}`, tone: "border-err/30 bg-err/10 text-err", title: "The server answered with a JSON-RPC error." };
   if (reply) return { label: formatMs(reply.durationMs), tone: "border-line text-subtle", title: "Time until the response arrived" };
   return { label: "waiting…", tone: "border-line text-subtle", title: "No response yet" };

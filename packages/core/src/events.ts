@@ -68,6 +68,13 @@ export interface RpcLink {
   outcome?: "ok" | "error" | "cancelled" | "late" | "unanswered";
   /** For `tools/call`: the tool call (`tool.call` event `data.id`) this message belongs to. */
   callId?: string;
+  /**
+   * MCP 2026-07-28 multi-round-trip requests: on a result, what the server
+   * asked the client for (`input_required`), by key and method; on a request,
+   * which round of the same call this is (2 = the first retry with answers).
+   */
+  inputRequired?: Array<{ key: string; method: string }>;
+  round?: number;
 }
 
 export type MokaEventInput = Omit<MokaEvent, "id" | "ts"> & { ts?: number };

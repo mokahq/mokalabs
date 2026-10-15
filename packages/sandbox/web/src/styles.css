@@ -98,6 +98,13 @@ body {
   box-shadow: var(--shadow);
 }
 
+/* Behind images in the preview pane, so transparent areas read as transparent. */
+.checkerboard {
+  background-color: var(--panel-2);
+  background-image: conic-gradient(var(--line) 25%, transparent 0 50%, var(--line) 0 75%, transparent 0);
+  background-size: 16px 16px;
+}
+
 .bg-grid {
   background-image: radial-gradient(color-mix(in srgb, var(--fg) 7%, transparent) 1px, transparent 1px);
   background-size: 18px 18px;

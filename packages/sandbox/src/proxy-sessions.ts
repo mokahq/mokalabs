@@ -1,6 +1,6 @@
 import { closeSync, openSync, readdirSync, readSync, statSync } from "node:fs";
 import path from "node:path";
-import { RpcTracker, stableJson, type EventBus } from "@mokalabs/core";
+import { RpcTracker, scanServer, stableJson, type EventBus } from "@mokalabs/core";
 import type { SessionRecord } from "@mokalabs/proxy";
 
 /** A server session recorded by `@mokalabs/proxy` (one editor ↔ one server). */
@@ -11,6 +11,8 @@ export interface ProxySession {
   /** What the client is: the --client label, else its name from `initialize`. */
   client: string;
   clientInfo?: { name?: string; version?: string };
+  /** The MCP revision the client asked for (`initialize`, or the 2026-07-28 request `_meta`). */
+  protocolVersion?: string;
   name: string;
   command: string;
   args: string[];
@@ -34,6 +36,8 @@ interface Tail {
   tracker?: RpcTracker;
   /** How the last tools/call with the same tool and arguments ended, to spot retries. */
   calls: Map<string, string>;
+  /** The server's tools were security-checked (once per session). */
+  scanned?: boolean;
 }
 
 const CLIENT_LABELS: Record<string, string> = {
@@ -166,9 +170,33 @@ export class ProxySessions {
     if (record.type === "msg") {
       const msg = record.msg as any;
       const extra: { title?: string; level?: "warn" } = {};
-      if (record.dir === "out" && msg?.method === "initialize" && msg.params?.clientInfo) {
-        session.clientInfo = msg.params.clientInfo;
-        if (session.client === "Unknown client" && msg.params.clientInfo.name) session.client = msg.params.clientInfo.name;
+      // The editor's server listed its tools: run the same security check as for Moka's own servers.
+      if (record.dir === "in" && Array.isArray(msg?.result?.tools) && !tail.scanned) {
+        tail.scanned = true;
+        const findings = scanServer({ name: session.name, tools: msg.result.tools });
+        const high = findings.filter((f) => f.severity === "high").length;
+        const medium = findings.filter((f) => f.severity === "medium").length;
+        if (high || medium) {
+          this.bus.emit({
+            kind: "log",
+            level: high ? "error" : "warn",
+            serverId: session.serverId,
+            ts: record.t,
+            title: `Security check · ${session.client} → ${session.name}: ${[high && `${high} high`, medium && `${medium} medium`].filter(Boolean).join(", ")}`,
+            data: { serverId: session.serverId, name: session.name, findings, changes: [] },
+          });
+        }
+      }
+      if (record.dir === "out" && msg?.method && !session.protocolVersion) {
+        // 2025: initialize carries the client's identity. 2026-07-28: every request does, in _meta.
+        const meta = msg.params?._meta ?? {};
+        const clientInfo = msg.method === "initialize" ? msg.params?.clientInfo : meta["io.modelcontextprotocol/clientInfo"];
+        const version = msg.method === "initialize" ? msg.params?.protocolVersion : meta["io.modelcontextprotocol/protocolVersion"];
+        if (typeof version === "string") session.protocolVersion = version;
+        if (clientInfo) {
+          session.clientInfo = clientInfo;
+          if (session.client === "Unknown client" && clientInfo.name) session.client = clientInfo.name;
+        }
       }
       if (record.dir === "out" && msg?.method && msg.id != null) session.requests++;
       if (record.dir === "out" && msg?.method === "tools/call" && msg.id != null) {

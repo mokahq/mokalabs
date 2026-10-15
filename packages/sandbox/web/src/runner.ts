@@ -65,6 +65,7 @@ export async function runTurn(options: {
             name: chunk.name,
             tool: chunk.tool,
             source: chunk.source,
+            ...(chunk.serverId ? { serverId: chunk.serverId } : {}),
             input: chunk.input,
             status: "running",
             ...(chunk.duplicateOf ? { duplicateOf: chunk.duplicateOf } : {}),

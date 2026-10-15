@@ -16,6 +16,49 @@ const PROVIDER_LABEL: Record<ProviderKind, string> = {
   "openai-compatible": "OpenAI-compatible",
 };
 
+const LOCAL = {
+  lmstudio: { name: "LM Studio", provider: "openai-compatible" as const, baseURL: "http://localhost:1234/v1", match: (l: LlmProfile) => /:1234\b/.test(l.baseURL ?? "") },
+  ollama: { name: "Ollama", provider: "ollama" as const, baseURL: undefined, match: (l: LlmProfile) => l.provider === "ollama" },
+};
+
+/** LM Studio or Ollama running on this machine but not added yet: one click to add, with its loaded models. */
+function LocalModels({ onAdded }: { onAdded: (id: string) => void }) {
+  const config = useStore((s) => s.config);
+  const saveConfig = useStore((s) => s.saveConfig);
+  const [found, setFound] = useState<{ ollama: string[]; lmstudio: string[] }>();
+  useEffect(() => {
+    api<{ ollama: string[]; lmstudio: string[] }>("/api/local-models").then(setFound, () => {});
+  }, []);
+  const missing = (Object.keys(LOCAL) as Array<keyof typeof LOCAL>).filter((k) => found?.[k]?.length && !config.llms.some(LOCAL[k].match));
+  if (!missing.length) return null;
+  const add = async (key: keyof typeof LOCAL, model: string) => {
+    const base = key;
+    let id: string = base;
+    for (let n = 2; config.llms.some((l) => l.id === id); n++) id = `${base}-${n}`;
+    const local = LOCAL[key];
+    if (await saveConfig({ ...config, llms: [...config.llms, { id, name: local.name, provider: local.provider, model, ...(local.baseURL ? { baseURL: local.baseURL } : {}) }] }, `Added ${local.name}`)) onAdded(id);
+  };
+  return (
+    <div className="mx-3 mb-2 space-y-2 rounded-xl border border-ok/30 bg-ok/5 p-2.5">
+      {missing.map((key) => (
+        <div key={key}>
+          <div className="text-[12px] font-medium text-ok">{LOCAL[key].name} is running</div>
+          <div className="mt-0.5 text-[11.5px] text-muted">
+            {found![key].length} model{found![key].length === 1 ? "" : "s"} loaded. Add one:
+          </div>
+          <div className="mt-1.5 flex flex-wrap gap-1">
+            {found![key].slice(0, 6).map((m) => (
+              <button key={m} onClick={() => void add(key, m)} className="max-w-full truncate rounded-md border border-line bg-panel px-1.5 py-0.5 font-mono text-[11px] hover:border-accent/50" title={`Add ${m}`}>
+                + {m}
+              </button>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function ModelSettings() {
   const config = useStore((s) => s.config);
   const [selected, setSelected] = useState<string | "new" | undefined>(config.llms[0]?.id ?? "new");
@@ -36,6 +79,7 @@ export function ModelSettings() {
               Add model
             </Button>
           </div>
+          <LocalModels onAdded={(id) => setSelected(id)} />
           <div className="min-h-0 flex-1 space-y-0.5 overflow-y-auto px-2 pb-3">
             {config.llms.map((llm) => (
               <ListItem

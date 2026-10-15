@@ -1,7 +1,10 @@
 import { dynamicTool, generateText, jsonSchema, stepCountIs, type ModelMessage } from "ai";
 import path from "node:path";
-import { activeWorkspace, parseConfig, type AgentConfig, type LlmProfile, type McpServerConfig, type MokaConfig, type Workspace } from "./config.js";
-import { runAgent, type ChatChunk, type ToolAuthorization } from "./agent.js";
+import { contextBudget, type ContextBudget } from "./budget.js";
+import { scanServer, serverKey, ToolPins, type ServerSecurity } from "./security.js";
+import { runToolTests, suggestTests, type RunTestsOptions, type TestResult } from "./tests.js";
+import { activeWorkspace, parseConfig, type AgentConfig, type LlmProfile, type McpServerConfig, type MokaConfig, type ToolTest, type Workspace } from "./config.js";
+import { runAgent, type ChatChunk, type ToolAuthorization, type ToolMode } from "./agent.js";
 import {
   buildRenderUiDescription,
   buildRenderUiSchema,
@@ -18,7 +21,7 @@ import { OAuthStore } from "./oauth.js";
 import { runRemoteAgent, testRemoteAgent } from "./remote-agent.js";
 import { InteractionBroker, type InteractionHandler, type InteractionResponse } from "./interactions.js";
 import type { McpTool } from "./mcp.js";
-import type { CreateMessageRequest, CreateMessageResult } from "@modelcontextprotocol/sdk/types.js";
+import type { CreateMessageRequest, CreateMessageResult } from "@modelcontextprotocol/client";
 import { EventBus } from "./events.js";
 import { errorMessage, McpManager, type CommandResolver } from "./mcp.js";
 import { createModel, listModels } from "./providers.js";
@@ -41,6 +44,8 @@ export interface EngineOptions {
   onInteraction?: InteractionHandler;
   /** Where OAuth tokens for remote MCP servers are stored. Omit to disable OAuth. */
   oauthStorePath?: string;
+  /** Where to remember each server's tools, to report changed tools (see security.ts). Omit to skip change tracking. */
+  toolPinsPath?: string;
 }
 
 /** Which tools need the user's OK before they run. */
@@ -61,6 +66,8 @@ export interface ChatRequest {
   agentId?: string;
   signal?: AbortSignal;
   runId?: string;
+  /** Which MCP tools really run (tool tests); default all. */
+  toolMode?: ToolMode;
 }
 
 /**
@@ -93,6 +100,73 @@ export class MokaEngine {
       sample: (params, server, signal) => this.sample(params, server, signal),
       oauth: options.oauthStorePath ? { store: new OAuthStore(options.oauthStorePath), redirectUrl: () => this.oauthRedirectUrl } : undefined,
     });
+    this.pins = options.toolPinsPath ? new ToolPins(options.toolPinsPath) : undefined;
+    // Check every server as it connects, and say so in the inspector when something looks wrong.
+    this.bus.subscribe((event) => {
+      if (event.kind === "mcp.status" && (event.data as { status?: string } | undefined)?.status === "connected" && event.serverId) void this.announceSecurity(event.serverId);
+    });
+  }
+
+  private readonly pins?: ToolPins;
+
+  /** Run a workspace's tool tests on several models (see tests.ts). */
+  runTests(options: RunTestsOptions): AsyncGenerator<TestResult> {
+    return runToolTests(this, options);
+  }
+
+  /** Ask the workspace's model to propose tool tests for the workspace's (visible) tools. */
+  async suggestTests(workspaceId?: string, count?: number): Promise<Omit<ToolTest, "id">[]> {
+    const workspace = this.workspace(workspaceId);
+    const llm = this.llm(workspace.llmId);
+    if (!llm) throw new Error("No model configured. Add one in Settings → Models.");
+    const servers = this.config.mcpServers.filter((s) => workspace.mcpServerIds.includes(s.id));
+    const states = await Promise.all(servers.map((s) => this.mcp.ensure(s)));
+    const tools = states.flatMap((state, i) => (state.status === "connected" ? state.tools.filter((t) => !(servers[i]!.disabledTools ?? []).includes(t.name)) : []));
+    if (!tools.length) throw new Error("This workspace has no connected MCP tools to test.");
+    return suggestTests(llm, tools, { count, env: this.env, existing: (workspace.tests ?? []).map((t) => t.prompt) });
+  }
+
+  /** The security check for one connected server, against the other servers that share a workspace with it. */
+  async serverSecurity(serverId: string): Promise<ServerSecurity | undefined> {
+    const server = this.config.mcpServers.find((s) => s.id === serverId);
+    const state = this.mcp.state(serverId);
+    if (!server || state?.status !== "connected") return undefined;
+    const neighbours = new Set(this.config.workspaces.filter((w) => w.mcpServerIds.includes(serverId)).flatMap((w) => w.mcpServerIds));
+    const otherTools = new Map<string, string>();
+    for (const id of neighbours) {
+      const other = this.mcp.state(id);
+      if (id === serverId || other?.status !== "connected") continue;
+      for (const t of other.tools) otherTools.set(t.name, other.name);
+    }
+    const findings = scanServer({ name: server.name, tools: state.tools, instructions: state.instructions, prompts: state.prompts }, otherTools);
+    const changes = this.pins ? await this.pins.check(serverKey(server), state.tools).catch(() => []) : [];
+    return { serverId, name: server.name, findings, changes };
+  }
+
+  /** The security check for every connected server in a workspace. */
+  async securityReport(workspaceId?: string): Promise<ServerSecurity[]> {
+    const workspace = this.workspace(workspaceId);
+    const reports = await Promise.all(workspace.mcpServerIds.map((id) => this.serverSecurity(id)));
+    return reports.filter((r): r is ServerSecurity => !!r);
+  }
+
+  /** Trust a server's tools as they are now: changes are no longer reported. */
+  async trustTools(serverId: string): Promise<void> {
+    const server = this.config.mcpServers.find((s) => s.id === serverId);
+    const state = this.mcp.state(serverId);
+    if (!server || !state || !this.pins) return;
+    await this.pins.trust(serverKey(server), state.tools);
+  }
+
+  private async announceSecurity(serverId: string): Promise<void> {
+    const report = await this.serverSecurity(serverId).catch(() => undefined);
+    if (!report) return;
+    const high = report.findings.filter((f) => f.severity === "high").length;
+    const medium = report.findings.filter((f) => f.severity === "medium").length;
+    const changed = report.changes.filter((c) => c.kind === "changed").length;
+    const parts = [high && `${high} high`, medium && `${medium} medium`, changed && `${changed} tool${changed === 1 ? "" : "s"} changed since you trusted ${changed === 1 ? "it" : "them"}`].filter(Boolean);
+    if (!parts.length) return;
+    this.bus.emit({ kind: "log", level: high || changed ? "error" : "warn", serverId, title: `Security check · ${report.name}: ${parts.join(", ")}`, data: report });
   }
 
   getConfig(): MokaConfig {
@@ -122,6 +196,14 @@ export class MokaEngine {
   async loadCatalogs(ids?: string[]): Promise<LoadedCatalog[]> {
     const wanted = ids ? this.config.catalogs.filter((c) => ids.includes(c.id)) : this.config.catalogs;
     return Promise.all(wanted.map((c) => loadCatalog(c, this.baseDir)));
+  }
+
+  /** What a workspace's model reads before every conversation: system prompt, skills, server instructions and tools (connected servers only). */
+  async contextBudget(workspaceId?: string): Promise<ContextBudget> {
+    const workspace = this.workspace(workspaceId);
+    const servers = this.config.mcpServers.filter((s) => workspace.mcpServerIds.includes(s.id));
+    const [skills, catalogs] = await Promise.all([this.loadSkills(workspace.skillIds), this.loadCatalogs()]);
+    return contextBudget({ workspace, servers, states: servers.map((s) => this.mcp.state(s.id)), skills, catalogs });
   }
 
   /** Answer a pending approval / elicitation / sampling request. */
@@ -329,6 +411,7 @@ export class MokaEngine {
       bus: this.bus,
       signal: request.signal,
       env: this.env,
+      ...(request.toolMode ? { toolMode: request.toolMode } : {}),
     });
   }
 

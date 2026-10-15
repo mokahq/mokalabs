@@ -1,0 +1,69 @@
+---
+title: MCP 2026-07-28
+description: What changes with the stateless MCP revision, how Moka negotiates it, and how sampling and elicitation work now.
+---
+
+import { Aside } from "@astrojs/starlight/components";
+import shot from "../../../assets/mcp-2026.png";
+
+<img src={shot.src} width={shot.width} height={shot.height} alt="The inspector's RPC tab: server/discover, a subscriptions/listen stream, and a tools/call answered with input required, then retried as round 2 with the sampling result" />
+
+MCP 2026-07-28 is the first revision without a session. Moka speaks it and the 2025 revisions, and shows which one each server uses: **Settings → MCP servers** shows a badge such as `MCP 2026-07-28` next to the server's name.
+
+## What changed
+
+| | 2025-11-25 and earlier | 2026-07-28 |
+|---|---|---|
+| Opening | `initialize` handshake, then a session | `server/discover`, no session; each request carries the client's version and identity in `_meta` |
+| Server asks the client for something (sampling, elicitation, roots) | The server sends its own request mid-call | The server answers the call with **`input_required`**; the client calls again with the answers |
+| Change notifications | Sent whenever the server likes; `resources/subscribe` for a resource | Only on a `subscriptions/listen` stream the client opens |
+| Tasks | In the core spec | An extension |
+
+## How sampling works now
+
+In 2025, a tool that wanted your model sent `sampling/createMessage` to the client in the middle of `tools/call`, and waited.
+
+In 2026-07-28 the server can't send requests to the client. Instead:
+
+1. The client calls `tools/call brainstorm`.
+2. The server answers right away with `resultType: "input_required"`: *"first, run this completion"* (`inputRequests.ideas` is a `sampling/createMessage` request), plus an opaque `requestState`.
+3. Moka shows you the sampling request, as before. You approve, and it runs on the workspace's model.
+4. Moka calls `tools/call brainstorm` again, a new request with the completion in `inputResponses.ideas` and the same `requestState`.
+5. The server finishes the tool and returns the result. A server can ask more than once (round 3, 4…), up to 10 rounds.
+
+Elicitation (forms, URLs) and roots work the same way. Approval, auto-allow and deny (the server's **Sampling requests** setting) are unchanged.
+
+<Aside>
+**Refusing is different.** In 2025 the server got the error back and decided what to tell the model. In 2026-07-28 a retry can't carry an error, so when you reject a sampling request the tool call ends in Moka, with *User rejected sampling request*, and the server never hears about it.
+</Aside>
+
+Sampling, roots and logging are deprecated in 2026-07-28, but stay in the spec for at least 12 months. Moka supports them in both revisions.
+
+## In the inspector
+
+| You see | Meaning |
+|---|---|
+| `server/discover · asked on a separate copy of the server` | On stdio, the SDK asks a short-lived second copy of the server which revisions it speaks, so the exchange isn't on the session's pipe. Moka shows it anyway |
+| `input required` badge on a request | The server needs something first; the reply lists what (`sampling/createMessage`, `elicitation/create`, `roots/list`) |
+| `tools/call #5 · round 2 with ideas` | The client's retry, with the answers by key. It belongs to the same tool call (and the same attempt in **Attempts**) |
+| `subscriptions/listen` | The stream that carries `list_changed` and `resources/updated`. Subscribing to a resource replaces the stream with one that includes its URI |
+
+## Choosing the version
+
+Each server has an **MCP version** setting (Settings → MCP servers → Advanced options), `protocol` in `moka.json`:
+
+| `protocol` | |
+|---|---|
+| `"auto"` | Ask with `server/discover`; use 2026-07-28 if the server offers it, else 2025. **Default for HTTP servers** and the demo server |
+| `"2025"` | The classic `initialize` handshake. **Default for stdio and SSE servers**, so Moka starts each local server only once |
+| `"2026"` | 2026-07-28 only; fails if the server doesn't offer it |
+
+<Aside type="tip">
+On stdio, `auto` starts a short-lived copy of the server to ask `server/discover`. That's harmless for most servers, but if yours does work at startup (migrations, logins), set `"2025"` or `"2026"`.
+</Aside>
+
+## Try it
+
+The demo server speaks both revisions, from one codebase (TypeScript SDK v2, `serveStdio`). Ask *"Brainstorm names for a coffee robot"* or *"Order me a coffee"*, then open the inspector's **RPC** tab. Set the demo server to `2025` to see the same tools work through `sampling/createMessage` and `elicitation/create` requests instead.
+
+Editors behind [Moka's proxy](/guides/proxy/) that use 2026-07-28 are recorded the same way. The proxy view shows the version the editor asked for.

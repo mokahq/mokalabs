@@ -1,4 +1,4 @@
-import type { ChatChunk, MokaEvent } from "./types";
+import type { ChatChunk, MokaEvent, TestResult } from "./types";
 
 const TOKEN_KEY = "moka.token";
 
@@ -100,6 +100,19 @@ export async function* streamChat(
     throw new ApiError(data?.error ?? res.statusText, res.status);
   }
   yield* ndjson<ChatChunk>(res);
+}
+
+/** Run tool tests; results arrive as each run finishes. */
+export async function* streamTests(
+  body: { workspaceId?: string; llmIds: string[]; runs?: number; toolMode?: "run" | "read-only" | "none"; testIds?: string[] },
+  signal: AbortSignal,
+): AsyncGenerator<TestResult> {
+  const res = await fetch("/api/tests/run", { method: "POST", headers: headers({ "content-type": "application/json" }), body: JSON.stringify(body), signal });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new ApiError(data?.error ?? res.statusText, res.status);
+  }
+  yield* ndjson<TestResult>(res);
 }
 
 /** Subscribe to the inspector event stream, reconnecting automatically. */

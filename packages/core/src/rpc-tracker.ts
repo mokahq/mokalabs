@@ -1,4 +1,5 @@
 import type { EventBus, MokaEvent, MokaEventInput } from "./events.js";
+import { stableJson } from "./lineage.js";
 
 /** How a request ended: a response, a cancellation, or no response before the connection closed. */
 export interface RpcSettled {
@@ -30,6 +31,7 @@ interface OpenRequest {
   request: any;
   cancelled?: boolean;
   callId?: string;
+  round?: number;
 }
 
 /**
@@ -41,6 +43,9 @@ interface OpenRequest {
 export class RpcTracker {
   // Open requests, keyed by who sent them: "out:3" = the client's request #3, "in:0" = the server's.
   private readonly open = new Map<string, OpenRequest>();
+  // MCP 2026-07-28: calls answered with input_required, waiting for the client's retry.
+  // Keyed by direction + method + params without the round's answers.
+  private readonly rounds = new Map<string, { round: number; callId?: string }>();
 
   constructor(
     private readonly bus: EventBus,
@@ -54,6 +59,7 @@ export class RpcTracker {
     const other = direction === "out" ? "in" : "out";
     let request: string | undefined;
     let callId: string | undefined;
+    let roundNote = "";
     if (message?.method === "notifications/cancelled" && message.params?.requestId != null) {
       // A cancellation refers to a request the *same* side sent earlier.
       const key = `${direction}:${message.params.requestId}`;
@@ -89,10 +95,15 @@ export class RpcTracker {
     } else if (message?.method && message.id != null) {
       input.rpc = { id: String(message.id), method: message.method };
       request = `${direction}:${message.id}`;
-      if (direction === "out") {
-        callId = options.linkCall?.(message);
-        if (callId) input.rpc.callId = callId;
-      }
+      const retry = isRetry(message) ? this.rounds.get(roundKey(direction, message)) : undefined;
+      if (retry) {
+        this.rounds.delete(roundKey(direction, message));
+        input.rpc.round = retry.round;
+        callId = retry.callId;
+        const answers = Object.keys(message.params?.inputResponses ?? {});
+        roundNote = ` · round ${retry.round}${answers.length ? ` with ${answers.join(", ")}` : ""}`;
+      } else if (direction === "out") callId = options.linkCall?.(message);
+      if (callId) input.rpc.callId = callId;
     } else if (!message?.method && message?.id != null) {
       const key = `${other}:${message.id}`;
       const target = open.get(key);
@@ -101,6 +112,17 @@ export class RpcTracker {
       if (target) {
         input.durationMs = at - target.at;
         input.title = `${outcome === "late" ? "late " : ""}${message.error ? "error" : "result"} #${message.id} · ${target.method}`;
+        if (message.result?.resultType === "input_required") {
+          // The server needs something from the client first (sampling, elicitation, roots);
+          // the client answers by sending the same request again, with the answers.
+          const asks = Object.entries(message.result.inputRequests ?? {}).map(([key, r]: [string, any]) => ({ key, method: String(r?.method ?? "?") }));
+          input.rpc.inputRequired = asks;
+          input.title = `input required #${message.id} · ${target.method}${asks.length ? `: ${asks.map((a) => a.method).join(", ")}` : ""}`;
+          const previous = target.request?.params?.inputResponses || target.request?.params?.requestState ? target.round : undefined;
+          const key = roundKey(other, target.request);
+          this.rounds.set(key, { round: (previous ?? 1) + 1, ...(target.callId ? { callId: target.callId } : {}) });
+          setTimeout(() => this.rounds.delete(key), 10 * 60_000).unref?.();
+        }
         if (outcome === "late") {
           input.level = "warn";
           options.onLate?.(String(message.id));
@@ -109,8 +131,8 @@ export class RpcTracker {
         options.onSettled?.({ eventId: target.eventId, method: target.method, request: target.request, outcome });
       }
     }
-    const event = this.bus.emit({ ...input, ...extra, title: extra.title ?? input.title });
-    if (request) open.set(request, { eventId: event.id, method: message.method, at, request: message, ...(callId ? { callId } : {}) });
+    const event = this.bus.emit({ ...input, ...extra, title: (extra.title ?? input.title) + roundNote });
+    if (request) open.set(request, { eventId: event.id, method: message.method, at, request: message, ...(callId ? { callId } : {}), ...(input.rpc?.round ? { round: input.rpc.round } : {}) });
     return event;
   }
 
@@ -138,6 +160,16 @@ export class RpcTracker {
 
 export function formatWait(ms: number): string {
   return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`;
+}
+
+/** A retried multi-round-trip request carries the previous round's answers or state. */
+function isRetry(message: any): boolean {
+  return Boolean(message?.params?.inputResponses || message?.params?.requestState);
+}
+
+function roundKey(direction: string, message: any): string {
+  const { inputResponses: _a, requestState: _s, _meta: _m, ...params } = message?.params ?? {};
+  return `${direction}:${message?.method}:${stableJson(params)}`;
 }
 
 export function rpcTitle(message: any): string {

@@ -8,6 +8,11 @@ import {
   Command,
   Cpu,
   Download,
+  FlaskConical,
+  Folder,
+  FolderOpen,
+  FolderPlus,
+  Gauge,
   GitCompareArrows,
   Layers,
   MessageSquare,
@@ -18,6 +23,7 @@ import {
   PanelRight,
   Play,
   Plug,
+  Plus,
   Presentation,
   Search,
   Settings2,
@@ -33,7 +39,9 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { api } from "../api";
 import { DOCS_URL, ISSUES_URL, REPO_URL } from "../links";
 import { useStore, type View } from "../store";
+import type { SessionSummary } from "../types";
 import { Moka, useMokaBranding } from "./Moka";
+import { SecurityMark, useSecurity } from "./Security";
 import { Button, CopyButton, IconButton, Kbd, Modal, StatusDot, Tabs, cn } from "./ui";
 
 /* ------------------------------------------------------------------ top bar */
@@ -75,6 +83,7 @@ export function TopBar() {
           { value: "chat", label: <span className="hidden sm:inline">Chat</span>, icon: <MessageSquare className="h-3.5 w-3.5" /> },
           { value: "compare", label: <span className="hidden sm:inline">Compare</span>, icon: <GitCompareArrows className="h-3.5 w-3.5" /> },
           { value: "tools", label: <span className="hidden sm:inline">Tools</span>, icon: <Wrench className="h-3.5 w-3.5" /> },
+          { value: "tests", label: <span className="hidden sm:inline">Tests</span>, icon: <FlaskConical className="h-3.5 w-3.5" /> },
           { value: "proxy", label: <span className="hidden sm:inline">Proxy</span>, icon: <Cable className="h-3.5 w-3.5" /> },
         ]}
       />
@@ -278,10 +287,6 @@ export function Sidebar() {
   const sessions = useStore((s) => s.sessions);
   const current = useStore((s) => s.session.id);
   const newChat = useStore((s) => s.newChat);
-  const openSession = useStore((s) => s.openSession);
-  const deleteSession = useStore((s) => s.deleteSession);
-  const replay = useStore((s) => s.replay);
-  const exportSession = useStore((s) => s.exportSession);
   const importSession = useStore((s) => s.importSession);
   const importInput = useRef<HTMLInputElement>(null);
   const config = useStore((s) => s.config);
@@ -289,8 +294,24 @@ export function Sidebar() {
   const workspace = useStore((s) => s.workspace());
   const openSettings = useStore((s) => s.openSettings);
   const skills = useStore((s) => s.skills);
+  const createWorkspace = useStore((s) => s.createWorkspace);
+  const openServer = useStore((s) => s.openServer);
+  const security = useSecurity();
   const [query, setQuery] = useState("");
+  const [naming, setNaming] = useState(false);
+  const [workspaceDraft, setWorkspaceDraft] = useState("");
   const filtered = sessions.filter((s) => !query || s.title.toLowerCase().includes(query.toLowerCase()));
+  // Chats by workspace, in config order; chats whose workspace is gone go to the first one.
+  const groups = useMemo(() => {
+    const known = new Set(config.workspaces.map((w) => w.id));
+    const fallback = config.workspaces[0]?.id;
+    return config.workspaces.map((w) => ({
+      id: w.id,
+      name: w.name,
+      chats: sessions.filter((c) => (c.workspaceId && known.has(c.workspaceId) ? c.workspaceId : fallback) === w.id),
+    }));
+  }, [config.workspaces, sessions]);
+  const workspaceLabel = (id?: string) => (config.workspaces.length > 1 ? config.workspaces.find((w) => w.id === id)?.name : undefined);
 
   return (
     <aside className="flex h-full w-64 shrink-0 flex-col border-r border-line bg-panel/60">
@@ -320,51 +341,48 @@ export function Sidebar() {
         )}
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-2">
-        {filtered.length === 0 ? (
-          <p className="px-3 py-6 text-center text-[12px] text-subtle">{sessions.length ? "No matches" : "Your chats will appear here."}</p>
+        {query ? (
+          filtered.length === 0 ? (
+            <p className="px-3 py-6 text-center text-[12px] text-subtle">No matches</p>
+          ) : (
+            filtered.map((s) => <ChatRow key={s.id} chat={s} current={s.id === current} workspace={workspaceLabel(s.workspaceId)} />)
+          )
         ) : (
-          filtered.map((s) => (
-            <div
-              key={s.id}
-              className={cn("group flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-1.5 text-[13px]", s.id === current ? "bg-panel-2 text-fg" : "text-muted hover:bg-panel-2 hover:text-fg")}
-              onClick={() => openSession(s.id)}
-            >
-              <span className="min-w-0 flex-1 truncate">{s.title}</span>
-              <span className="text-[10px] text-subtle group-hover:hidden">{relative(s.updatedAt)}</span>
-              <button
-                className="hidden text-subtle hover:text-accent group-hover:block"
-                title="Replay this chat (no model needed)"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  void replay(s.id);
-                }}
-                aria-label="Replay chat"
-              >
-                <Play className="h-3.5 w-3.5" />
-              </button>
-              <button
-                className="hidden text-subtle hover:text-fg group-hover:block"
-                title="Export as JSON"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  void exportSession(s.id);
-                }}
-                aria-label="Export chat"
-              >
-                <Download className="h-3.5 w-3.5" />
-              </button>
-              <button
-                className="hidden text-subtle hover:text-err group-hover:block"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  void deleteSession(s.id);
-                }}
-                aria-label="Delete chat"
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-              </button>
+          <>
+            <div className="flex items-center px-2.5 pt-1 pb-1">
+              <span className="flex-1 text-[11px] font-medium tracking-wide text-subtle uppercase">Workspaces</span>
+              <IconButton label="New workspace" className="h-6 w-6" onClick={() => setNaming(true)}>
+                <FolderPlus className="h-3.5 w-3.5" />
+              </IconButton>
             </div>
-          ))
+            {naming && (
+              <form
+                className="px-1 pb-1"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const name = workspaceDraft.trim();
+                  if (name) void createWorkspace(name);
+                  setNaming(false);
+                  setWorkspaceDraft("");
+                }}
+              >
+                <input
+                  autoFocus
+                  value={workspaceDraft}
+                  onChange={(e) => setWorkspaceDraft(e.target.value)}
+                  onBlur={() => !workspaceDraft.trim() && setNaming(false)}
+                  onKeyDown={(e) => e.key === "Escape" && (setNaming(false), setWorkspaceDraft(""))}
+                  placeholder="Workspace name"
+                  aria-label="Workspace name"
+                  className="h-8 w-full rounded-lg border border-accent/50 bg-panel px-2.5 text-[13px] placeholder:text-subtle focus:outline-none"
+                />
+                <p className="px-1 pt-1 text-[11px] text-subtle">Starts with this workspace's model, MCP servers and skills.</p>
+              </form>
+            )}
+            {groups.map((g) => (
+              <WorkspaceGroup key={g.id} id={g.id} name={g.name} chats={g.chats} current={current} active={g.id === workspace.id} />
+            ))}
+          </>
         )}
       </div>
       <div className="space-y-0.5 border-t border-line p-2">
@@ -376,11 +394,12 @@ export function Sidebar() {
           return (
             <button
               key={id}
-              onClick={() => (state?.status === "auth" && state.authUrl ? window.open(state.authUrl, "_blank", "popup,width=520,height=720") : openSettings("mcp"))}
+              onClick={() => (state?.status === "auth" && state.authUrl ? window.open(state.authUrl, "_blank", "popup,width=520,height=720") : openServer(id))}
               className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1 text-left text-[12.5px] text-muted hover:bg-panel-2 hover:text-fg"
             >
               <StatusDot status={state?.status ?? "idle"} />
               <span className="min-w-0 flex-1 truncate">{server.name}</span>
+              <SecurityMark report={security.get(id)} />
               {state?.status === "auth" && <span className="text-[10.5px] font-medium text-info">Sign in</span>}
               {state?.status === "connected" && <span className="font-mono text-[10.5px] text-subtle">{state.tools.length}</span>}
             </button>
@@ -399,6 +418,134 @@ export function Sidebar() {
         </button>
       </div>
     </aside>
+  );
+}
+
+const OPEN_KEY = "moka.workspaces.collapsed";
+
+function collapsedWorkspaces(): Set<string> {
+  try {
+    return new Set(JSON.parse(localStorage.getItem(OPEN_KEY) ?? "[]"));
+  } catch {
+    return new Set();
+  }
+}
+
+/** A workspace and its chats, in the sidebar. Any workspace can collapse; it opens again when you switch to it or start a chat in it. */
+function WorkspaceGroup({ id, name, chats, current, active }: { id: string; name: string; chats: SessionSummary[]; current: string; active: boolean }) {
+  const newChatIn = useStore((s) => s.newChatIn);
+  const [collapsed, setCollapsed] = useState(() => collapsedWorkspaces().has(id));
+  const open = !collapsed;
+  const [all, setAll] = useState(false);
+  const shown = all ? chats : chats.slice(0, 8);
+  const setOpen = (next: boolean) => {
+    setCollapsed(!next);
+    try {
+      const set = collapsedWorkspaces();
+      if (next) set.delete(id);
+      else set.add(id);
+      localStorage.setItem(OPEN_KEY, JSON.stringify([...set]));
+    } catch {
+      // storage blocked
+    }
+  };
+  // Switching to a collapsed workspace opens it (a reload keeps it as you left it).
+  const wasActive = useRef(active);
+  useEffect(() => {
+    if (active && !wasActive.current && collapsed) setOpen(true);
+    wasActive.current = active;
+  }, [active]);
+  // Same when the chat you're on moves to one in this workspace (New chat, the palette, a new chat appearing).
+  const shownCurrent = useRef(current);
+  useEffect(() => {
+    if (!chats.some((c) => c.id === current)) return;
+    if (current !== shownCurrent.current && collapsed) setOpen(true);
+    shownCurrent.current = current;
+  }, [current, chats]);
+  const newChat = () => {
+    if (collapsed) setOpen(true);
+    void newChatIn(id);
+  };
+  return (
+    <div className="mb-1">
+      <div className={cn("group/workspace flex items-center gap-1.5 rounded-lg px-2 py-1 text-[13px]", active ? "text-fg" : "text-muted hover:bg-panel-2 hover:text-fg")}>
+        <button className="flex min-w-0 flex-1 items-center gap-1.5 text-left" onClick={() => setOpen(!open)} title={`${open ? "Collapse" : "Expand"}${active ? " (current workspace)" : ""}`} aria-expanded={open}>
+          {open ? <FolderOpen className={cn("h-3.5 w-3.5 shrink-0", active ? "text-accent" : "text-subtle")} /> : <Folder className={cn("h-3.5 w-3.5 shrink-0", active ? "text-accent" : "text-subtle")} />}
+          <span className="truncate font-medium">{name}</span>
+          {!open && chats.length > 0 && <span className="text-[10.5px] text-subtle">{chats.length}</span>}
+        </button>
+        <button className="text-subtle opacity-0 group-hover/workspace:opacity-100 hover:text-fg focus:opacity-100" title={`New chat in ${name}`} aria-label={`New chat in ${name}`} onClick={newChat}>
+          <Plus className="h-3.5 w-3.5" />
+        </button>
+      </div>
+      {open && (
+        <div className="ml-3.5 border-l border-line pl-1.5">
+          {chats.length === 0 ? (
+            <button onClick={newChat} className="px-2.5 py-1 text-[12px] text-subtle hover:text-fg">
+              {active ? "Your chats will appear here." : "No chats yet. Start one"}
+            </button>
+          ) : (
+            shown.map((c) => <ChatRow key={c.id} chat={c} current={c.id === current} />)
+          )}
+          {chats.length > shown.length && (
+            <button onClick={() => setAll(true)} className="px-2.5 py-1 text-[12px] text-subtle hover:text-fg">
+              Show {chats.length - shown.length} more
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ChatRow({ chat, current, workspace }: { chat: SessionSummary; current: boolean; workspace?: string }) {
+  const openSession = useStore((s) => s.openSession);
+  const deleteSession = useStore((s) => s.deleteSession);
+  const replay = useStore((s) => s.replay);
+  const exportSession = useStore((s) => s.exportSession);
+  return (
+    <div
+      className={cn("group flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-1.5 text-[13px]", current ? "bg-panel-2 text-fg" : "text-muted hover:bg-panel-2 hover:text-fg")}
+      onClick={() => openSession(chat.id)}
+    >
+      <span className="min-w-0 flex-1 truncate">
+        {chat.title}
+        {workspace && <span className="ml-1.5 text-[11px] text-subtle">{workspace}</span>}
+      </span>
+      <span className="text-[10px] text-subtle group-hover:hidden">{relative(chat.updatedAt)}</span>
+      <button
+        className="hidden text-subtle hover:text-accent group-hover:block"
+        title="Replay this chat (no model needed)"
+        onClick={(e) => {
+          e.stopPropagation();
+          void replay(chat.id);
+        }}
+        aria-label="Replay chat"
+      >
+        <Play className="h-3.5 w-3.5" />
+      </button>
+      <button
+        className="hidden text-subtle hover:text-fg group-hover:block"
+        title="Export as JSON"
+        onClick={(e) => {
+          e.stopPropagation();
+          void exportSession(chat.id);
+        }}
+        aria-label="Export chat"
+      >
+        <Download className="h-3.5 w-3.5" />
+      </button>
+      <button
+        className="hidden text-subtle hover:text-err group-hover:block"
+        onClick={(e) => {
+          e.stopPropagation();
+          void deleteSession(chat.id);
+        }}
+        aria-label="Delete chat"
+      >
+        <Trash2 className="h-3.5 w-3.5" />
+      </button>
+    </div>
   );
 }
 
@@ -491,11 +638,13 @@ export function CommandPalette() {
       { id: "chat", label: "Go to Chat", icon: <MessageSquare className={i} />, run: () => s.set({ view: "chat" }) },
       { id: "compare", label: "Go to Compare", icon: <GitCompareArrows className={i} />, run: () => s.set({ view: "compare" }) },
       { id: "proxy", label: "Go to Proxy (traffic from other clients)", icon: <Cable className={i} />, run: () => s.set({ view: "proxy" }) },
+      { id: "tests", label: "Go to Tests (tool tests across models)", icon: <FlaskConical className={i} />, run: () => s.set({ view: "tests" }) },
       { id: "tools", label: "Go to Tools", icon: <Wrench className={i} />, run: () => s.set({ view: "tools" }) },
       { id: "models", label: "Settings: Models", icon: <Cpu className={i} />, run: () => s.openSettings("models") },
       { id: "mcp", label: "Settings: MCP servers", icon: <Plug className={i} />, run: () => s.openSettings("mcp") },
       { id: "skills", label: "Settings: Skills", icon: <Sparkles className={i} />, run: () => s.openSettings("skills") },
       { id: "ws", label: "Settings: Workspaces", icon: <Layers className={i} />, run: () => s.openSettings("workspaces") },
+      { id: "budget", label: "Context budget: what the model reads before every message", icon: <Gauge className={i} />, run: () => s.set({ budgetOpen: true }) },
       { id: "export", label: "Export as code", icon: <Code2 className={i} />, run: () => s.set({ exportOpen: true }) },
       { id: "presenter", label: "Toggle presenter mode", hint: "⌘.", icon: <Presentation className={i} />, run: () => s.set({ presenter: !s.presenter }) },
       { id: "inspector", label: "Toggle inspector", hint: "⌘I", icon: <PanelRight className={i} />, run: () => s.set({ inspectorOpen: !s.inspectorOpen }) },

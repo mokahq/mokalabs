@@ -1,9 +1,11 @@
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { createServer } from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { evaluate } from "../src/demo-server.js";
+import { docxToMarkdown } from "../web/src/docx.js";
 import { startSandbox, type RunningSandbox } from "../src/index.js";
 import { startFakeLlm } from "./fake-llm.js";
 
@@ -97,7 +99,8 @@ describe("sandbox server", () => {
     for (const kind of ["mcp.status", "mcp.rpc", "run.start", "llm.request", "llm.response", "tool.call", "tool.result", "run.finish"]) {
       expect(kinds.has(kind as any), kind).toBe(true);
     }
-    expect(events.some((e) => e.kind === "mcp.rpc" && e.title.startsWith("initialize"))).toBe(true);
+    // The demo server speaks 2026-07-28: no initialize handshake, server/discover instead.
+    expect(events.some((e) => e.kind === "mcp.rpc" && e.title.startsWith("server/discover"))).toBe(true);
   });
 
   it("lists models and tests the LLM", async () => {
@@ -172,6 +175,127 @@ describe("generative UI", () => {
     expect(result.ui).toEqual({ kind: "mcp-app", serverId: "moka-demo", resourceUri: "ui://moka-demo/dice" });
     expect(result.raw.structuredContent.rolls).toHaveLength(2);
     await dice.close();
+  }, 30_000);
+
+  it("returns documents a tool makes, with the server that made them", async () => {
+    const docs = await startFakeLlm("moka-demo__create_document", { title: "Office plants", format: "docx", sections: [{ heading: "Fig", body: "- Bright, indirect light" }] });
+    const config = JSON.parse((await call("/api/bootstrap")).body).config;
+    config.llms.push({ id: "docs", name: "Docs", provider: "openai-compatible", model: "m", baseURL: docs.baseURL });
+    await call("/api/config", { method: "PUT", body: config });
+    const res = await call("/api/chat", { body: { llmId: "docs", messages: [{ role: "user", content: "make a doc" }] } });
+    const chunks = res.body.trim().split("\n").map((l) => JSON.parse(l));
+    expect(chunks.find((c) => c.type === "tool-call")).toMatchObject({ tool: "create_document", serverId: "moka-demo" });
+    const resource = chunks.find((c) => c.type === "tool-result").raw.content[1].resource;
+    expect(resource).toMatchObject({ uri: "moka://documents/office-plants.docx", mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" });
+    expect(await docxToMarkdown(new Uint8Array(Buffer.from(resource.blob, "base64")))).toBe("# Office plants\n\n# Fig\n\n- Bright, indirect light");
+    await docs.close();
+  }, 30_000);
+
+  it("sends attached Word and PDF files to OpenAI-compatible models as their text", async () => {
+    const reader = await startFakeLlm("none", {});
+    const config = JSON.parse((await call("/api/bootstrap")).body).config;
+    config.llms.push({ id: "reader", name: "Reader", provider: "openai-compatible", model: "m", baseURL: reader.baseURL });
+    await call("/api/config", { method: "PUT", body: config });
+    const content = [
+      { type: "file", data: "data:application/pdf;base64,JVBERg==", mediaType: "application/pdf", filename: "a.pdf", providerOptions: { moka: { text: '<file name="a.pdf" pages="1">\n--- Page 1 ---\nHello PDF\n</file>' } } },
+      { type: "file", data: "data:x;base64,UEs=", mediaType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", filename: "b.docx" },
+      { type: "text", text: "Summarise" },
+    ];
+    const res = await call("/api/chat", { body: { llmId: "reader", messages: [{ role: "user", content }] } });
+    expect(res.body).not.toContain('"type":"error"');
+    const sent = reader.requests[0].messages.find((m: any) => m.role === "user").content;
+    expect(sent.map((p: any) => p.type)).toEqual(["text", "text", "text"]);
+    expect(sent[0].text).toContain("Hello PDF");
+    expect(sent[1].text).toMatch(/can't read application\/vnd\.openxmlformats/);
+    await reader.close();
+  }, 30_000);
+
+  it("checks MCP servers for tool poisoning, shadowing and changed tools", async () => {
+    const fixture = path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures", "poisoned-server.mjs");
+    const config = JSON.parse((await call("/api/bootstrap")).body).config;
+    const poisoned = { id: "poisoned", name: "Poisoned", transport: "stdio", command: process.execPath, args: [fixture], env: { POISON_VERSION: "1" } };
+    config.mcpServers.push(poisoned);
+    config.workspaces = config.workspaces.map((w: any) => (w.id === "w" ? { ...w, mcpServerIds: [...w.mcpServerIds, "poisoned"] } : w));
+    await call("/api/config", { method: "PUT", body: config });
+    await call("/api/mcp/moka-demo/connect", { body: {} });
+    expect(JSON.parse((await call("/api/mcp/poisoned/connect", { body: {} })).body).state.status).toBe("connected");
+
+    const report = async () => Object.fromEntries((JSON.parse((await call("/api/security?workspaceId=w")).body).servers as any[]).map((s) => [s.serverId, s]));
+    let servers = await report();
+    const ids = (s: any) => s.findings.map((f: any) => `${f.id}:${f.where}`);
+    expect(ids(servers.poisoned)).toEqual(expect.arrayContaining(["hidden-tag:tool add", "secrets:tool add", "shadow:tool get_time"]));
+    // The demo server is clean, apart from the name the poisoned server copied.
+    expect(ids(servers["moka-demo"])).toEqual(["shadow:tool get_time"]);
+    expect(servers.poisoned.changes).toEqual([]);
+
+    // The server changes a tool's description after being trusted.
+    config.mcpServers = config.mcpServers.map((s: any) => (s.id === "poisoned" ? { ...s, env: { POISON_VERSION: "2" } } : s));
+    await call("/api/config", { method: "PUT", body: config });
+    await call("/api/mcp/poisoned/connect", { body: { force: true } });
+    servers = await report();
+    expect(servers.poisoned.changes).toMatchObject([{ tool: "weather", kind: "changed", before: { description: "Get the weather for a city." } }]);
+    expect(ids(servers.poisoned)).toContain("exfiltrate:tool weather");
+    // Connecting also says so in the inspector.
+    await expect.poll(() => sandbox.engine.bus.history().some((e) => e.level === "error" && /^Security check · Poisoned: \d+ high, \d+ medium, 1 tool changed since you trusted it$/.test(e.title))).toBe(true);
+
+    await call("/api/security/poisoned/trust", { body: {} });
+    expect((await report()).poisoned.changes).toEqual([]);
+    await call("/api/mcp/poisoned/disconnect", { body: {} });
+  }, 30_000);
+
+  it("runs tool tests across models, without running tools that may write", async () => {
+    const writer = await startFakeLlm("moka-demo__flaky_write", { note: "buy beans" });
+    const config = JSON.parse((await call("/api/bootstrap")).body).config;
+    config.llms.push({ id: "writer", name: "Writer", provider: "openai-compatible", model: "m", baseURL: writer.baseURL });
+    config.workspaces = config.workspaces.map((w: any) =>
+      w.id === "w"
+        ? {
+            ...w,
+            mcpServerIds: ["moka-demo"],
+            tests: [
+              { id: "calc", prompt: "What's 6*7?", expectTools: ["calculate"], expectArgs: { calculate: { expression: "6*7" } }, answerIncludes: ["42"] },
+              { id: "note", prompt: "Save a note: buy beans", expectTools: ["flaky_write"], forbidTools: ["read_notes"] },
+            ],
+          }
+        : w,
+    );
+    await call("/api/config", { method: "PUT", body: config });
+    const res = await call("/api/tests/run", { body: { workspaceId: "w", llmIds: ["fake", "writer"], runs: 2 } });
+    const results = res.body.trim().split("\n").map((l) => JSON.parse(l));
+    expect(results).toHaveLength(8);
+    const cell = (llmId: string, testId: string) => results.filter((r) => r.llmId === llmId && r.testId === testId);
+    // The fake model always calls calculate(6*7): right for "calc", wrong for "note".
+    expect(cell("fake", "calc").map((r) => r.passed)).toEqual([true, true]);
+    expect(cell("fake", "calc")[0].calls).toEqual([{ tool: "calculate", server: "Demo", input: { expression: "6*7" } }]);
+    expect(cell("fake", "note")[0].reasons).toEqual(["Didn't call flaky_write"]);
+    // flaky_write may write (and crashes the demo server on purpose): in a test run it isn't executed.
+    expect(cell("writer", "note").map((r) => r.passed)).toEqual([true, true]);
+    expect(sandbox.engine.bus.history().some((e) => e.title === "flaky_write not run (test run, only read-only tools run)")).toBe(true);
+    expect(JSON.parse((await call("/api/mcp/moka-demo/connect", { body: {} })).body).state.status).toBe("connected");
+    expect((await call("/api/tests/run", { body: { llmIds: [] } })).status).toBe(400);
+    await writer.close();
+  }, 60_000);
+
+  it("suggests tool tests with the workspace's model, keeping only real tool names", async () => {
+    const reply = '```json\n[{"name":"Tokyo time","prompt":"What time is it in Tokyo?","expectTools":["get_time"],"expectArgs":{"get_time":{"timezone":"Asia/Tokyo"}}},{"prompt":"Hi there","forbidTools":["get_time","not_a_tool"]},{"prompt":"Book it","expectTools":["made_up"]},{"name":"no prompt"}]\n```';
+    const server = createServer((req, res) => {
+      req.resume();
+      req.on("end", () => {
+        res.setHeader("content-type", "application/json");
+        res.end(JSON.stringify({ id: "x", object: "chat.completion", created: 0, model: "m", choices: [{ index: 0, message: { role: "assistant", content: reply }, finish_reason: "stop" }], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } }));
+      });
+    });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+    const config = JSON.parse((await call("/api/bootstrap")).body).config;
+    config.llms.push({ id: "planner", name: "Planner", provider: "openai-compatible", model: "m", baseURL: `http://127.0.0.1:${(server.address() as any).port}/v1` });
+    config.workspaces = config.workspaces.map((w: any) => (w.id === "w" ? { ...w, llmId: "planner", mcpServerIds: ["moka-demo"] } : w));
+    await call("/api/config", { method: "PUT", body: config });
+    const { tests } = JSON.parse((await call("/api/tests/suggest", { body: { workspaceId: "w" } })).body);
+    expect(tests).toEqual([
+      { name: "Tokyo time", prompt: "What time is it in Tokyo?", expectTools: ["get_time"], expectArgs: { get_time: { timezone: "Asia/Tokyo" } } },
+      { prompt: "Hi there", forbidTools: ["get_time"] },
+    ]);
+    server.close();
   }, 30_000);
 
   it("lets any model render A2UI through render_ui", async () => {

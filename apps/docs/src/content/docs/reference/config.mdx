@@ -73,6 +73,7 @@ Missing variables resolve to an empty string.
 | `maxTotalTimeoutMs` | integer? | Hard limit for a tool call, even while progress keeps arriving |
 | `oauth` | boolean \| object? | http/sse: `false` disables OAuth sign-in; `{ clientId?, clientSecret?, scopes? }` for pre-registered clients. See [sign-in](/guides/mcp-auth-elicitation/) |
 | `sampling` | `ask` · `auto` · `deny`? | How to handle MCP sampling requests (default: ask) |
+| `protocol` | `auto` · `2025` · `2026`? | MCP revision. `auto` uses 2026-07-28 when the server offers it (default for http and the demo server); `2025` for stdio and sse by default. See [MCP 2026-07-28](/guides/mcp-2026/) |
 | `approval` | object? | `{ default?: "auto" \| "ask", tools?: { [tool]: "auto" \| "ask" } }`. See [tool approvals](/guides/approvals/) |
 
 ## `skills[]`
@@ -125,6 +126,7 @@ A2UI component catalogs. See [custom catalogs](/generative-ui/catalogs/).
 | `maxSteps` | integer? | 1–100, default 12 |
 | `generativeUi` | boolean \| object? | `false` to turn off the render tool, or [settings](/generative-ui/customize/): `toolName`, `catalogIds`, `standard`, `allow`, `deny`, `instructions`, `description`, `examples`, `repair`, `theme`. Default on |
 | `requireApproval` | boolean? | Ask before every MCP tool call in this workspace |
+| `tests` | object[]? | [Tool tests](/guides/tests/): `id`, `name?`, `prompt`, `expectTools?`, `forbidTools?`, `expectArgs?` (by tool name), `answerIncludes?` |
 
 ## `ui`
 

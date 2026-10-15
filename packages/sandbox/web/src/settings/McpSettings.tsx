@@ -1,6 +1,8 @@
 import { ClipboardPaste, Globe, KeyRound, LayoutGrid, LogOut, Play, Plug, Plus, RefreshCw, ShieldCheck, Terminal, Trash2, Unplug, Wrench } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
+import { formatTokens, useBudget } from "../components/Budget";
+import { SecuritySection } from "../components/Security";
 import { Badge, Button, Empty, Field, Input, JsonView, KeyValueEditor, Modal, Select, StatusDot, Switch, Tabs, Textarea, cn, formatMs } from "../components/ui";
 import { useStore } from "../store";
 import type { HttpExchange, McpServerConfig, McpServerState } from "../types";
@@ -78,7 +80,14 @@ const GALLERY: GalleryItem[] = [
 export function McpSettings() {
   const config = useStore((s) => s.config);
   const mcp = useStore((s) => s.mcp);
-  const [selected, setSelected] = useState<string | "new" | undefined>(config.mcpServers[0]?.id ?? "new");
+  const target = useStore((s) => s.settingsServerId);
+  const [selected, setSelected] = useState<string | "new" | undefined>(target ?? config.mcpServers[0]?.id ?? "new");
+  // Opened on a specific server (e.g. from a security warning in the sidebar).
+  useEffect(() => {
+    if (!target) return;
+    setSelected(target);
+    useStore.setState({ settingsServerId: undefined });
+  }, [target]);
 
   useEffect(() => {
     if (selected && selected !== "new" && !config.mcpServers.some((s) => s.id === selected)) setSelected(config.mcpServers[0]?.id ?? "new");
@@ -296,7 +305,7 @@ function ServerForm({ initial, isNew, onCreated }: { initial: McpServerConfig; i
   const [argsText, setArgsText] = useState((initial.args ?? []).join("\n"));
   const [testState, setTestState] = useState<McpServerState>();
   const [testing, setTesting] = useState(false);
-  const [showAdvanced, setShowAdvanced] = useState(Boolean(initial.env || initial.cwd || initial.timeoutMs || typeof initial.oauth === "object" || initial.oauth === false || initial.sampling));
+  const [showAdvanced, setShowAdvanced] = useState(Boolean(initial.env || initial.cwd || initial.timeoutMs || typeof initial.oauth === "object" || initial.oauth === false || initial.sampling || initial.protocol));
 
   const build = (): McpServerConfig => {
     const out: any = { ...draft, args: argsText.split("\n").map((a) => a.trim()).filter(Boolean) };
@@ -367,6 +376,9 @@ function ServerForm({ initial, isNew, onCreated }: { initial: McpServerConfig; i
       mcpServers: config.mcpServers.map((s) => (s.id === initial.id ? { ...s, approval: { ...s.approval, tools } } : s)),
     });
   };
+
+  const budget = useBudget();
+  const toolTokens = new Map((budget?.items ?? []).filter((i) => i.kind === "tool" && i.serverId === initial.id).map((i) => [i.name, i.tokens]));
 
   const toggleTool = async (tool: string, enabled: boolean) => {
     const disabled = new Set(initial.disabledTools ?? []);
@@ -482,6 +494,14 @@ function ServerForm({ initial, isNew, onCreated }: { initial: McpServerConfig; i
               <option value="deny">Never (don't offer sampling)</option>
             </Select>
           </Field>
+          <Field label="MCP version" hint="2026-07-28 has no handshake or sessions; servers ask for sampling and input inside the call. Automatic asks the server (server/discover) and falls back to 2025.">
+            <Select value={draft.protocol ?? ""} onChange={(e) => patch({ protocol: (e.target.value || undefined) as any })}>
+              <option value="">{draft.transport === "http" || draft.command === "moka:demo" ? "Default (automatic)" : "Default (2025-11-25)"}</option>
+              <option value="auto">Automatic: 2026-07-28 if the server has it</option>
+              <option value="2026">2026-07-28 only</option>
+              <option value="2025">2025-11-25 and earlier</option>
+            </Select>
+          </Field>
           <Field label="Timeout (ms)" hint="For connecting, and for tool calls unless set below.">
             <Input type="number" value={draft.timeoutMs ?? ""} onChange={(e) => patch({ timeoutMs: e.target.value ? Number(e.target.value) : undefined })} placeholder="30000" />
           </Field>
@@ -518,6 +538,11 @@ function ServerForm({ initial, isNew, onCreated }: { initial: McpServerConfig; i
               <StatusDot status={state?.status ?? "idle"} />
               {state?.status ?? "not connected"}
               {state?.serverInfo?.name && ` · ${state.serverInfo.name} ${state.serverInfo.version ?? ""}`}
+              {state?.status === "connected" && state.protocol?.version && (
+                <span title={state.protocol.era === "modern" ? "Stateless MCP: server/discover, no sessions, sampling and input requests inside calls" : "Classic MCP: initialize handshake and a session"}>
+                  <Badge tone={state.protocol.era === "modern" ? "accent" : "neutral"}>MCP {state.protocol.version}</Badge>
+                </span>
+              )}
             </span>
           }
           right={
@@ -556,6 +581,11 @@ function ServerForm({ initial, isNew, onCreated }: { initial: McpServerConfig; i
           </div>
         )}
         {state?.status === "connected" && (
+          <Section title="Security check" description="Tool poisoning, shadowing and changed tools, in what this server tells the model.">
+            <SecuritySection serverId={initial.id} />
+          </Section>
+        )}
+        {state?.status === "connected" && (
           <Section title={`Tools · ${state.tools.length}`} description="Toggle which tools the model can see. Hidden tools stay callable from the Tools view.">
             <div className="divide-y divide-line rounded-xl border border-line">
               {state.tools.length === 0 && <p className="px-4 py-3 text-[13px] text-muted">This server exposes no tools.</p>}
@@ -565,7 +595,14 @@ function ServerForm({ initial, isNew, onCreated }: { initial: McpServerConfig; i
                   <div key={t.name} className="flex items-start gap-3 px-4 py-2.5">
                     <Wrench className={cn("mt-0.5 h-3.5 w-3.5 shrink-0", enabled ? "text-accent" : "text-subtle")} />
                     <div className="min-w-0 flex-1">
-                      <div className="font-mono text-[12.5px] font-medium">{t.name}</div>
+                      <div className="flex items-baseline gap-2">
+                        <span className="font-mono text-[12.5px] font-medium">{t.name}</span>
+                        {toolTokens.has(t.name) && (
+                          <span className="font-mono text-[10.5px] text-subtle" title="Estimated tokens this tool's definition adds to every request">
+                            ≈{formatTokens(toolTokens.get(t.name)!)} tok
+                          </span>
+                        )}
+                      </div>
                       {t.description && <div className="mt-0.5 line-clamp-2 text-[12px] text-muted">{t.description}</div>}
                     </div>
                     <button

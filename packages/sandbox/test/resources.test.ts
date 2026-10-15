@@ -58,7 +58,8 @@ describe("MCP resources", () => {
     expect(res.json.subscriptions).toEqual(["moka://brew/status"]);
     await waitFor(() => updates().length > 0);
     expect(updates()[0]).toMatchObject({ serverId: "demo", data: { uri: "moka://brew/status" } });
-    expect(sandbox.engine.bus.history().some((e) => e.kind === "mcp.rpc" && e.title.startsWith("resources/subscribe"))).toBe(true);
+    // 2026-07-28: one subscriptions/listen stream instead of resources/subscribe.
+    expect(sandbox.engine.bus.history().some((e) => e.kind === "mcp.rpc" && e.title.startsWith("subscriptions/listen"))).toBe(true);
   }, 20_000);
 
   it("keeps subscriptions across reconnects", async () => {
