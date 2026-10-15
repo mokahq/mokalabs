@@ -1,5 +1,47 @@
 # @mokalabs/proxy
 
+## 0.4.0
+
+### Minor Changes
+
+- [#37](https://github.com/mokahq/mokalabs/pull/37) [`7cec2ed`](https://github.com/mokahq/mokalabs/commit/7cec2ed43c3ff6aa878b74c3e4a36686e9ee7623) Thanks [@thebunnyweb](https://github.com/thebunnyweb)! - Tool tests, a security check, context budgets, and pages, diagrams and files next to the chat.
+  
+  **Tool tests.** A new **Tests** view runs prompts on several models at once, several times each, and grades what each model did: tools it had to call, tools it mustn't, arguments (partial match), words in the answer. Results fill a model-by-test grid as runs finish; a cell shows each run's failure reasons, tool calls, answer and a link to the inspector. **Suggest tests** asks the workspace's model to write tests from its tools; **Copy scorecard** copies a Markdown table. Tests are saved in the workspace (`tests` in moka.json) and `moka test [config] --models a,b --runs 3` runs them from the command line, exiting 1 on failure, for CI. By default only tools marked read-only really run (`--tools run|read-only|none`). Core: `runToolTests()`, `grade()`, `suggestTests()`, `engine.runTests()`, and a `toolMode` option for chats.
+  
+  **Security check.** Every MCP server is checked when it connects: hidden-instruction tags, "don't tell the user", instruction overrides, credentials and secret files, invisible Unicode, sending data away, steering other tools, shadowing (same tool name on two servers, or naming another server's tool), and very long descriptions, in tool, parameter, instruction and prompt text. Moka remembers each server's tools (`~/.moka/tool-pins.json`) and reports tools whose description or schema changed since, with a before/after diff, until you trust them. Findings show as a shield in the sidebar, a section in the server's settings and an inspector event; servers behind the proxy are checked too. Core: `scanServer()`, `ToolPins`, `engine.securityReport()`.
+  
+  **Context budget.** The empty chat shows how many tokens the workspace's system prompt, skills, server instructions and tool definitions cost on every request; click for a breakdown per server and tool, biggest first, with a switch to hide each tool, and warnings past half of an 8K window or 40 tools. Settings shows each tool's estimate. Core: `contextBudget()`.
+  
+  **Pages and diagrams in replies.** HTML, SVG and Mermaid that a model writes are shown, not just printed: Mermaid and SVG draw in the chat, a whole HTML page shows as a card and opens next to the chat when the reply finishes, and snippets get a Preview button. Pages run sandboxed; a banner lists the hosts a page loads from, with one click to block them. The preview pane can expand.
+  
+  **Preview files next to the chat.** Attachments and files returned by tools open in a resizable pane: PDF pages (pdf.js, loaded only when needed), Word documents, HTML, Markdown, CSV, JSON, images, SVG, Mermaid, audio, video and code. Documents a tool makes open on their own. Tool results with images, audio, embedded resources or resource links show as file cards; tool-call chunks now carry `serverId`.
+  
+  **Attached PDFs and Word files work with every model.** Moka reads their text in the browser when attached. Models that read PDFs (OpenAI, Anthropic, Gemini, Azure) get the PDF; LM Studio, Ollama and other OpenAI-compatible models get its text, and Word files go to every model as Markdown. Before, attaching one to those models failed with "file part media type … not supported", and so did every later message in the chat. Core: `adaptAttachments()`.
+  
+  **Local models.** LM Studio is detected on first run like Ollama, and Settings → Models offers to add LM Studio or Ollama when they're running but not added. Replies without tool calls show tokens per second, in the chat and in Compare.
+  
+  **Workspaces in the sidebar.** Chats are grouped by workspace; start a chat in any workspace, or create one with the current model, MCP servers and skills.
+  
+  Also: the demo server's `create_document` tool writes PDF, Word, HTML or Markdown files; `.mjs` files are served as JavaScript.
+
+### Patch Changes
+
+- [#37](https://github.com/mokahq/mokalabs/pull/37) [`7cec2ed`](https://github.com/mokahq/mokalabs/commit/7cec2ed43c3ff6aa878b74c3e4a36686e9ee7623) Thanks [@thebunnyweb](https://github.com/thebunnyweb)! - MCP 2026-07-28. Moka's MCP client moves to the TypeScript SDK v2 (`@modelcontextprotocol/client` 2.2) and speaks the stateless revision as well as 2025-11-25 and earlier.
+  
+  **Per-server version.** A new `protocol` setting (Settings → MCP servers → Advanced: **MCP version**): `auto` asks the server with `server/discover` and falls back to 2025, `2026` requires 2026-07-28, `2025` keeps the `initialize` handshake. Default: `auto` for HTTP servers and the demo server, `2025` for stdio and SSE. Settings shows the negotiated version as a badge, and `mcp.status` events carry `protocol: { version, era }`.
+  
+  **Sampling and elicitation inside the call.** On 2026-07-28 a server asks for a completion, a form or roots by answering `tools/call` (or `prompts/get`, `resources/read`) with `input_required`. Moka shows the same approval and form as before, then calls again with the answers, up to 10 rounds. Rejecting a sampling request ends the call in Moka, since a retry can't carry an error back.
+  
+  **Subscriptions.** On 2026-07-28 servers, list changes and resource updates arrive on one `subscriptions/listen` stream; subscribing to a resource reopens it with the new URI set. 2025 servers still use `resources/subscribe`.
+  
+  **Inspector and proxy.** `input_required` replies get a badge naming what the server asked for, retried requests show as `round 2 with <keys>` and belong to the original tool call, and the stdio `server/discover` probe (run on a separate copy of the server) is shown in the RPC log. The proxy reads the client's identity and version from 2026-07-28 request `_meta` too, and the proxy view shows the MCP version.
+  
+  **Demo server.** Built on `@modelcontextprotocol/server` 2.2 with `serveStdio`, it serves both revisions from one codebase: `brainstorm` and `order_coffee` return `input_required`, and the SDK turns that into `sampling/createMessage` and `elicitation/create` requests for 2025 clients.
+  
+  Also: Moka's MCP errors now distinguish the server's JSON-RPC errors (`ProtocolError`) from local SDK errors (`SdkError`) for "outcome unknown" detection.
+  
+  Fix: the current workspace in the sidebar can be collapsed too (it was always open). A collapsed workspace opens again when you switch to it or a chat starts in it.
+
 ## 0.3.1
 
 ### Patch Changes
