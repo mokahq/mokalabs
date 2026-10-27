@@ -1,9 +1,10 @@
 import { Code2, Eye, FileCode2, Maximize2 } from "lucide-react";
-import { createContext, memo, useContext, useState } from "react";
+import { createContext, memo, useContext, useEffect, useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
+import { hasMath, katexPlugin, loadKatex, normalizeMath, rehypePlugins, remarkPlugins } from "../markdown";
 import { artifactId, artifactKind, isFullPage } from "../preview";
 import { useStore } from "../store";
+import { CodeBlockView } from "./Code";
 import { MermaidDiagram } from "./Diagram";
 import { CopyButton, IconButton, cn } from "./ui";
 
@@ -19,19 +20,8 @@ function CodeBlock({ children, className }: { children?: React.ReactNode; classN
   return <PlainCode text={text} lang={lang} className={className} />;
 }
 
-function PlainCode({ text, lang, className, actions }: { text: string; lang?: string; className?: string; actions?: React.ReactNode }) {
-  return (
-    <div className="group relative">
-      <div className="absolute top-1.5 right-1.5 flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
-        {lang && <span className="font-mono text-[10px] text-subtle uppercase">{lang}</span>}
-        {actions}
-        <CopyButton text={text} />
-      </div>
-      <pre>
-        <code className={className}>{text}</code>
-      </pre>
-    </div>
-  );
+function PlainCode({ text, lang, actions }: { text: string; lang?: string; className?: string; actions?: React.ReactNode }) {
+  return <CodeBlockView code={text} lang={lang} actions={actions} />;
 }
 
 /**
@@ -112,26 +102,49 @@ function Artifact({ kind, code, lang, className, id }: { kind: "html" | "svg" | 
 
 /** `messageId`: the reply this text belongs to (once it's complete), so its HTML, SVG and Mermaid can be shown. */
 export const Markdown = memo(function Markdown({ text, className, messageId }: { text: string; className?: string; messageId?: string }) {
+  const source = useMemo(() => normalizeMath(text), [text]);
+  const math = hasMath(source);
+  // KaTeX loads the first time a reply has math; until then, math shows as code.
+  const [katex, setKatex] = useState(katexPlugin);
+  useEffect(() => {
+    if (math && !katex) void loadKatex().then(setKatex).catch(() => undefined);
+  }, [math, katex]);
+  const rehype = useMemo(() => rehypePlugins(math ? katex : undefined), [math, katex]);
   return (
     <ReplyContext.Provider value={messageId}>
       <div className={`prose-moka ${className ?? ""}`}>
         <ReactMarkdown
-          remarkPlugins={[remarkGfm]}
+          remarkPlugins={remarkPlugins}
+          rehypePlugins={rehype}
           components={{
             pre: ({ children }) => <>{children}</>,
             code: ({ className: cls, children, ...props }) => {
-              const inline = !cls && !String(children).includes("\n");
-              if (inline) return <code {...props}>{children}</code>;
+              const inline = !cls?.includes("language-") && !String(children).includes("\n");
+              if (inline || cls?.includes("math-")) return <code className={cls} {...props}>{children}</code>;
               return <CodeBlock className={cls}>{children}</CodeBlock>;
             },
-            a: ({ children, href }) => (
-              <a href={href} target="_blank" rel="noreferrer noopener">
-                {children}
-              </a>
-            ),
+            a: ({ children, href, id }) =>
+              href?.startsWith("#") ? (
+                // A footnote: scroll to it in this reply instead of opening a tab.
+                <a
+                  href={href}
+                  id={id}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    const target = (e.currentTarget.closest(".prose-moka") ?? document).querySelector(`[id="${CSS.escape(href.slice(1))}"]`);
+                    target?.scrollIntoView({ behavior: "smooth", block: "center" });
+                  }}
+                >
+                  {children}
+                </a>
+              ) : (
+                <a href={href} target="_blank" rel="noreferrer noopener">
+                  {children}
+                </a>
+              ),
           }}
         >
-          {text}
+          {source}
         </ReactMarkdown>
       </div>
     </ReplyContext.Provider>

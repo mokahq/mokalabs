@@ -17,6 +17,11 @@ interface GalleryItem {
 
 const GALLERY: GalleryItem[] = [
   {
+    name: "Moka demo tools",
+    description: "Built into Moka: time, maths, dice, web pages, documents, plus elicitation (order_coffee), sampling (brainstorm), progress and a live resource.",
+    server: { name: "Moka demo tools", transport: "stdio", command: "moka:demo", args: [] },
+  },
+  {
     name: "Everything (reference)",
     description: "Official test server exercising every MCP feature: tools, resources, prompts, sampling.",
     server: { name: "Everything", transport: "stdio", command: "npx", args: ["-y", "@modelcontextprotocol/server-everything"] },
@@ -165,6 +170,8 @@ function NewServer({ onCreated }: { onCreated: (id: string) => void }) {
   const [importOpen, setImportOpen] = useState(false);
   const add = useAddServers();
   const [transport, setTransport] = useState<McpServerConfig["transport"]>("stdio");
+  // The demo server is offered again once it's been removed.
+  const hasDemo = useStore((s) => s.config.mcpServers.some((m) => m.command === "moka:demo"));
 
   return (
     <div className="p-6">
@@ -186,7 +193,7 @@ function NewServer({ onCreated }: { onCreated: (id: string) => void }) {
 
       {mode === "gallery" ? (
         <div className="mt-5 grid gap-2.5 sm:grid-cols-2">
-          {GALLERY.map((g) => (
+          {GALLERY.filter((g) => !(hasDemo && g.server.command === "moka:demo")).map((g) => (
             <button
               key={g.name}
               onClick={async () => {
@@ -305,7 +312,12 @@ function ServerForm({ initial, isNew, onCreated }: { initial: McpServerConfig; i
   const [argsText, setArgsText] = useState((initial.args ?? []).join("\n"));
   const [testState, setTestState] = useState<McpServerState>();
   const [testing, setTesting] = useState(false);
-  const [showAdvanced, setShowAdvanced] = useState(Boolean(initial.env || initial.cwd || initial.timeoutMs || typeof initial.oauth === "object" || initial.oauth === false || initial.sampling || initial.protocol));
+  const [showAdvanced, setShowAdvanced] = useState(Boolean(initial.env || initial.cwd || initial.timeoutMs || typeof initial.oauth === "object" || initial.oauth === false || initial.protocol));
+  // The per-tool switches below (asks/auto, on/off) save straight away. Keep the form in step with them,
+  // so saving the form doesn't write back what they were when it opened.
+  useEffect(() => {
+    setDraft((d) => ({ ...d, approval: initial.approval?.tools || d.approval?.default ? { ...d.approval, tools: initial.approval?.tools } : undefined, disabledTools: initial.disabledTools }));
+  }, [JSON.stringify(initial.approval?.tools ?? null), JSON.stringify(initial.disabledTools ?? null)]);
 
   const build = (): McpServerConfig => {
     const out: any = { ...draft, args: argsText.split("\n").map((a) => a.trim()).filter(Boolean) };
@@ -424,6 +436,17 @@ function ServerForm({ initial, isNew, onCreated }: { initial: McpServerConfig; i
           <option value="auto">Never ask</option>
         </Select>
       </Field>
+      <Field
+        label="Sampling"
+        className="sm:col-span-2"
+        hint="When a tool asks to borrow your model (MCP sampling), e.g. to summarise or brainstorm. It runs on this workspace's model; you see the prompt first."
+      >
+        <Select value={draft.sampling ?? ""} onChange={(e) => patch({ sampling: (e.target.value || undefined) as any })}>
+          <option value="">Ask me each time</option>
+          <option value="auto">Allow automatically</option>
+          <option value="deny">Never (don't offer sampling)</option>
+        </Select>
+      </Field>
       <div className="flex items-center gap-2 sm:col-span-2">
         <Switch checked={showAdvanced} onChange={setShowAdvanced} label="Advanced" />
         <span className="text-[12.5px] text-muted">Advanced options</span>
@@ -487,13 +510,6 @@ function ServerForm({ initial, isNew, onCreated }: { initial: McpServerConfig; i
               </Field>
             </>
           )}
-          <Field label="Sampling requests" hint="When this server asks to use your model (MCP sampling).">
-            <Select value={draft.sampling ?? ""} onChange={(e) => patch({ sampling: (e.target.value || undefined) as any })}>
-              <option value="">Ask me each time</option>
-              <option value="auto">Allow automatically</option>
-              <option value="deny">Never (don't offer sampling)</option>
-            </Select>
-          </Field>
           <Field label="MCP version" hint="2026-07-28 has no handshake or sessions; servers ask for sampling and input inside the call. Automatic asks the server (server/discover) and falls back to 2025.">
             <Select value={draft.protocol ?? ""} onChange={(e) => patch({ protocol: (e.target.value || undefined) as any })}>
               <option value="">{draft.transport === "http" || draft.command === "moka:demo" ? "Default (automatic)" : "Default (2025-11-25)"}</option>

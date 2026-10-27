@@ -109,6 +109,8 @@ export async function seedConfig(config: MokaConfig, env: NodeJS.ProcessEnv): Pr
               "What time is it in Tokyo and Bengaluru right now?",
               "Roll 3d20 and compute the average with the calculator",
               "Make a one-page PDF with 5 easy office plants for low light",
+              // The demo server borrows your model for this (MCP sampling): you approve the prompt first.
+              "Brainstorm names for a coffee robot",
               // The web UI hides this one when Moka branding is off (MOKA_STARTER in Chat.tsx).
               "What is Moka and how do I add my own MCP server?",
             ],

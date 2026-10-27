@@ -2,7 +2,8 @@ import { AlertTriangle, FileText, FolderOpen, FolderSearch, PenLine, Plus, Spark
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
 import { Markdown } from "../components/Markdown";
-import { Badge, Button, Empty, Field, Input, Switch, Tabs, Textarea, cn } from "../components/ui";
+import { Badge, Button, Empty, Field, Input, Switch, Tabs, cn } from "../components/ui";
+import { CodeEditor } from "../components/Code";
 import { useStore } from "../store";
 import type { LoadedSkill, SkillConfig } from "../types";
 import { FormFooter, ListItem, MasterDetail, Section } from "./Settings";
@@ -242,7 +243,7 @@ function NewSkill({ onCreated }: { onCreated: (id: string) => void }) {
         {mode === "inline" && (
           <>
             <Field label="SKILL.md" hint="YAML frontmatter with name + description, then markdown instructions.">
-              <Textarea mono rows={16} value={content} onChange={(e) => setContent(e.target.value)} />
+              <CodeEditor lang="markdown" rows={16} value={content} onChange={setContent} ariaLabel="SKILL.md" />
             </Field>
             <Button
               variant="primary"
@@ -357,7 +358,7 @@ function SkillForm({ initial, loaded }: { initial: SkillConfig; loaded?: LoadedS
               </Field>
             ) : (
               <Field label="SKILL.md" className="sm:col-span-2">
-                <Textarea mono rows={14} value={draft.content ?? ""} onChange={(e) => setDraft({ ...draft, content: e.target.value })} />
+                <CodeEditor lang="markdown" rows={14} value={draft.content ?? ""} onChange={(content) => setDraft({ ...draft, content })} ariaLabel="SKILL.md" />
               </Field>
             )}
             <Field label="Name override" hint="Optional — defaults to the frontmatter name.">

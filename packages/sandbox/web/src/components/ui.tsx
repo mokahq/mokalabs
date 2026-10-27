@@ -358,7 +358,8 @@ export function KeyValueEditor({
 /** Collapsible, syntax-tinted JSON viewer. */
 export function JsonView({ value, className, maxHeight = "24rem" }: { value: unknown; className?: string; maxHeight?: string }) {
   const text = typeof value === "string" ? value : safeStringify(value);
-  const html = typeof value === "string" ? escapeHtml(text) : highlightJson(text);
+  // A string that holds JSON (a tool's text result, usually) is tinted too.
+  const html = typeof value !== "string" || isJsonText(text) ? highlightJson(text) : escapeHtml(text);
   return (
     <div className={cn("group relative rounded-lg border border-line bg-panel-2", className)}>
       <CopyButton text={text} className="absolute top-1.5 right-1.5 opacity-0 group-hover:opacity-100" />
@@ -381,6 +382,16 @@ export function safeStringify(value: unknown): string {
 
 function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function isJsonText(text: string): boolean {
+  if (text.length > 500_000 || !/^\s*[[{]/.test(text)) return false;
+  try {
+    JSON.parse(text);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function highlightJson(json: string): string {
