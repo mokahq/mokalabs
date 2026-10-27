@@ -51,6 +51,7 @@ Missing variables resolve to an empty string.
 | `stream` | boolean? | `false`: ask for each reply in one response instead of a stream (for gateways that don't stream reliably). Default: stream |
 | `temperature` | number? | 0–2 |
 | `maxOutputTokens` | integer? | |
+| `timeoutMs` | integer? | How long to wait for the model before ending the run with an error: for the start of each reply, and (up to 2 minutes) for a pause mid-reply. Default 300000 (5 minutes). Time spent in tools and approvals doesn't count |
 | `providerOptions` | object? | Passed to the AI SDK as `providerOptions` |
 
 ## `mcpServers[]`

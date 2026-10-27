@@ -1,4 +1,6 @@
 import {
+  ExternalLink,
+  PanelRightClose,
   AlertCircle,
   AlertTriangle,
   AppWindow,
@@ -22,8 +24,10 @@ import {
   Wrench,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { dockInspector, isInspectorPopout, openInspectorWindow } from "../popout";
 import { useStore } from "../store";
 import type { MokaEvent, ToolLineage } from "../types";
+import { Highlighted } from "./Code";
 import { IconButton, Input, JsonView, Tabs, cn, formatMs } from "./ui";
 
 type Filter = "all" | "llm" | "tools" | "rpc" | "logs";
@@ -181,6 +185,21 @@ export function Inspector() {
           >
             {paused ? <PlayCircle className="h-3.5 w-3.5 text-warn" /> : <PauseCircle className="h-3.5 w-3.5" />}
           </IconButton>
+          {isInspectorPopout ? (
+            <IconButton label="Dock: back to the main window" className="h-7 w-7" onClick={() => dockInspector(selectedId)}>
+              <PanelRightClose className="h-3.5 w-3.5" />
+            </IconButton>
+          ) : (
+            <IconButton
+              label="Open in a new window"
+              className="h-7 w-7"
+              onClick={() => {
+                if (openInspectorWindow()) set({ inspectorOpen: false });
+              }}
+            >
+              <ExternalLink className="h-3.5 w-3.5" />
+            </IconButton>
+          )}
           <IconButton label="Download trace" onClick={download} className="h-7 w-7">
             <Download className="h-3.5 w-3.5" />
           </IconButton>
@@ -605,7 +624,7 @@ function ArgsTrace({ selected, index, onSelect }: { selected: MokaEvent; index: 
         )}
       </div>
       {showRaw && raw !== undefined && (
-        <pre className="mt-1.5 max-h-48 overflow-auto rounded-lg border border-line bg-panel-2/60 p-2 font-mono text-[11px] whitespace-pre-wrap break-all">{raw || "(empty)"}</pre>
+        <Highlighted code={raw || "(empty)"} lang={rawOk ? "json" : undefined} wrap className="mt-1.5 max-h-48 overflow-auto rounded-lg border border-line bg-panel-2/60 p-2 text-[11px] break-all" />
       )}
     </div>
   );

@@ -332,7 +332,7 @@ export function TestsView() {
                     </span>
                     <span className="flex-1" />
                     {events.some((e) => e.runId === r.runId) && (
-                      <button className="text-[12px] text-muted hover:text-fg" onClick={() => set({ inspectorOpen: true, selectedEventId: events.find((e) => e.runId === r.runId)?.id })}>
+                      <button className="text-[12px] text-muted hover:text-fg" onClick={() => useStore.getState().inspect(events.find((e) => e.runId === r.runId)?.id)}>
                         Inspect run →
                       </button>
                     )}

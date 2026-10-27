@@ -565,6 +565,36 @@ export class McpManager {
     args: Record<string, unknown>,
     options: { signal?: AbortSignal; runId?: string; callId?: string } = {},
   ): Promise<{ content: unknown[]; isError?: boolean; structuredContent?: unknown }> {
+    try {
+      return await this.callToolOnce(serverId, toolName, args, options);
+    } catch (error) {
+      // The server rejected the call without running it, so it's safe to send again in a new session.
+      if (!(await this.renewIfSessionLost(serverId, error))) throw error;
+      return this.callToolOnce(serverId, toolName, args, options);
+    }
+  }
+
+  /**
+   * Streamable HTTP servers that keep sessions (MongoDB's, for one) forget them
+   * when idle or restarted, and answer the old Mcp-Session-Id with 404 "session
+   * not found". The spec says the client then starts a new session; do that.
+   * Returns true when a new session is ready to retry on.
+   */
+  private async renewIfSessionLost(serverId: string, error: unknown): Promise<boolean> {
+    const conn = this.connections.get(serverId);
+    if (!conn || conn.config.transport !== "http" || !isSessionLost(error, conn)) return false;
+    const { config } = conn;
+    this.bus.emit({ kind: "mcp.log", level: "warn", serverId, title: `${config.name}: session expired on the server, starting a new one and retrying` });
+    const state = await this.reconnect(config);
+    return state.status === "connected";
+  }
+
+  private async callToolOnce(
+    serverId: string,
+    toolName: string,
+    args: Record<string, unknown>,
+    options: { signal?: AbortSignal; runId?: string; callId?: string },
+  ): Promise<{ content: unknown[]; isError?: boolean; structuredContent?: unknown }> {
     let conn = this.connections.get(serverId);
     if (conn?.state.status === "disconnected") {
       // The server went away (it crashed or exited): start it again once, so a retry can actually retry.
@@ -626,9 +656,7 @@ export class McpManager {
   }
 
   async readResource(serverId: string, uri: string): Promise<unknown> {
-    const conn = this.connections.get(serverId);
-    if (!conn?.client) throw new Error("Server not connected");
-    return conn.client.readResource({ uri });
+    return this.withSession(serverId, (client) => client.readResource({ uri }));
   }
 
   /** Subscribe to `notifications/resources/updated` for a resource (kept across reconnects). */
@@ -702,9 +730,22 @@ export class McpManager {
   }
 
   async getPrompt(serverId: string, name: string, args: Record<string, string> = {}): Promise<unknown> {
-    const conn = this.connections.get(serverId);
-    if (!conn?.client) throw new Error("Server not connected");
-    return conn.client.getPrompt({ name, arguments: args });
+    return this.withSession(serverId, (client) => client.getPrompt({ name, arguments: args }));
+  }
+
+  /** Run a request on a server's client, once more in a new session if the server lost the old one. */
+  private async withSession<T>(serverId: string, request: (client: Client) => Promise<T>): Promise<T> {
+    const client = () => {
+      const conn = this.connections.get(serverId);
+      if (!conn?.client) throw new Error("Server not connected");
+      return conn.client;
+    };
+    try {
+      return await request(client());
+    } catch (error) {
+      if (!(await this.renewIfSessionLost(serverId, error))) throw error;
+      return request(client());
+    }
   }
 
   async disconnect(id: string): Promise<void> {
@@ -754,6 +795,15 @@ function versionNegotiation(config: McpServerConfig): VersionNegotiationOptions 
   // ignores it is legacy too on stdio. Don't make it wait for the full timeout.
   if (setting === "auto") return { mode: "auto", probe: { timeoutMs: Math.min(config.timeoutMs ?? 10_000, 10_000) } };
   return undefined;
+}
+
+/** A Streamable HTTP request was refused because the server no longer knows our session. */
+export function isSessionLost(error: unknown, conn: { transport?: Transport; state: { http?: { status?: number } } }): boolean {
+  const message = errorMessage(error);
+  if (/session (?:not found|expired|is not valid|unknown)|unknown session|invalid session/i.test(message)) return true;
+  // HTTP 404 for a request that carried a session id means the session is gone (MCP spec, Streamable HTTP).
+  const sessionId = (conn.transport as { sessionId?: string } | undefined)?.sessionId;
+  return Boolean(sessionId) && (conn.state.http?.status === 404 || /\b404\b/.test(message));
 }
 
 /** The tool-call timeout for a server. */

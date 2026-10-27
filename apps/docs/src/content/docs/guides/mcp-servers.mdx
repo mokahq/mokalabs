@@ -13,7 +13,7 @@ Moka is a full [Model Context Protocol](https://modelcontextprotocol.io) client.
 
 <Tabs>
 <TabItem label="Gallery">
-**Settings → MCP servers → Add server → Gallery** lists popular servers: Everything (reference), Filesystem, Memory, Sequential thinking, Playwright, Fetch, Git, DeepWiki, Context7 and GitHub. One click adds and connects it.
+**Settings → MCP servers → Add server → Gallery** lists popular servers: Moka's demo tools (if you removed them), Everything (reference), Filesystem, Memory, Sequential thinking, Playwright, Fetch, Git, DeepWiki, Context7 and GitHub. One click adds and connects it.
 </TabItem>
 <TabItem label="Manual">
 Choose a transport and fill in the form:
@@ -97,6 +97,7 @@ Moka checks each server's tools for hidden instructions, invisible characters, r
 - Changing transport settings reconnects automatically; renaming a server or toggling tools doesn't.
 - Server **instructions** (from the `initialize` result) are appended to the system prompt.
 - Every JSON-RPC message in both directions appears in the [Inspector](/guides/inspector/) under **RPC**, and stderr lines under **Logs**.
+- **Expired sessions.** Streamable HTTP servers that keep sessions (MongoDB's MCP server, for one) forget them when idle or restarted, and answer with HTTP 404 "session not found". Moka then starts a new session and sends the request again, once. That's safe: the server refused the request without running it. The inspector logs *session expired on the server*.
 
 ## Slow tools, progress and timeouts
 

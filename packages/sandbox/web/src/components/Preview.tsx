@@ -3,10 +3,12 @@ import type { PDFDocumentProxy } from "pdfjs-dist";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api";
 import { docxToMarkdown } from "../docx";
+import { languageOfFile } from "../highlight";
 import { openPdf } from "../pdf";
 import { collectPreviews, dataUrlBytes, externalHosts, formatBytes, offline, parseCsv, previewKind, toolFiles, type PreviewItem, type PreviewKind } from "../preview";
 import { useStore } from "../store";
 import type { Part } from "../types";
+import { Highlighted } from "./Code";
 import { MermaidDiagram } from "./Diagram";
 import { Markdown } from "./Markdown";
 import { CopyButton, IconButton, JsonView, Spinner, cn } from "./ui";
@@ -227,7 +229,7 @@ function Notice({ title, children }: { title: string; children?: React.ReactNode
 function Viewer({ kind, item, content, source }: { kind: PreviewKind; item: PreviewItem; content: Loaded; source: boolean }) {
   const url = useObjectUrl(kind === "image" || kind === "audio" || kind === "video" ? content.dataUrl : undefined, content.mediaType);
   const text = content.text ?? "";
-  if (source && (kind === "html" || kind === "svg" || kind === "markdown" || kind === "mermaid")) return <pre className="p-4 font-mono text-[12px] leading-relaxed whitespace-pre-wrap">{text}</pre>;
+  if (source && (kind === "html" || kind === "svg" || kind === "markdown" || kind === "mermaid")) return <Highlighted code={text} lang={kind === "svg" ? "xml" : kind} className="p-4" wrap />;
   switch (kind) {
     case "pdf":
       return content.dataUrl ? <PdfView dataUrl={content.dataUrl} /> : null;
@@ -277,7 +279,7 @@ function Viewer({ kind, item, content, source }: { kind: PreviewKind; item: Prev
     case "video":
       return url ? <video controls src={url} className="h-full w-full bg-black object-contain" /> : null;
     case "text":
-      return <pre className="p-4 font-mono text-[12px] leading-relaxed">{text}</pre>;
+      return <Highlighted code={text} lang={codeLanguage(item)} className="p-4" />;
     default:
       return <Notice title="No preview for this type">{content.mediaType}. Download it to open it in another app.</Notice>;
   }
@@ -520,5 +522,14 @@ export function ToolFiles({ part, messageId }: { part: Extract<Part, { type: "to
         );
       })}
     </div>
+  );
+}
+
+/** The language of a code file in the preview, by its name or media type. */
+function codeLanguage(item: PreviewItem): string | undefined {
+  const type = item.mediaType.toLowerCase();
+  return (
+    languageOfFile(item.name) ??
+    (type.includes("javascript") ? "javascript" : type.includes("typescript") ? "typescript" : type.includes("css") ? "css" : type.includes("yaml") ? "yaml" : type.includes("xml") ? "xml" : type.includes("python") ? "python" : type.includes("x-sh") ? "bash" : undefined)
   );
 }

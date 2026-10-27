@@ -6,6 +6,7 @@ import { useStore } from "../store";
 import { expandTemplate, templateVariables } from "../uriTemplate";
 import type { JsonSchema, McpTool } from "../types";
 import { Badge, Button, Empty, Field, Input, JsonView, Select, StatusDot, Switch, Tabs, Textarea, cn, formatMs } from "./ui";
+import { CodeEditor } from "./Code";
 
 type Item = { kind: "tool"; name: string } | { kind: "resource"; uri: string } | { kind: "template"; uriTemplate: string } | { kind: "prompt"; name: string };
 
@@ -246,7 +247,7 @@ function ToolForm({ serverId, tool }: { serverId: string; tool: McpTool }) {
 
       <div className="mt-5 rounded-xl border border-line bg-panel p-4">
         {mode === "json" ? (
-          <Textarea mono rows={10} value={raw} onChange={(e) => setRaw(e.target.value)} />
+          <CodeEditor lang="json" rows={10} value={raw} onChange={setRaw} ariaLabel="Arguments (JSON)" />
         ) : props.length === 0 ? (
           <p className="text-[13px] text-muted">This tool takes no arguments.</p>
         ) : (

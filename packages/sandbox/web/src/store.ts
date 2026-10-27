@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { api, subscribeEvents } from "./api";
+import { inspectorWindowOpen, showInInspectorWindow } from "./popout";
 import { isDocument, isFullPage, previewKind, replyArtifacts, toolFiles } from "./preview";
 import { runTurn, uid } from "./runner";
 import type {
@@ -131,6 +132,8 @@ interface State {
   settingsServerId?: string;
   toggleTheme: () => void;
   clearEvents: () => Promise<void>;
+  /** Show an event in the inspector: the separate window when it's open, else the side panel. */
+  inspect: (eventId: string | undefined) => void;
   toast: (message: string, kind?: Toast["kind"]) => void;
 }
 
@@ -635,6 +638,10 @@ export const useStore = create<State>((set, get) => ({
     set({ theme });
   },
 
+  inspect: (eventId) => {
+    if (inspectorWindowOpen()) showInInspectorWindow(eventId);
+    else set({ inspectorOpen: true, selectedEventId: eventId });
+  },
   clearEvents: async () => {
     await api("/api/events", { method: "DELETE" }).catch(() => {});
     set({ events: [], selectedEventId: undefined });
