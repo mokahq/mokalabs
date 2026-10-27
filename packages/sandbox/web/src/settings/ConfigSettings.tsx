@@ -1,7 +1,8 @@
 import { Download, FileJson, Upload } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
-import { Button, Switch, Textarea, cn } from "../components/ui";
+import { Button, Switch, cn } from "../components/ui";
+import { CodeEditor } from "../components/Code";
 import { useStore } from "../store";
 import type { MokaConfig } from "../types";
 import { Section } from "./Settings";
@@ -75,7 +76,7 @@ export function ConfigSettings() {
           </div>
         }
       >
-        <Textarea mono rows={26} spellCheck={false} value={text} onChange={(e) => setText(e.target.value)} className="text-[12px]" />
+        <CodeEditor lang="json" rows={26} value={text} onChange={setText} ariaLabel="moka.json" />
         {error && <p className="mt-2 text-[12.5px] text-err">{error}</p>}
         <div className="mt-3 flex items-center gap-2">
           <FileJson className="h-4 w-4 text-subtle" />

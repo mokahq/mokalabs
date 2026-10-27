@@ -54,6 +54,22 @@ Ask *"Make me an HTML dashboard for…"* or *"Draw a diagram of…"* with any mo
 
 HTML runs in a sandbox with no access to Moka, its API or your token. If a page loads anything from the network (a chart library from a CDN, fonts), a banner says from which hosts, and **Block** shows it offline instead. Use **Expand** (⤢) to give a page most of the screen.
 
+### Formatting in replies
+
+Replies render Markdown the way GitHub does, plus what models like to write:
+
+| Model writes | You see |
+|---|---|
+| ` ```ts `, ` ```html `, ` ```python `… | Highlighted code in a block with the language and a copy button. Around 40 languages; the colors follow the light or dark theme |
+| `> [!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]`, `[!CAUTION]` | A colored callout |
+| `$x^2$`, `\(x^2\)`, `$$…$$`, `\[…\]` | Math, typeset with KaTeX. Prices like "$5 and $10" stay text |
+| `- [ ]` / `- [x]` | Checklists |
+| `<span style="color:…">`, `<mark>`, `<kbd>`, `<sub>`, `<sup>`, `<u>` | Colored, highlighted or keyboard text, sub/superscript |
+
+Other HTML in a reply is dropped (its text stays): no scripts, styles beyond color and emphasis, or event handlers. Whole HTML pages open in the preview, as above.
+
+Code is highlighted wherever Moka shows it: replies, the preview pane (source and code files), **Export**, the inspector's raw arguments, JSON tool results, and the `moka.json`, tool-arguments and `SKILL.md` editors. The fonts (Inter, JetBrains Mono), highlighter and KaTeX ship with Moka; nothing loads from the internet, and the highlighter and KaTeX load only when a reply needs them.
+
 ### Return files from your MCP server
 
 Moka shows any of these in a tool result as a file:

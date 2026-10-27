@@ -37,9 +37,11 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { api } from "../api";
+import { languageOfFile } from "../highlight";
 import { DOCS_URL, ISSUES_URL, REPO_URL } from "../links";
 import { useStore, type View } from "../store";
 import type { SessionSummary } from "../types";
+import { Highlighted } from "./Code";
 import { Moka, useMokaBranding } from "./Moka";
 import { SecurityMark, useSecurity } from "./Security";
 import { Button, CopyButton, IconButton, Kbd, Modal, StatusDot, Tabs, cn } from "./ui";
@@ -600,7 +602,7 @@ export function ExportDialog() {
           Download {file}
         </Button>
       </div>
-      <pre className="min-h-0 flex-1 overflow-auto bg-panel-2/60 p-5 font-mono text-[12px] leading-relaxed">{code}</pre>
+      <Highlighted code={code} lang={languageOfFile(file)} className="min-h-0 flex-1 overflow-auto bg-panel-2/60 p-5" />
     </Modal>
   );
 }

@@ -3,8 +3,8 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 @theme {
-  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --font-sans: "Inter Variable", "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 
   --color-bg: var(--bg);
   --color-panel: var(--panel);
@@ -138,6 +138,111 @@ body {
 .prose-moka h3 {
   font-size: 1.05em;
 }
+.prose-moka h4,
+.prose-moka h5,
+.prose-moka h6 {
+  font-weight: 650;
+  font-size: 1em;
+  margin-top: 1.1em;
+}
+.prose-moka h5,
+.prose-moka h6 {
+  color: var(--muted);
+  font-size: 0.92em;
+}
+.prose-moka strong {
+  font-weight: 650;
+}
+.prose-moka mark {
+  background: color-mix(in srgb, var(--warn) 28%, transparent);
+  color: inherit;
+  border-radius: 3px;
+  padding: 0 0.15em;
+}
+.prose-moka kbd {
+  font-family: var(--font-mono);
+  font-size: 0.8em;
+  border: 1px solid var(--line-strong);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  padding: 0.05em 0.4em;
+  background: var(--panel);
+}
+.prose-moka sub,
+.prose-moka sup {
+  font-size: 0.75em;
+}
+.prose-moka u {
+  text-underline-offset: 2px;
+}
+.prose-moka del,
+.prose-moka s {
+  color: var(--muted);
+}
+.prose-moka img {
+  max-width: 100%;
+  border-radius: 8px;
+}
+.prose-moka ul.contains-task-list {
+  list-style: none;
+  padding-left: 0.2em;
+}
+.prose-moka .task-list-item input[type="checkbox"] {
+  margin: 0 0.5em 0.2em 0;
+  vertical-align: middle;
+  accent-color: var(--accent);
+}
+.prose-moka .footnotes {
+  margin-top: 1.5em;
+  border-top: 1px solid var(--line);
+  padding-top: 0.6em;
+  font-size: 0.88em;
+  color: var(--muted);
+}
+.prose-moka .katex-display {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.2em 0;
+}
+.prose-moka details {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0.5em 0.9em;
+}
+.prose-moka summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+/* GitHub-style callouts: > [!NOTE], [!TIP], [!IMPORTANT], [!WARNING], [!CAUTION] */
+.prose-moka .callout {
+  --callout: var(--info);
+  border: 1px solid color-mix(in srgb, var(--callout) 30%, transparent);
+  border-left: 3px solid var(--callout);
+  background: color-mix(in srgb, var(--callout) 7%, transparent);
+  border-radius: 8px;
+  padding: 0.6em 0.9em;
+}
+.prose-moka .callout > * + * {
+  margin-top: 0.5em;
+}
+.prose-moka .callout-title {
+  color: var(--callout);
+  font-weight: 650;
+  font-size: 0.9em;
+}
+.prose-moka .callout-tip {
+  --callout: var(--ok);
+}
+.prose-moka .callout-important {
+  --callout: var(--violet);
+}
+.prose-moka .callout-warning {
+  --callout: var(--warn);
+}
+.prose-moka .callout-caution {
+  --callout: var(--err);
+}
 .prose-moka ul {
   list-style: disc;
   padding-left: 1.4em;
@@ -192,8 +297,41 @@ body {
   background: var(--panel-2);
   font-weight: 600;
 }
+.prose-moka tbody tr:nth-child(even) td {
+  background: color-mix(in srgb, var(--panel-2) 45%, transparent);
+}
 .prose-moka hr {
   border-color: var(--line);
+}
+
+/* Code: Shiki writes both themes' colors as CSS variables; pick by theme. */
+@layer components {
+  .shiki-code {
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    line-height: 1.6;
+    tab-size: 2;
+  }
+}
+.shiki-code span {
+  color: var(--shiki-light);
+  font-style: var(--shiki-light-font-style);
+  font-weight: var(--shiki-light-font-weight);
+}
+.dark .shiki-code span {
+  color: var(--shiki-dark);
+  font-style: var(--shiki-dark-font-style);
+  font-weight: var(--shiki-dark-font-weight);
+}
+.code-block pre,
+.prose-moka .code-block pre {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 0.85em 1em;
+  overflow-x: auto;
+  font-size: 12.5px;
 }
 
 @keyframes blink {

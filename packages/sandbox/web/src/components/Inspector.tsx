@@ -24,6 +24,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "../store";
 import type { MokaEvent, ToolLineage } from "../types";
+import { Highlighted } from "./Code";
 import { IconButton, Input, JsonView, Tabs, cn, formatMs } from "./ui";
 
 type Filter = "all" | "llm" | "tools" | "rpc" | "logs";
@@ -605,7 +606,7 @@ function ArgsTrace({ selected, index, onSelect }: { selected: MokaEvent; index: 
         )}
       </div>
       {showRaw && raw !== undefined && (
-        <pre className="mt-1.5 max-h-48 overflow-auto rounded-lg border border-line bg-panel-2/60 p-2 font-mono text-[11px] whitespace-pre-wrap break-all">{raw || "(empty)"}</pre>
+        <Highlighted code={raw || "(empty)"} lang={rawOk ? "json" : undefined} wrap className="mt-1.5 max-h-48 overflow-auto rounded-lg border border-line bg-panel-2/60 p-2 text-[11px] break-all" />
       )}
     </div>
   );
