@@ -12,6 +12,7 @@ import { ToolRunner } from "./components/ToolRunner";
 import { PreviewPane } from "./components/Preview";
 import { ProxyView } from "./components/ProxyView";
 import { Button, Input, Spinner, cn } from "./components/ui";
+import { isInspectorPopout, onInspectorSelect } from "./popout";
 import { Settings } from "./settings/Settings";
 import { useStore } from "./store";
 
@@ -90,6 +91,8 @@ export function App() {
     );
   }
 
+  if (isInspectorPopout) return <InspectorWindow />;
+
   return (
     <div className={cn("flex h-full flex-col overflow-hidden", presenter && "presenter")}>
       <TopBar />
@@ -147,5 +150,20 @@ function TokenGate() {
         </form>
       </div>
     </Center>
+  );
+}
+
+/** The inspector alone, in its own window (opened from the inspector's ⧉ button). */
+function InspectorWindow() {
+  const set = useStore((s) => s.set);
+  useEffect(() => {
+    document.title = "Inspector · Moka";
+    return onInspectorSelect((selectedEventId) => set({ selectedEventId }));
+  }, [set]);
+  return (
+    <div className="flex h-full flex-col overflow-hidden bg-panel">
+      <Inspector />
+      <Toasts />
+    </div>
   );
 }

@@ -1,4 +1,5 @@
 import {
+  ExternalLink,
   AlertCircle,
   AlertTriangle,
   AppWindow,
@@ -22,6 +23,7 @@ import {
   Wrench,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { isInspectorPopout, openInspectorWindow } from "../popout";
 import { useStore } from "../store";
 import type { MokaEvent, ToolLineage } from "../types";
 import { Highlighted } from "./Code";
@@ -182,6 +184,17 @@ export function Inspector() {
           >
             {paused ? <PlayCircle className="h-3.5 w-3.5 text-warn" /> : <PauseCircle className="h-3.5 w-3.5" />}
           </IconButton>
+          {!isInspectorPopout && (
+            <IconButton
+              label="Open in a new window"
+              className="h-7 w-7"
+              onClick={() => {
+                if (openInspectorWindow()) set({ inspectorOpen: false });
+              }}
+            >
+              <ExternalLink className="h-3.5 w-3.5" />
+            </IconButton>
+          )}
           <IconButton label="Download trace" onClick={download} className="h-7 w-7">
             <Download className="h-3.5 w-3.5" />
           </IconButton>

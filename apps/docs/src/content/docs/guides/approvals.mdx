@@ -5,7 +5,7 @@ description: Make the model ask before it runs a tool, per tool, per server or f
 
 import { Aside } from "@astrojs/starlight/components";
 
-When a tool can change things (send email, merge a PR, delete a file), you probably want to see the call before it runs, especially during a live demo. With approvals the model waits: the tool card shows its arguments and **Approve / Deny** buttons.
+When a tool can change things (send email, merge a PR, delete a file), you probably want to see the call before it runs, especially during a live demo. With approvals the model waits: the tool card shows its arguments and **Approve / Deny** buttons. While it waits, a bar above the message box says which tool is waiting (**Show** scrolls to it), and the browser tab reads *(1) Waiting for you*. Some servers mark almost every tool as destructive (Playwright's navigate, type and click), so each step asks; use **Allow for session** or set the server to **Never ask** for those.
 
 ## Who asks
 

@@ -99,6 +99,70 @@ export interface RunAgentOptions {
 
 export type ToolMode = "run" | "read-only" | "none";
 
+/** Default wait for a model's first output, and the cap for a pause mid-reply. */
+export const MODEL_TIMEOUT_MS = 300_000;
+const MODEL_PAUSE_MS = 120_000;
+
+/**
+ * Gives up on a model that goes quiet: nothing at all for `timeoutMs` (default
+ * 5 minutes) after a request, or a pause of 2 minutes mid-reply. Only counts
+ * while Moka waits on the model, not while tools run or wait for approval.
+ */
+class ModelWatchdog {
+  private readonly controller = new AbortController();
+  readonly signal: AbortSignal;
+  timedOut = false;
+  private timer?: ReturnType<typeof setTimeout>;
+  private toolsRunning = 0;
+  private waitedMs = 0;
+  private readonly firstMs: number;
+  private readonly pauseMs: number;
+
+  constructor(private readonly llm: Pick<LlmProfile, "name" | "timeoutMs">, parent?: AbortSignal) {
+    this.firstMs = llm.timeoutMs ?? MODEL_TIMEOUT_MS;
+    this.pauseMs = Math.min(this.firstMs, MODEL_PAUSE_MS);
+    this.signal = parent ? AbortSignal.any([parent, this.controller.signal]) : this.controller.signal;
+    this.arm(this.firstMs);
+  }
+
+  /** A stream part arrived. */
+  saw(type: string): void {
+    if (type === "tool-call") this.toolsRunning++;
+    else if ((type === "tool-result" || type === "tool-error") && this.toolsRunning > 0) this.toolsRunning--;
+    if (type === "finish") return this.stop();
+    if (this.toolsRunning > 0) return this.pause();
+    // After a step, the next request to the model starts: wait for its first output again.
+    this.arm(type === "finish-step" ? this.firstMs : this.pauseMs);
+  }
+
+  message(): string {
+    return `${this.llm.name} sent nothing for ${formatSeconds(this.waitedMs)}, so Moka stopped waiting. The model or its gateway may be overloaded, or the request too large; try again, or raise "timeoutMs" on the model.`;
+  }
+
+  stop(): void {
+    this.pause();
+  }
+
+  private pause(): void {
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = undefined;
+  }
+
+  private arm(ms: number): void {
+    this.pause();
+    this.timer = setTimeout(() => {
+      this.timedOut = true;
+      this.waitedMs = ms;
+      this.controller.abort(new Error("model timeout"));
+    }, ms);
+    this.timer.unref?.();
+  }
+}
+
+function formatSeconds(ms: number): string {
+  return ms >= 60_000 && ms % 60_000 === 0 ? `${ms / 60_000} minute${ms === 60_000 ? "" : "s"}` : `${+(ms / 1000).toFixed(1)}s`;
+}
+
 export interface ToolAuthorization {
   runId: string;
   toolCallId: string;
@@ -306,6 +370,7 @@ export async function* runAgent(options: RunAgentOptions): AsyncGenerator<ChatCh
   const invalidCalls = new Set<string>();
   let stepStarted = Date.now();
   let stepIndex = 0;
+  const watchdog = new ModelWatchdog(llm, signal);
 
   try {
     const result = streamText({
@@ -317,11 +382,13 @@ export async function* runAgent(options: RunAgentOptions): AsyncGenerator<ChatCh
       temperature: llm.temperature,
       maxOutputTokens: llm.maxOutputTokens,
       providerOptions: llm.providerOptions,
-      abortSignal: signal,
+      // A gateway that never answers (or stops halfway) ends the run with an error instead of hanging.
+      abortSignal: watchdog.signal,
       maxRetries: 1,
     });
 
     for await (const part of result.fullStream) {
+      watchdog.saw(part.type);
       switch (part.type) {
         case "text-delta":
           yield { type: "text", text: part.text };
@@ -497,9 +564,11 @@ export async function* runAgent(options: RunAgentOptions): AsyncGenerator<ChatCh
     bus.emit({ kind: "run.finish", runId, title: `Run finished · ${usage.totalTokens ?? "?"} tokens`, durationMs, data: toUsage(usage) });
     yield { type: "finish", usage: toUsage(usage), durationMs, messages: responseMessages as ModelMessage[] };
   } catch (error) {
-    const message = signal?.aborted ? "Stopped" : describeError(error);
+    const message = signal?.aborted ? "Stopped" : watchdog.timedOut ? watchdog.message() : describeError(error);
     bus.emit({ kind: "run.error", runId, level: "error", title: message, durationMs: Date.now() - started, data: serialiseError(error) });
     yield { type: "error", message };
+  } finally {
+    watchdog.stop();
   }
 }
 

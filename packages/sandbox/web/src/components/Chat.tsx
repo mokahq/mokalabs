@@ -327,7 +327,7 @@ function MessageView({ message, live, last }: { message: UiMessage; live: boolea
                   toast("This run's events aren't in the inspector anymore. Events are kept in memory, so they're cleared when Moka restarts or you press Clear.");
                   return;
                 }
-                set({ inspectorOpen: true, selectedEventId: first.id });
+                useStore.getState().inspect(first.id);
               }}
             >
               Inspect run →
@@ -458,6 +458,7 @@ export function ToolCard({ part }: { part: Extract<Part, { type: "tool" }> }) {
   }, [part.input]);
   return (
     <div
+      id={`tool-${part.id}`}
       className={cn(
         "overflow-hidden rounded-xl border bg-panel transition-colors",
         approval ? "border-warn/50" : part.status === "error" ? "border-err/30" : running ? "border-accent/40" : "border-line",
@@ -562,6 +563,26 @@ export { AttachmentChip };
 
 type PromptInfo = { serverId: string; serverName: string; name: string; description?: string; arguments?: Array<{ name: string; description?: string; required?: boolean }> };
 
+/**
+ * A run waiting on you (a tool to approve) can sit out of sight: scrolled up in a long
+ * chat. Say so above the box, with a way to get to it.
+ */
+function WaitingForYou() {
+  const approval = useStore((s) => Object.values(s.interactions).find((i) => i.kind === "tool-approval"));
+  if (!approval || approval.kind !== "tool-approval") return null;
+  return (
+    <div className="absolute right-0 bottom-full left-0 z-10 mb-2 flex items-center gap-2 rounded-xl border border-warn/40 bg-elev px-3 py-2 text-[13px] shadow-soft">
+      <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-warn" />
+      <span className="min-w-0 flex-1 truncate">
+        Waiting for your OK to run <span className="font-mono text-[12.5px]">{approval.tool}</span> on {approval.serverName}
+      </span>
+      <Button size="xs" variant="outline" onClick={() => document.getElementById(`tool-${approval.toolCallId}`)?.scrollIntoView({ behavior: "smooth", block: "center" })}>
+        Show
+      </Button>
+    </div>
+  );
+}
+
 export function Composer({
   onSend,
   onStop,
@@ -615,7 +636,10 @@ export function Composer({
     const el = ref.current;
     if (!el) return;
     el.style.height = "0px";
-    el.style.height = `${Math.min(el.scrollHeight, 240)}px`;
+    // A scrollbar only once the text is taller than the box can grow; otherwise fractional
+    // line heights show one permanently when the OS is set to always show scrollbars.
+    el.style.height = `${Math.min(Math.ceil(el.scrollHeight) + 1, 240)}px`;
+    el.style.overflowY = el.scrollHeight > 240 ? "auto" : "hidden";
   }, [text]);
 
   useEffect(() => {
@@ -703,6 +727,7 @@ export function Composer({
   return (
     <div className={cn("shrink-0 px-5 pb-5", compact ? "pt-2" : "pt-1")}>
       <div className={cn("relative mx-auto w-full", presenter ? "max-w-4xl" : "max-w-3xl")}>
+        {slash === undefined && !menu && !prompt && <WaitingForYou />}
         {slash !== undefined && promptMatches.length > 0 && (
           <div className="absolute right-0 bottom-full left-0 z-20 mb-2 max-h-64 overflow-y-auto rounded-xl border border-line bg-elev p-1 shadow-soft">
             <div className="px-2.5 pt-1 pb-1 text-[11px] font-medium text-subtle uppercase">MCP prompts</div>

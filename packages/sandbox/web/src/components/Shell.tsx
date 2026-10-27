@@ -58,9 +58,12 @@ export function TopBar() {
   const inspectorOpen = useStore((s) => s.inspectorOpen);
   const openSettings = useStore((s) => s.openSettings);
   const branded = useMokaBranding();
+  // A tab in the background shows when Moka is waiting on you (an approval, a form, a sampling request).
+  const waiting = useStore((s) => Object.keys(s.interactions).length);
   useEffect(() => {
-    document.title = branded ? "Moka" : "Chat";
-  }, [branded]);
+    const name = branded ? "Moka" : "Chat";
+    document.title = waiting ? `(${waiting}) Waiting for you · ${name}` : name;
+  }, [branded, waiting]);
 
   return (
     <header className="relative z-30 flex h-12 shrink-0 items-center gap-2 border-b border-line bg-panel/80 px-3 backdrop-blur">

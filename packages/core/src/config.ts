@@ -37,6 +37,12 @@ export const llmProfileSchema = z.object({
   stream: z.boolean().optional(),
   temperature: z.number().min(0).max(2).optional(),
   maxOutputTokens: z.number().int().positive().optional(),
+  /**
+   * How long to wait for the model before giving up with an error: for the
+   * first part of each reply, and (capped at 2 minutes) for a pause in the
+   * middle of one. Default 300000 (5 minutes).
+   */
+  timeoutMs: z.number().int().positive().optional(),
   /** Free-form provider options passed straight to the AI SDK. */
   providerOptions: z.record(z.string(), z.any()).optional(),
 });
