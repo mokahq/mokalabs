@@ -41,13 +41,13 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@ai-sdk/anthropic": "^4.0.52",
-    "@ai-sdk/azure": "^4.0.68",
-    "@ai-sdk/google": "^4.0.67",
-    "@ai-sdk/openai": "^4.0.65",
-    "@ai-sdk/openai-compatible": "^3.0.47",
+    "@ai-sdk/anthropic": "^4.0.80",
+    "@ai-sdk/azure": "^4.0.102",
+    "@ai-sdk/google": "^4.0.96",
+    "@ai-sdk/openai": "^4.0.94",
+    "@ai-sdk/openai-compatible": "^3.0.69",
     "@modelcontextprotocol/client": "^2.2.0",
-    "ai": "^7.0.97",
+    "ai": "^7.0.141",
     "zod": "^4.6.5"
   }
 }
