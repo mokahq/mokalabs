@@ -21,7 +21,25 @@ export interface FoundServer {
   reason?: string;
   command?: string;
   args?: string[];
+  /** HTTP servers: what the entry says, to wrap it (and to put back on unwrap). */
+  http?: HttpEntry;
+  /** A wrapped entry's environment (an HTTP server's headers are kept there). */
+  env?: Record<string, string>;
 }
+
+/** An HTTP server entry, in whichever shape the client uses. */
+export interface HttpEntry {
+  url: string;
+  transport: "http" | "sse";
+  /** Which key held the URL: url (most clients), httpUrl (Gemini, Streamable HTTP), serverUrl (Windsurf). */
+  urlKey: "url" | "httpUrl" | "serverUrl";
+  /** The entry's "type", if it had one (VS Code, Claude Code). */
+  type?: string;
+  headers?: Record<string, string>;
+}
+
+/** Wrapped HTTP servers keep their headers in the environment, one per variable, not in args (which other users can see). */
+export const HEADER_ENV_PREFIX = "MOKA_PROXY_HEADER_";
 
 export interface ConfigPlan extends ConfigLocation {
   servers: FoundServer[];
@@ -104,12 +122,25 @@ export function planConfig(location: ConfigLocation, only?: string[]): ConfigPla
     .filter(([name]) => !only?.length || only.includes(name))
     .map(([name, entry]): FoundServer => {
       if (!entry || typeof entry !== "object") return { name, state: "skip", reason: "not a server entry" };
-      if (isWrapped(entry)) return { name, state: "wrapped", command: entry.command, args: entry.args };
-      if (entry.url || (entry.type && entry.type !== "stdio")) return { name, state: "skip", reason: "HTTP servers aren't supported yet" };
+      if (isWrapped(entry)) return { name, state: "wrapped", command: entry.command, args: entry.args, ...(entry.env ? { env: entry.env } : {}) };
+      const http = httpEntry(entry, location.client);
+      if (http) return { name, state: "wrap", http };
+      if (entry.type && entry.type !== "stdio") return { name, state: "skip", reason: `unknown server type "${entry.type}"` };
       if (typeof entry.command !== "string") return { name, state: "skip", reason: "no command" };
       return { name, state: "wrap", command: entry.command, args: Array.isArray(entry.args) ? entry.args : [] };
     });
   return { ...location, servers };
+}
+
+/** The URL, transport and headers of an HTTP server entry; undefined for stdio servers. */
+export function httpEntry(entry: Record<string, any>, client?: string): HttpEntry | undefined {
+  const urlKey = (["httpUrl", "serverUrl", "url"] as const).find((k) => typeof entry[k] === "string" && entry[k]);
+  if (!urlKey || (typeof entry.command === "string" && entry.command)) return undefined;
+  const type = typeof entry.type === "string" ? entry.type : undefined;
+  // Gemini: httpUrl is Streamable HTTP, url is SSE. Elsewhere "sse" says so; the rest is Streamable HTTP.
+  const transport = type === "sse" || (urlKey === "url" && (client === "gemini" || /\/sse\/?$/.test(entry.url))) ? "sse" : "http";
+  const headers = entry.headers && typeof entry.headers === "object" ? Object.fromEntries(Object.entries(entry.headers).map(([k, v]) => [k, String(v)])) : undefined;
+  return { url: entry[urlKey], transport, urlKey, ...(type ? { type } : {}), ...(headers && Object.keys(headers).length ? { headers } : {}) };
 }
 
 /** Whether a server entry already runs through the proxy. */
@@ -118,7 +149,44 @@ export function isWrapped(entry: { command?: unknown; args?: unknown }): boolean
   const usesProxy =
     args.some((a) => a === PROXY_PACKAGE || a.startsWith(`${PROXY_PACKAGE}@`) || /[\\/]proxy[\\/]dist[\\/]cli\.js$/.test(a)) ||
     /moka-proxy(\.cmd)?$/.test(String(entry.command ?? ""));
-  return usesProxy && args.includes("--");
+  return usesProxy && (args.includes("--") || args.includes("--url"));
+}
+
+/** An HTTP server run through the proxy: a stdio entry that bridges to the URL. */
+export function wrappedHttpEntry(client: string, name: string, http: HttpEntry, local?: { node: string; script: string }): { command: string; args: string[]; env?: Record<string, string> } {
+  const proxyArgs = ["--client", client, "--name", name, "--url", http.url, "--transport", http.transport, "--url-key", http.urlKey, ...(http.type ? ["--type", http.type] : [])];
+  const env = http.headers ? Object.fromEntries(Object.entries(http.headers).map(([k, v], i) => [`${HEADER_ENV_PREFIX}${i + 1}`, `${k}: ${v}`])) : undefined;
+  const run = local ? { command: local.node, args: [local.script, ...proxyArgs] } : { command: "npx", args: ["-y", PROXY_PACKAGE, ...proxyArgs] };
+  return { ...run, ...(env ? { env } : {}) };
+}
+
+/** The original HTTP entry of a wrapped one (from its args and env). */
+export function unwrappedHttpEntry(args: string[], env: Record<string, string> = {}): HttpEntry | undefined {
+  const value = (flag: string) => {
+    const i = args.indexOf(flag);
+    return i >= 0 ? args[i + 1] : undefined;
+  };
+  const url = value("--url");
+  if (!url) return undefined;
+  const headers = headersFromEnv(env);
+  const type = value("--type");
+  return {
+    url,
+    transport: value("--transport") === "sse" ? "sse" : "http",
+    urlKey: (value("--url-key") as HttpEntry["urlKey"]) ?? "url",
+    ...(type ? { type } : {}),
+    ...(Object.keys(headers).length ? { headers } : {}),
+  };
+}
+
+/** Headers kept in MOKA_PROXY_HEADER_n variables ("Name: value"), in order. */
+export function headersFromEnv(env: Record<string, string | undefined>): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(env)
+      .filter(([k, v]) => k.startsWith(HEADER_ENV_PREFIX) && typeof v === "string" && v.includes(":"))
+      .sort(([a], [b]) => Number(a.slice(HEADER_ENV_PREFIX.length)) - Number(b.slice(HEADER_ENV_PREFIX.length)))
+      .map(([, v]) => [v!.slice(0, v!.indexOf(":")).trim(), v!.slice(v!.indexOf(":") + 1).trim()]),
+  );
 }
 
 /**
@@ -148,7 +216,31 @@ export function applyPlan(plan: ConfigPlan, mode: "wrap" | "unwrap", local?: { n
   let text = readFileSync(plan.path, "utf8");
   const formattingOptions = detectFormatting(text);
   const changed: string[] = [];
+  const set = (name: string, field: string, value: unknown) => {
+    text = applyEdits(text, modify(text, [plan.key, name, field], value, { formattingOptions }));
+  };
   for (const server of targets) {
+    // HTTP servers: the entry becomes a stdio entry that runs the bridge, and back.
+    const http = mode === "wrap" ? server.http : unwrappedHttpEntry(server.args ?? [], server.env);
+    if (http) {
+      if (mode === "wrap") {
+        const next = wrappedHttpEntry(plan.client, server.name, http, local);
+        for (const key of ["url", "httpUrl", "serverUrl", "headers"]) set(server.name, key, undefined);
+        if (http.type) set(server.name, "type", "stdio");
+        set(server.name, "command", next.command);
+        set(server.name, "args", next.args);
+        if (next.env) set(server.name, "env", next.env);
+      } else {
+        const rest = Object.fromEntries(Object.entries(server.env ?? {}).filter(([k]) => !k.startsWith(HEADER_ENV_PREFIX)));
+        for (const key of ["command", "args"]) set(server.name, key, undefined);
+        set(server.name, "env", Object.keys(rest).length ? rest : undefined);
+        if (http.type) set(server.name, "type", http.type);
+        set(server.name, http.urlKey, http.url);
+        if (http.headers) set(server.name, "headers", http.headers);
+      }
+      changed.push(server.name);
+      continue;
+    }
     const next =
       mode === "wrap"
         ? wrappedCommand(plan.client, server.name, server.command!, server.args ?? [], local)
@@ -156,7 +248,7 @@ export function applyPlan(plan: ConfigPlan, mode: "wrap" | "unwrap", local?: { n
     if (!next) continue;
     for (const field of ["command", "args"] as const) {
       const value = field === "args" && next.args.length === 0 ? undefined : next[field];
-      text = applyEdits(text, modify(text, [plan.key, server.name, field], value, { formattingOptions }));
+      set(server.name, field, value);
     }
     changed.push(server.name);
   }

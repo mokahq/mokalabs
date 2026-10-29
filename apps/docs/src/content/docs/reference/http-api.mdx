@@ -65,6 +65,11 @@ File parts the model can't take (a PDF for an OpenAI-compatible model, a Word fi
 | `POST /api/mcp/:id/resource` | `{uri}` → `resources/read` result |
 | `POST /api/mcp/:id/subscribe` | `{uri, subscribe?: false}` → `{subscriptions}`: subscribe to (or unsubscribe from) resource updates |
 | `POST /api/mcp/:id/signout` | Forget OAuth tokens and reconnect |
+| `POST /api/improve` | `{llmIds, workspaceId?, runs?, toolMode?, improverId?, proposals?, baseline?}` → NDJSON stream of Improve events (`start`, `phase`, `result`, `diagnosis`, `holdout`, `proposals`, `verdict`, `done`, `error`) |
+| `GET /api/improve/improver` | `{improverId}`: the model Improve would pick to write proposals |
+| `POST /api/improve/code` | `{changes, workspaceId?, before?, after?}` → `{ts, python, markdown}` |
+| `GET /api/recordings` | `{dir, recordings: [{server, name, file, size, at}]}` |
+| `DELETE /api/recordings?file=` | Delete a recording |
 | `GET /oauth/callback` | OAuth redirect target (no token needed) |
 | `POST /api/agents/test` | `{agent}` → `{ok, latencyMs, card?, events?, text?, error?}` |
 | `POST /api/mcp/:id/prompt` | `{name, args}` → `prompts/get` result |

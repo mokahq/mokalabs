@@ -50,6 +50,9 @@ function portable(server: McpServerConfig): McpServerConfig {
   if (server.transport === "stdio" && server.command === "moka:demo") {
     return { ...server, command: "npx", args: ["-y", "@mokalabs/sandbox", "demo-server"] };
   }
+  if (server.transport === "stdio" && server.command === "moka:mock") {
+    return { ...server, command: "npx", args: ["-y", "@mokalabs/sandbox", "mock", ...(server.args ?? [])] };
+  }
   return server;
 }
 

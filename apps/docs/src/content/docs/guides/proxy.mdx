@@ -24,11 +24,11 @@ npx @mokalabs/proxy wrap       # find your client configs and wrap their servers
 Found:
   VS Code (this project)       ./.vscode/mcp.json
       github                   will be wrapped
-      docs                     skipped: HTTP servers aren't supported yet
+      docs                     will be wrapped (HTTP: https://docs.example.com/mcp)
   Cursor (all projects)        ~/.cursor/mcp.json
       filesystem               will be wrapped
 
-Wrap 2 servers in 2 files? (a backup of each file is kept) [Y/n]
+Wrap 3 servers in 2 files? (a backup of each file is kept) [Y/n]
 ```
 
 Then restart the MCP servers in your editor (or reload its window) and open Moka:
@@ -69,6 +69,28 @@ Only the `command` and `args` of each server entry. Comments, formatting and oth
 
 Everything after `--` is your original command. Wrapping twice changes nothing, and the first change to each file saves a copy next to it (`mcp.json.moka-backup`).
 
+### HTTP servers
+
+A remote server (`"type": "http"` or `"sse"`, or a `url`, `httpUrl` or `serverUrl` entry) becomes a local entry that runs the proxy as a bridge: your editor talks to the proxy as it would to a local server, and the proxy talks HTTP to the real URL, sending every message unchanged and recording it.
+
+```jsonc
+"jira": {
+  "type": "stdio",
+  "command": "npx",
+  "args": [
+    "-y", "@mokalabs/proxy", "--client", "vscode", "--name", "jira",
+    "--url", "https://jira.acme.com/mcp", "--transport", "http", "--url-key", "url", "--type", "http"
+  ],
+  "env": { "MOKA_PROXY_HEADER_1": "Authorization: Bearer ${input:jira-token}" }
+}
+```
+
+- **Headers** move to `env`, one per `MOKA_PROXY_HEADER_n` variable, so tokens aren't visible in the process list. Your editor fills in `${input:…}` and `${env:…}` as before.
+- **Sessions** (the `Mcp-Session-Id` header) are kept, and closed when the editor stops the server. If the server forgets a session (idle timeout, restart), the proxy opens a new one and sends the request again, so the editor doesn't notice.
+- Both **Streamable HTTP** and the older **HTTP+SSE** transport work.
+- **OAuth sign-in** is done by the editor for HTTP servers, and the bridge can't do it for it. A server that answers 401 shows an error saying so: add its credentials as headers, or `unwrap --only <name>` to use it directly.
+
+`unwrap` puts the original entry back: `type`, URL key and headers.
 ```bash
 npx @mokalabs/proxy status     # what's wrapped, and where
 npx @mokalabs/proxy unwrap     # put your configs back (then restart the servers)
@@ -109,12 +131,13 @@ Put the proxy in front of any server by hand:
 
 ```bash
 npx @mokalabs/proxy --client my-app --name notes -- node notes-server.js
+npx @mokalabs/proxy --client my-app --name jira --url https://jira.acme.com/mcp --header "Authorization: Bearer $TOKEN"
 ```
 
 It never writes to stdout itself (that belongs to the protocol), and if the log can't be written it keeps passing messages through. The server's exit code is passed back to the client.
 
 ## Limits
 
-- **Local (stdio) servers only** for now. HTTP servers are skipped by `wrap`.
+- **HTTP servers that sign in with OAuth** need their credentials as headers to go through the proxy (see [HTTP servers](#http-servers)).
 - The proxy sees what the client and server send each other, not the model's prompt. For the model side, use Moka's own chat and inspector.
 - Cloud agents (like the Copilot coding agent on github.com) don't run servers on your machine, so they can't be proxied.

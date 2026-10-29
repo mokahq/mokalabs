@@ -52,7 +52,8 @@ Missing variables resolve to an empty string.
 | `temperature` | number? | 0–2 |
 | `maxOutputTokens` | integer? | |
 | `timeoutMs` | integer? | How long to wait for the model before ending the run with an error: for the start of each reply, and (up to 2 minutes) for a pause mid-reply. Default 300000 (5 minutes). Time spent in tools and approvals doesn't count |
-| `providerOptions` | object? | Passed to the AI SDK as `providerOptions` |
+| `providerOptions` | object? | Passed to the AI SDK as `providerOptions` (they win over Moka's reasoning options) |
+| `reasoning` | `auto` · `off` · `low` · `medium` · `high`? | Show the model's thinking in the chat. `auto` (default) asks for it where the model can reason; a level also sets the effort. See [chat](/guides/chat/#see-how-the-model-thinks) |
 
 ## `mcpServers[]`
 
@@ -61,7 +62,7 @@ Missing variables resolve to an empty string.
 | `id` | string | Unique id (also the tool-name prefix) |
 | `name` | string | Display name |
 | `transport` | `stdio` · `http` · `sse` | `http` is Streamable HTTP |
-| `command` | string? | stdio: executable. `moka:demo` = built-in demo server |
+| `command` | string? | stdio: executable. `moka:demo` = built-in demo server; `moka:mock` = a recording replayed (its file in `args`) |
 | `args` | string[]? | stdio: arguments |
 | `env` | object? | stdio: extra environment variables |
 | `cwd` | string? | stdio: working directory |
@@ -76,6 +77,9 @@ Missing variables resolve to an empty string.
 | `sampling` | `ask` · `auto` · `deny`? | How to handle MCP sampling requests (default: ask) |
 | `protocol` | `auto` · `2025` · `2026`? | MCP revision. `auto` uses 2026-07-28 when the server offers it (default for http and the demo server); `2025` for stdio and sse by default. See [MCP 2026-07-28](/guides/mcp-2026/) |
 | `approval` | object? | `{ default?: "auto" \| "ask", tools?: { [tool]: "auto" \| "ask" } }`. See [tool approvals](/guides/approvals/) |
+| `toolOverrides` | object? | Better wording, applied on Moka's side: `{ [tool]: { description?, params?: { [name]: { description?, examples? } } } }`. Written by [Improve](/guides/improve/), or by hand |
+| `record` | boolean? | Write the server's traffic to `~/.moka/recordings/<id>/`. See [Record & replay](/guides/record-replay/) |
+| `faults` | object? | `{ enabled?, seed?, rules: [{ tools?, rate?, delayMs?, fail? }] }`: delays and failures injected into tool calls. See [faults](/guides/record-replay/#faults) |
 
 ## `skills[]`
 
@@ -123,6 +127,7 @@ A2UI component catalogs. See [custom catalogs](/generative-ui/catalogs/).
 | `mcpServerIds` | string[] | Enabled servers |
 | `skillIds` | string[] | Enabled skills |
 | `systemPrompt` | string? | |
+| `formatHints` | boolean? | Tell the model what the chat renders (code, tables, math, callouts, diagrams). Default `true`; never sent in tool tests |
 | `starterPrompts` | string[]? | Chips on an empty chat |
 | `maxSteps` | integer? | 1–100, default 12 |
 | `generativeUi` | boolean \| object? | `false` to turn off the render tool, or [settings](/generative-ui/customize/): `toolName`, `catalogIds`, `standard`, `allow`, `deny`, `instructions`, `description`, `examples`, `repair`, `theme`. Default on |

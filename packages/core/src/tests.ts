@@ -2,6 +2,7 @@ import { generateText } from "ai";
 import type { ChatChunk, ToolMode } from "./agent.js";
 import type { LlmProfile, ToolTest } from "./config.js";
 import type { McpTool } from "./mcp.js";
+import type { ToolOverrides } from "./overrides.js";
 import { createModel } from "./providers.js";
 
 /**
@@ -41,6 +42,10 @@ export interface RunTestsOptions {
   toolMode?: ToolMode;
   /** Only these tests (default all of the workspace's). */
   testIds?: string[];
+  /** Run these tests instead of the workspace's (Improve's holdout prompts). */
+  tests?: ToolTest[];
+  /** Tool wording to try (Improve), over the servers' saved `toolOverrides`. */
+  toolOverrides?: ToolOverrides;
   /** Models run in parallel with each other, each model's tests one at a time. */
   signal?: AbortSignal;
 }
@@ -48,7 +53,7 @@ export interface RunTestsOptions {
 /** The engine features the runner needs (MokaEngine has them). */
 export interface TestHost {
   workspace(id?: string): { id: string; tests?: ToolTest[] };
-  chat(request: { messages: any[]; workspaceId?: string; llmId?: string; signal?: AbortSignal; runId?: string; toolMode?: ToolMode }): AsyncGenerator<ChatChunk>;
+  chat(request: { messages: any[]; workspaceId?: string; llmId?: string; signal?: AbortSignal; runId?: string; toolMode?: ToolMode; toolOverrides?: ToolOverrides }): AsyncGenerator<ChatChunk>;
 }
 
 const lower = (v: unknown) => (typeof v === "string" ? v.trim().toLowerCase() : v);
@@ -90,7 +95,7 @@ async function runOne(host: TestHost, test: ToolTest, llmId: string, run: number
   let error: string | undefined;
   let usage: TestResult["usage"];
   try {
-    for await (const chunk of host.chat({ messages: [{ role: "user", content: test.prompt }], workspaceId: options.workspaceId, llmId, signal: options.signal, runId, toolMode: options.toolMode ?? "read-only" })) {
+    for await (const chunk of host.chat({ messages: [{ role: "user", content: test.prompt }], workspaceId: options.workspaceId, llmId, signal: options.signal, runId, toolMode: options.toolMode ?? "read-only", ...(options.toolOverrides ? { toolOverrides: options.toolOverrides } : {}) })) {
       if (chunk.type === "tool-call") calls.push({ tool: chunk.tool, server: chunk.source, input: chunk.input });
       else if (chunk.type === "text") text += chunk.text;
       else if (chunk.type === "finish") usage = chunk.usage as TestResult["usage"];
@@ -106,7 +111,7 @@ async function runOne(host: TestHost, test: ToolTest, llmId: string, run: number
 /** Run a workspace's tool tests on several models; results arrive as each run finishes. */
 export async function* runToolTests(host: TestHost, options: RunTestsOptions): AsyncGenerator<TestResult> {
   const workspace = host.workspace(options.workspaceId);
-  const tests = (workspace.tests ?? []).filter((t) => !options.testIds || options.testIds.includes(t.id));
+  const tests = (options.tests ?? workspace.tests ?? []).filter((t) => !options.testIds || options.testIds.includes(t.id));
   const runs = Math.max(1, Math.min(20, options.runs ?? 1));
   const queue: TestResult[] = [];
   let wake: (() => void) | undefined;

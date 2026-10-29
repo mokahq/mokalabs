@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://mokalabs.dev/sitemap-index.xml

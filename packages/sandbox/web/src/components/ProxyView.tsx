@@ -1,9 +1,10 @@
-import { ArrowDownLeft, ArrowUpRight, Cable, Circle, Download, X } from "lucide-react";
+import { ArrowDownLeft, ArrowUpRight, Cable, Circle, Download, Play, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api";
 import { useStore } from "../store";
 import type { MokaEvent, ProxySession } from "../types";
 import { EventDetail, requestStatus } from "./Inspector";
+import { Recordings, useReplay } from "./Recordings";
 import { CopyButton, IconButton, cn, formatMs } from "./ui";
 
 type Filter = "all" | "tools" | "errors" | "notifications" | "logs";
@@ -55,6 +56,7 @@ export function ProxyView() {
   const [width, setWidth] = useState(savedWidth);
   const listRef = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
+  const replay = useReplay();
 
   useEffect(() => {
     void loadProxy();
@@ -136,6 +138,9 @@ export function ProxyView() {
     return (
       <div className="h-full min-h-0 overflow-y-auto">
         <Waiting dir={proxy.dir} />
+        <div className="mx-auto max-w-xl px-6 pb-8">
+          <Recordings />
+        </div>
       </div>
     );
   }
@@ -190,6 +195,7 @@ export function ProxyView() {
             ))}
           </div>
         ))}
+        <Recordings />
       </aside>
 
       {/* On small screens the open message takes the log's place. */}
@@ -230,6 +236,16 @@ export function ProxyView() {
             {latest?.clientInfo?.name && <Chip>client: {latest.clientInfo.name} {latest.clientInfo.version}</Chip>}
             {latest?.protocolVersion && <Chip>MCP {latest.protocolVersion}</Chip>}
             <span className="flex-1" />
+            {latest && proxy.dir && (
+              <button
+                type="button"
+                onClick={() => void replay(`${proxy.dir}/${latest.id}.jsonl`, server!.name)}
+                title="Add a server to Moka that answers from this session's traffic"
+                className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[12.5px] text-muted hover:bg-panel-2 hover:text-fg"
+              >
+                <Play className="h-3 w-3" /> Replay as server
+              </button>
+            )}
             <ExportMenu onExport={(redact) => void exportSessions(groups.flatMap((g) => g.sessions.map((s) => s.id)), [client?.client, server?.name], redact)} />
             <div className="flex flex-wrap gap-1">
               {(Object.keys(FILTERS) as Filter[]).map((f) => (

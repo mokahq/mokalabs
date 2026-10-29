@@ -19,6 +19,7 @@ import { createApp } from "./server.js";
 
 export { createApp } from "./server.js";
 export { createDemoServer, runDemoServer } from "./demo-server.js";
+export { createMockServer, findRecorded, parseRecording, runMockServer, type MockMatch, type RecordedCall, type Recording } from "./mock.js";
 export { startDemoAgent, type DemoAgent } from "./demo-agent.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -33,6 +34,8 @@ export const VERSION: string = (() => {
 
 /** Virtual command that launches the bundled demo MCP server. */
 export const DEMO_COMMAND = "moka:demo";
+/** Virtual command that serves a recording (args: the .jsonl file) as an MCP server. */
+export const MOCK_COMMAND = "moka:mock";
 
 export interface StartOptions {
   port?: number;
@@ -139,17 +142,20 @@ export async function startSandbox(options: StartOptions = {}): Promise<RunningS
 
   // In dev (tsx) the CLI is TypeScript; in the published package it is compiled JS.
   const cliJs = path.join(here, "cli.js");
-  const demoArgs = existsSync(cliJs)
-    ? [cliJs, "demo-server"]
-    : ["--import", "tsx", path.join(here, "cli.ts"), "demo-server"];
+  const cliArgs = existsSync(cliJs) ? [cliJs] : ["--import", "tsx", path.join(here, "cli.ts")];
   const engine = new MokaEngine({
     config,
     store,
     env,
     oauthStorePath: path.join(mokaHome(env), "oauth.json"),
     toolPinsPath: path.join(mokaHome(env), "tool-pins.json"),
-    resolveCommand: (command) =>
-      command === DEMO_COMMAND ? { command: process.execPath, args: demoArgs } : undefined,
+    recordingsDir: path.join(mokaHome(env), "recordings"),
+    resolveCommand: (command, args) =>
+      command === DEMO_COMMAND
+        ? { command: process.execPath, args: [...cliArgs, "demo-server"] }
+        : command === MOCK_COMMAND
+          ? { command: process.execPath, args: [...cliArgs, "mock", ...args] }
+          : undefined,
   });
 
   const token =
@@ -161,6 +167,7 @@ export async function startSandbox(options: StartOptions = {}): Promise<RunningS
   const app = createApp({
     engine,
     proxy,
+    recordingsDir: path.join(mokaHome(env), "recordings"),
     sessions: new SessionStore(path.join(mokaHome(env), "sessions")),
     webDir: options.ui === false ? undefined : webDir,
     token,

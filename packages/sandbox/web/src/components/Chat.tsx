@@ -355,7 +355,7 @@ function PartView({ part, messageId, live }: { part: Part; messageId: string; li
     const text = !live && /^\s*(<!doctype html|<html[\s>])/i.test(part.text) ? `\`\`\`\`html\n${part.text.trim()}\n\`\`\`\`` : part.text;
     return <Markdown text={text} className={live ? "caret" : undefined} messageId={live ? undefined : messageId} />;
   }
-  if (part.type === "reasoning") return <Reasoning text={part.text} live={live} />;
+  if (part.type === "reasoning") return <Reasoning text={part.text} live={live} ms={part.ms} />;
   return (
     <div className="space-y-2">
       <ToolCard part={part} />
@@ -365,16 +365,45 @@ function PartView({ part, messageId, live }: { part: Part; messageId: string; li
   );
 }
 
-function Reasoning({ text, live }: { text: string; live: boolean }) {
-  const [open, setOpen] = useState(false);
+/**
+ * The model's thinking, like Copilot or Claude Code show it: open and
+ * streaming while the model thinks ("Thinking… 4s"), then folded to
+ * "Thought for 6s". Click to read it again.
+ */
+function Reasoning({ text, live, ms }: { text: string; live: boolean; ms?: number }) {
+  const [open, setOpen] = useState<boolean>();
+  const shown = open ?? live;
+  const elapsed = useElapsed(live);
+  const body = useRef<HTMLDivElement>(null);
+  // Follow the newest thoughts while they stream in.
+  useLayoutEffect(() => {
+    if (live && shown && body.current) body.current.scrollTop = body.current.scrollHeight;
+  }, [text, live, shown]);
+  const seconds = ms !== undefined ? Math.max(1, Math.round(ms / 1000)) : undefined;
   return (
-    <div className="rounded-xl border border-line bg-panel-2/60">
-      <button className="flex w-full items-center gap-2 px-3 py-2 text-[13px] text-muted" onClick={() => setOpen(!open)}>
-        <Brain className="h-3.5 w-3.5" />
-        <span className={cn("font-medium", live && "shimmer")}>{live ? "Reasoning…" : "Reasoning"}</span>
-        <ChevronRight className={cn("ml-auto h-3.5 w-3.5 transition-transform", open && "rotate-90")} />
+    <div className="group/think">
+      <button
+        className="flex items-center gap-1.5 rounded-md py-1 text-[13px] text-muted hover:text-fg"
+        onClick={() => setOpen(!shown)}
+        aria-expanded={shown}
+      >
+        <Brain className={cn("h-3.5 w-3.5", live && "text-accent")} />
+        {live ? (
+          <span className="shimmer font-medium">Thinking…</span>
+        ) : (
+          <span className="font-medium">{seconds ? `Thought for ${seconds}s` : "Thought"}</span>
+        )}
+        {live && elapsed > 0 && <span className="font-mono text-[11.5px] text-subtle">{elapsed}s</span>}
+        <ChevronRight className={cn("h-3.5 w-3.5 transition-transform", shown && "rotate-90")} />
       </button>
-      {open && <div className="border-t border-line px-3 py-2 text-[13px] leading-relaxed whitespace-pre-wrap text-muted">{text}</div>}
+      {shown && (
+        <div
+          ref={body}
+          className={cn("mt-1 ml-[7px] border-l-2 border-line pl-4 text-[13px] leading-relaxed text-muted [&_p]:my-1.5", live && "max-h-56 overflow-y-auto")}
+        >
+          <Markdown text={text} className={cn("text-[13px] text-muted", live && "caret")} />
+        </div>
+      )}
     </div>
   );
 }
@@ -439,6 +468,7 @@ function AttemptBadge({ part }: { part: Extract<Part, { type: "tool" }> }) {
       `The call failed (${part.errorClass}) before the server answered, so it's unknown whether the tool did its work. Check before retrying.`,
     );
   }
+  if (part.errorClass === "unknown-tool") return badge("warn", "unknown tool", "The model called a tool that doesn't exist (a made-up or misspelled name), so nothing was sent. Moka fixes names that match exactly one tool; this one didn't.");
   if (part.errorClass === "input") return badge("warn", "invalid arguments", "The model's arguments weren't valid JSON or didn't match the tool's schema, so nothing was sent. The inspector shows the raw arguments.");
   if (part.possibleDoubleWrite) return badge("warn", "may have run twice", "An earlier attempt of this exact call has an unknown outcome, and this one succeeded: the write may have happened twice.");
   if (part.duplicateOf) return badge("warn", "same call again", "The model already made this exact call in this turn. If the tool writes something, it may have happened twice.");

@@ -27,6 +27,27 @@ export default defineConfig({
       customCss: ["./src/styles/theme.css"],
       head: [
         { tag: "meta", attrs: { property: "og:image", content: new URL(`${base.replace(/\/$/, "")}/og.png`, site).href } },
+        // What the site is, for search engines and the URL-category databases corporate web filters use.
+        { tag: "meta", attrs: { name: "keywords", content: "MCP, Model Context Protocol, LLM, AI agents, developer tools, MCP inspector, tool testing, open source" } },
+        { tag: "meta", attrs: { name: "author", content: "Moka Labs" } },
+        { tag: "meta", attrs: { name: "category", content: "Technology / Software development" } },
+        { tag: "meta", attrs: { name: "twitter:card", content: "summary_large_image" } },
+        {
+          tag: "script",
+          attrs: { type: "application/ld+json" },
+          content: JSON.stringify({
+            "@context": "https://schema.org",
+            "@type": "SoftwareApplication",
+            name: "Moka",
+            description: "Open-source developer tool to test, inspect and debug MCP servers and LLM agents locally.",
+            applicationCategory: "DeveloperApplication",
+            operatingSystem: "macOS, Linux, Windows",
+            license: "https://opensource.org/licenses/MIT",
+            offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
+            url: site,
+            sameAs: ["https://github.com/mokahq/mokalabs", "https://www.npmjs.com/package/@mokalabs/sandbox"],
+          }),
+        },
       ],
       sidebar: [
         {
@@ -51,7 +72,9 @@ export default defineConfig({
             { label: "Workspaces & demos", slug: "guides/workspaces" },
             { label: "Inspector", slug: "guides/inspector" },
             { label: "Proxy for your AI editor", slug: "guides/proxy", badge: { text: "New", variant: "tip" } },
-            { label: "Tool tests", slug: "guides/tests", badge: { text: "New", variant: "tip" } },
+            { label: "Tool tests", slug: "guides/tests" },
+            { label: "Improve tool wording", slug: "guides/improve", badge: { text: "New", variant: "tip" } },
+            { label: "Record, replay & faults", slug: "guides/record-replay", badge: { text: "New", variant: "tip" } },
             { label: "Security check", slug: "guides/security", badge: { text: "New", variant: "tip" } },
             { label: "Compare models", slug: "guides/compare" },
             { label: "Tool runner", slug: "guides/tool-runner" },

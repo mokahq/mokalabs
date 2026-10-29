@@ -31,7 +31,15 @@ Write prompts with the tools a model should (and shouldn't) call, and run them o
 
 <img src="docs/assets/tests.gif" alt="Moka suggests four tool tests, runs them three times on two local models, and shows a failed run's wrong argument" width="100%" />
 
-Tests live in your `moka.json`, and `npx @mokalabs/sandbox test --models a,b --runs 3` runs them in CI (exit code 1 on failure). Tools that may write don't run during tests. [Tool tests guide →](https://mokalabs.dev/guides/tests/)
+Tests live in your `moka.json`, and `npx @mokalabs/sandbox test --models a,b --runs 3` runs them in CI, with `--min-pass`, a Markdown scorecard for the PR and the change against a baseline. Tools that may write don't run during tests. [Tool tests guide →](https://mokalabs.dev/guides/tests/)
+
+## Improve your tools' wording
+
+When tests fail, **Improve** diagnoses why (wrong tool, wrong argument, a call that shouldn't happen), has a strong model propose better descriptions, and runs every proposal on your tests plus paraphrased prompts the proposer never saw. You get before → after per model and a word diff, then keep it in Moka, copy it for a PR, or copy it as TypeScript or Python code for your server.
+
+<img src="docs/assets/improve.gif" alt="Tool tests fail on two small models; Improve diagnoses the wrong arguments, verifies two proposals, and the winning wording takes both models from 0/6 to 6/6" width="100%" />
+
+`npx @mokalabs/sandbox improve --models a,b --runs 3 --apply` does the same from the command line. [Improve guide →](https://mokalabs.dev/guides/improve/)
 
 ## Compare models
 
@@ -96,6 +104,7 @@ The agent in this clip is in [`examples/langgraph-a2ui`](examples/langgraph-a2ui
 - **Agent Skills.** Point Moka at a `SKILL.md` folder (including `~/.claude/skills`). Skills load on demand, the same way Claude loads them.
 - **Workspaces.** Model + MCP servers + skills + system prompt + starter prompts, one per demo, with chats grouped by workspace in the sidebar. Presenter mode, tool approvals and a ⌘K palette help with live demos.
 - **Replay.** Replay any saved chat offline, with no model calls.
+- **Record, replay & faults.** Record a server's traffic and replay it as a mock server (`moka mock recording.jsonl`), in Moka, your editor or CI. Inject delays, errors, hangs and crashes into tool calls to see how models cope. [Record & replay guide →](https://mokalabs.dev/guides/record-replay/)
 - **Export to code.** Turn a workspace into Vercel AI SDK (TypeScript) or LangGraph (Python) code, or an `mcp.json`.
 - **Works at work.** `HTTPS_PROXY`/`NO_PROXY`, custom CAs, and a zero-dependency package for curated registries.
 

@@ -1,4 +1,4 @@
-import { ClipboardPaste, Globe, KeyRound, LayoutGrid, LogOut, Play, Plug, Plus, RefreshCw, ShieldCheck, Terminal, Trash2, Unplug, Wrench } from "lucide-react";
+import { ClipboardPaste, Globe, KeyRound, LayoutGrid, LogOut, Play, Plug, Plus, RefreshCw, ShieldCheck, Terminal, Trash2, Unplug, Wrench, Sparkles } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
 import { formatTokens, useBudget } from "../components/Budget";
@@ -7,6 +7,7 @@ import { Badge, Button, Empty, Field, Input, JsonView, KeyValueEditor, Modal, Se
 import { useStore } from "../store";
 import type { HttpExchange, McpServerConfig, McpServerState } from "../types";
 import { FormFooter, ListItem, MasterDetail, Section } from "./Settings";
+import { TestingSection } from "./TestingSection";
 
 interface GalleryItem {
   name: string;
@@ -392,6 +393,14 @@ function ServerForm({ initial, isNew, onCreated }: { initial: McpServerConfig; i
   const budget = useBudget();
   const toolTokens = new Map((budget?.items ?? []).filter((i) => i.kind === "tool" && i.serverId === initial.id).map((i) => [i.name, i.tokens]));
 
+  const removeOverride = async (tool: string) => {
+    const { [tool]: _gone, ...rest } = initial.toolOverrides ?? {};
+    await saveConfig(
+      { ...config, mcpServers: config.mcpServers.map((s) => (s.id === initial.id ? { ...s, toolOverrides: Object.keys(rest).length ? rest : undefined } : s)) },
+      `Back to ${tool}'s own wording`,
+    );
+  };
+
   const toggleTool = async (tool: string, enabled: boolean) => {
     const disabled = new Set(initial.disabledTools ?? []);
     if (enabled) disabled.delete(tool);
@@ -619,7 +628,23 @@ function ServerForm({ initial, isNew, onCreated }: { initial: McpServerConfig; i
                           </span>
                         )}
                       </div>
-                      {t.description && <div className="mt-0.5 line-clamp-2 text-[12px] text-muted">{t.description}</div>}
+                      {initial.toolOverrides?.[t.name] ? (
+                        <div className="mt-1 rounded-md border border-accent/30 bg-accent-soft/40 px-2 py-1.5 text-[12px]">
+                          <div className="flex items-center gap-1.5 text-[11px] font-medium text-accent">
+                            <Sparkles className="h-3 w-3" /> Moka's wording (the model sees this)
+                            <button className="ml-auto text-subtle hover:text-fg" onClick={() => removeOverride(t.name)} title="Go back to the server's own description">
+                              Undo
+                            </button>
+                          </div>
+                          {initial.toolOverrides[t.name]!.description && <div className="mt-0.5 line-clamp-3 text-fg">{initial.toolOverrides[t.name]!.description}</div>}
+                          {Object.keys(initial.toolOverrides[t.name]!.params ?? {}).length > 0 && (
+                            <div className="mt-0.5 text-[11px] text-muted">Parameters: {Object.keys(initial.toolOverrides[t.name]!.params ?? {}).join(", ")}</div>
+                          )}
+                          {t.description && <div className="mt-1 line-clamp-1 text-[11px] text-subtle line-through decoration-subtle/40">{t.description}</div>}
+                        </div>
+                      ) : (
+                        t.description && <div className="mt-0.5 line-clamp-2 text-[12px] text-muted">{t.description}</div>
+                      )}
                     </div>
                     <button
                       title="Click to toggle: run automatically, or ask first"
@@ -656,6 +681,11 @@ function ServerForm({ initial, isNew, onCreated }: { initial: McpServerConfig; i
                 <JsonView value={state.instructions} maxHeight="10rem" />
               </div>
             )}
+          </Section>
+        )}
+        {!isNew && (
+          <Section title="Record & faults" description="Capture this server's traffic for replay, and break its tool calls on purpose.">
+            <TestingSection server={initial} tools={state?.tools.map((t) => t.name) ?? []} />
           </Section>
         )}
         {state?.status === "connected" && state.http && (

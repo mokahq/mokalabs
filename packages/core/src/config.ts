@@ -45,8 +45,46 @@ export const llmProfileSchema = z.object({
   timeoutMs: z.number().int().positive().optional(),
   /** Free-form provider options passed straight to the AI SDK. */
   providerOptions: z.record(z.string(), z.any()).optional(),
+  /**
+   * The model's reasoning ("thinking"), shown in the chat as it happens.
+   * `auto` (default): ask for it where the model can think, at its usual
+   * effort. `low` / `medium` / `high`: also set how hard it thinks. `off`:
+   * don't ask for it (it's still shown if the provider sends it anyway).
+   */
+  reasoning: z.enum(["auto", "off", "low", "medium", "high"]).optional(),
 });
 export type LlmProfile = z.infer<typeof llmProfileSchema>;
+
+export const toolOverrideSchema = z.object({
+  description: z.string().optional(),
+  params: z.record(z.string(), z.object({ description: z.string().optional(), examples: z.array(z.unknown()).optional() })).optional(),
+});
+export type ToolOverride = z.infer<typeof toolOverrideSchema>;
+
+export const FAULT_KINDS = ["error", "tool-error", "hang", "crash", "malformed"] as const;
+export type FaultKind = (typeof FAULT_KINDS)[number];
+
+/** One fault rule: which tool calls it applies to, how often, and what happens. */
+export const faultRuleSchema = z.object({
+  /** Tool names (default: every tool). */
+  tools: z.array(z.string()).optional(),
+  /** Share of matching calls hit, 0 to 1 (default 1). */
+  rate: z.number().min(0).max(1).optional(),
+  /** Delay before the call is sent: a fixed number of ms, or a [min, max] range. */
+  delayMs: z.union([z.number().int().min(0), z.tuple([z.number().int().min(0), z.number().int().min(0)])]).optional(),
+  /** Instead of a reply: a JSON-RPC error, an isError result, no reply, a closed connection, or a result that breaks the schema. */
+  fail: z.enum(FAULT_KINDS).optional(),
+});
+export type FaultRule = z.infer<typeof faultRuleSchema>;
+
+export const faultsSchema = z.object({
+  /** Off without deleting the rules. */
+  enabled: z.boolean().optional(),
+  /** Same seed, same faults on every run. */
+  seed: z.number().int().optional(),
+  rules: z.array(faultRuleSchema),
+});
+export type Faults = z.infer<typeof faultsSchema>;
 
 export const MCP_TRANSPORTS = ["stdio", "http", "sse"] as const;
 export const MCP_APPROVAL_MODES = ["auto", "ask"] as const;
@@ -65,6 +103,16 @@ export const mcpServerSchema = z.object({
   headers: stringRecord.optional(),
   /** Tools hidden from the model (still callable from the tool runner). */
   disabledTools: z.array(z.string()).optional(),
+  /**
+   * Better wording for tools, applied on Moka's side (the server is
+   * unchanged): a tool's description, and its parameters' descriptions and
+   * examples. Written by Improve, or by hand.
+   */
+  toolOverrides: z.record(z.string(), z.lazy(() => toolOverrideSchema)).optional(),
+  /** Write this server's JSON-RPC traffic to ~/.moka/recordings/<server id>/, to replay it later with `moka mock`. */
+  record: z.boolean().optional(),
+  /** Delays and failures injected into tool calls on Moka's side, to see how models and clients cope. */
+  faults: z.lazy(() => faultsSchema).optional(),
   /** Connection timeout, and the tool-call timeout when `toolTimeoutMs` isn't set. */
   timeoutMs: z.number().int().positive().optional(),
   /** How long to wait for a tool call before giving up (default 120000, or `timeoutMs`). */
@@ -209,6 +257,8 @@ export const workspaceSchema = z.object({
   mcpServerIds: z.array(z.string()).default([]),
   skillIds: z.array(z.string()).default([]),
   systemPrompt: z.string().optional(),
+  /** Tell the model what Moka's chat can show (code, tables, math, callouts, diagrams). Default on; not sent in tool tests. */
+  formatHints: z.boolean().optional(),
   starterPrompts: z.array(z.string()).optional(),
   maxSteps: z.number().int().min(1).max(100).optional(),
   /** Generative UI (A2UI): `false` to disable, or settings for the render_ui tool. Default on. */

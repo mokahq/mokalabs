@@ -26,6 +26,10 @@ import { EventBus } from "./events.js";
 import { errorMessage, McpManager, type CommandResolver } from "./mcp.js";
 import { createModel, listModels } from "./providers.js";
 import { loadSkill, type LoadedSkill } from "./skills.js";
+import { runImprove, type Ask, type ImproveEvent, type ImproveOptions, type ImproveTool } from "./improve.js";
+import { applyToolOverride } from "./overrides.js";
+import type { ToolOverrides } from "./overrides.js";
+import { toolVisibleToModel } from "./ui.js";
 import type { ConfigStore } from "./store.js";
 
 export interface EngineOptions {
@@ -46,6 +50,8 @@ export interface EngineOptions {
   oauthStorePath?: string;
   /** Where to remember each server's tools, to report changed tools (see security.ts). Omit to skip change tracking. */
   toolPinsPath?: string;
+  /** Where servers with `record: true` write their traffic. */
+  recordingsDir?: string;
 }
 
 /** Which tools need the user's OK before they run. */
@@ -68,6 +74,8 @@ export interface ChatRequest {
   runId?: string;
   /** Which MCP tools really run (tool tests); default all. */
   toolMode?: ToolMode;
+  /** Tool wording to try for this chat (Improve), over the servers' saved `toolOverrides`. */
+  toolOverrides?: ToolOverrides;
 }
 
 /**
@@ -99,6 +107,7 @@ export class MokaEngine {
       interactions: this.interactions,
       sample: (params, server, signal) => this.sample(params, server, signal),
       oauth: options.oauthStorePath ? { store: new OAuthStore(options.oauthStorePath), redirectUrl: () => this.oauthRedirectUrl } : undefined,
+      recordingsDir: options.recordingsDir,
     });
     this.pins = options.toolPinsPath ? new ToolPins(options.toolPinsPath) : undefined;
     // Check every server as it connects, and say so in the inspector when something looks wrong.
@@ -112,6 +121,27 @@ export class MokaEngine {
   /** Run a workspace's tool tests on several models (see tests.ts). */
   runTests(options: RunTestsOptions): AsyncGenerator<TestResult> {
     return runToolTests(this, options);
+  }
+
+  /** Improve: rewrite tool wording from test failures, and keep only what tests better (see improve.ts). */
+  improve(options: ImproveOptions, ask?: Ask): AsyncGenerator<ImproveEvent> {
+    return runImprove(this, options, ask);
+  }
+
+  /** The workspace's tests, its visible tools (with their saved wording) and the models, for Improve. */
+  async improveContext(workspaceId?: string) {
+    const workspace = this.workspace(workspaceId);
+    const servers = this.config.mcpServers.filter((s) => workspace.mcpServerIds.includes(s.id));
+    const states = await Promise.all(servers.map((s) => this.mcp.ensure(s)));
+    const tools: ImproveTool[] = states.flatMap((state, i) => {
+      const server = servers[i]!;
+      if (state.status !== "connected") return [];
+      return state.tools
+        .filter((t) => !(server.disabledTools ?? []).includes(t.name) && toolVisibleToModel(t))
+        .map((t) => ({ serverId: server.id, serverName: server.name, tool: applyToolOverride(t, server.toolOverrides?.[t.name]) }));
+    });
+    const saved: ToolOverrides = Object.fromEntries(servers.filter((s) => s.toolOverrides).map((s) => [s.id, s.toolOverrides!]));
+    return { workspaceId: workspace.id, tests: workspace.tests ?? [], tools, servers: servers.map((s) => ({ id: s.id, name: s.name })), saved, llms: this.config.llms, workspaceLlmId: workspace.llmId, env: this.env };
   }
 
   /** Ask the workspace's model to propose tool tests for the workspace's (visible) tools. */
@@ -412,6 +442,7 @@ export class MokaEngine {
       signal: request.signal,
       env: this.env,
       ...(request.toolMode ? { toolMode: request.toolMode } : {}),
+      ...(request.toolOverrides ? { toolOverrides: request.toolOverrides } : {}),
     });
   }
 

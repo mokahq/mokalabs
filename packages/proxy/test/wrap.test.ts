@@ -19,7 +19,7 @@ const VSCODE = `{
       "env": { "GITHUB_TOKEN": "\${input:token}" }
     },
     /* docs search, remote */
-    "docs": { "type": "http", "url": "https://example.com/mcp" },
+    "docs": { "type": "http", "url": "https://example.com/mcp", "headers": { "Authorization": "Bearer \${input:docs-token}" } },
     "local": { "command": "node", "args": ["server.js"] }
   }
 }
@@ -77,7 +77,7 @@ describe("wrap", () => {
     expect(plans[3]!.servers).toEqual([{ name: "notes", state: "wrap", command: "uvx", args: ["mcp-notes"] }]);
     expect(plans[0]!.servers.map((s) => [s.name, s.state, s.reason ?? null])).toEqual([
       ["github", "wrap", null],
-      ["docs", "skip", "HTTP servers aren't supported yet"],
+      ["docs", "wrap", null],
       ["local", "wrap", null],
     ]);
   });
@@ -88,7 +88,7 @@ describe("wrap", () => {
     const location = locationForFile(file);
     expect(location).toMatchObject({ client: "vscode", key: "servers" });
 
-    expect(applyPlan(planConfig(location), "wrap")).toEqual(["github", "local"]);
+    expect(applyPlan(planConfig(location), "wrap")).toEqual(["github", "docs", "local"]);
     const wrapped = readFileSync(file, "utf8");
     expect(wrapped).toContain("// Servers for this repo");
     expect(wrapped).toContain("/* docs search, remote */");
@@ -99,14 +99,21 @@ describe("wrap", () => {
       args: ["-y", "@mokalabs/proxy", "--client", "vscode", "--name", "github", "--", "npx", "-y", "@modelcontextprotocol/server-github"],
       env: { GITHUB_TOKEN: "${input:token}" },
     });
-    expect(json.servers.docs).toEqual({ type: "http", url: "https://example.com/mcp" });
+    // An HTTP server becomes a stdio entry that bridges to its URL; its headers move to the environment.
+    expect(json.servers.docs).toEqual({
+      type: "stdio",
+      command: "npx",
+      args: ["-y", "@mokalabs/proxy", "--client", "vscode", "--name", "docs", "--url", "https://example.com/mcp", "--transport", "http", "--url-key", "url", "--type", "http"],
+      env: { MOKA_PROXY_HEADER_1: "Authorization: Bearer ${input:docs-token}" },
+    });
+    expect(isWrapped(json.servers.docs)).toBe(true);
     expect(isWrapped(json.servers.local)).toBe(true);
     expect(readFileSync(`${file}.moka-backup`, "utf8")).toBe(VSCODE);
 
     // Wrapping again changes nothing.
     expect(applyPlan(planConfig(location), "wrap")).toEqual([]);
 
-    expect(applyPlan(planConfig(location), "unwrap")).toEqual(["github", "local"]);
+    expect(applyPlan(planConfig(location), "unwrap")).toEqual(["github", "docs", "local"]);
     const restored = readFileSync(file, "utf8");
     expect(parse(restored)).toEqual(parse(VSCODE));
     expect(restored).toContain("// Servers for this repo");
@@ -134,7 +141,8 @@ describe("wrap", () => {
     expect(dry.stdout).toMatch(/VS Code \(this project\)/);
     expect(dry.stdout).toMatch(/Cursor \(all projects\)/);
     expect(dry.stdout).toMatch(/Gemini CLI \(all projects\)/);
-    expect(dry.stdout).toMatch(/Wrap 5 servers in 4 files\? .*Dry run: nothing changed/);
+    expect(dry.stdout).toMatch(/docs\s+will be wrapped \(HTTP: https:\/\/example\.com\/mcp\)/);
+    expect(dry.stdout).toMatch(/Wrap 6 servers in 4 files\? .*Dry run: nothing changed/);
     expect(isWrapped(parse(readFileSync(path.join(home, ".cursor", "mcp.json"), "utf8")).mcpServers.filesystem)).toBe(false);
 
     const run = spawnSync(process.execPath, [cli, "wrap", "--only", "filesystem", "--yes"], { cwd: project, env, encoding: "utf8" });
@@ -159,5 +167,35 @@ describe("wrap", () => {
     expect(unconfirmed.status).toBe(1);
     expect(unconfirmed.stdout).toMatch(/Run again with --yes/);
     expect(existsSync(path.join(home, ".cursor", "mcp.json.moka-backup"))).toBe(true);
+  });
+
+  it("wraps HTTP servers in each client's shape, and unwraps them exactly", () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "moka-wrap-http-"));
+    const cases: Array<[string, string, string]> = [
+      // Cursor: url + headers, no type.
+      ["cursor", path.join(dir, ".cursor", "mcp.json"), `{\n  "mcpServers": {\n    "jira": { "url": "https://jira.acme.com/mcp", "headers": { "X-Api-Key": "abc" } }\n  }\n}\n`],
+      // Gemini: httpUrl is Streamable HTTP, url is SSE.
+      ["gemini", path.join(dir, ".gemini", "settings.json"), `{\n  "mcpServers": {\n    "jira": { "httpUrl": "https://jira.acme.com/mcp" },\n    "old": { "url": "https://old.acme.com/sse" }\n  }\n}\n`],
+      // Windsurf: serverUrl.
+      ["windsurf", path.join(dir, ".codeium", "windsurf", "mcp_config.json"), `{\n  "mcpServers": {\n    "jira": { "serverUrl": "https://jira.acme.com/mcp" }\n  }\n}\n`],
+    ];
+    for (const [client, file, text] of cases) {
+      mkdirSync(path.dirname(file), { recursive: true });
+      writeFileSync(file, text);
+      const location = locationForFile(file);
+      expect(location.client).toBe(client);
+      const plan = planConfig(location);
+      expect(plan.servers.every((s) => s.state === "wrap")).toBe(true);
+      applyPlan(plan, "wrap");
+      const wrapped = parse(readFileSync(file, "utf8")).mcpServers;
+      for (const entry of Object.values(wrapped) as any[]) {
+        expect(isWrapped(entry)).toBe(true);
+        expect(entry.url ?? entry.httpUrl ?? entry.serverUrl).toBeUndefined();
+      }
+      if (client === "gemini") expect(wrapped.old.args).toContain("sse");
+      if (client === "cursor") expect(wrapped.jira.env).toEqual({ MOKA_PROXY_HEADER_1: "X-Api-Key: abc" });
+      applyPlan(planConfig(location), "unwrap");
+      expect(parse(readFileSync(file, "utf8"))).toEqual(parse(text));
+    }
   });
 });

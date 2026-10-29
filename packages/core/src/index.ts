@@ -1,4 +1,5 @@
 export * from "./config.js";
+export * from "./faults.js";
 export * from "./events.js";
 export * from "./providers.js";
 export * from "./mcp.js";
@@ -22,3 +23,6 @@ export { contextBudget, estimateTokens, type BudgetItem, type ContextBudget } fr
 export { scanServer, serverKey, ToolPins, type SecurityFinding, type ServerSecurity, type Severity, type ToolChange } from "./security.js";
 export { grade, matches, runToolTests, suggestTests, summarize, type RunTestsOptions, type TestCall, type TestHost, type TestResult, type TestSummary } from "./tests.js";
 export type { ToolMode } from "./agent.js";
+export * from "./overrides.js";
+export * from "./tool-names.js";
+export * from "./improve.js";

@@ -1,4 +1,4 @@
-import { dynamicTool, jsonSchema, stepCountIs, streamText, type ModelMessage, type ToolSet } from "ai";
+import { dynamicTool, jsonSchema, NoSuchToolError, stepCountIs, streamText, type ModelMessage, type ToolSet } from "ai";
 import { adaptAttachments } from "./attachments.js";
 import type { LlmProfile, McpServerConfig, Workspace } from "./config.js";
 import type { EventBus } from "./events.js";
@@ -13,7 +13,9 @@ import {
   type ToolLineage,
 } from "./lineage.js";
 import { errorMessage, type McpManager, type McpTool } from "./mcp.js";
-import { createModel } from "./providers.js";
+import { applyToolOverride, toolOverrideFor, type ToolOverrides } from "./overrides.js";
+import { createModel, reasoningOptions } from "./providers.js";
+import { repairToolName } from "./tool-names.js";
 import { readSkillFile, skillsSystemPrompt, type LoadedSkill } from "./skills.js";
 import {
   buildRenderUiDescription,
@@ -95,9 +97,15 @@ export interface RunAgentOptions {
    * model carries on.
    */
   toolMode?: ToolMode;
+  /** Tool wording to try for this run (Improve), over the servers' saved `toolOverrides`. */
+  toolOverrides?: ToolOverrides;
 }
 
 export type ToolMode = "run" | "read-only" | "none";
+
+/** What Moka's chat renders, so models use it (workspace `formatHints`, default on). */
+export const FORMAT_HINTS = `## Formatting
+Your replies are shown as GitHub-flavored Markdown. Use headings, lists and tables where they help. Give code blocks a language (\`\`\`ts, \`\`\`python). Write math as $x^2$ or $$...$$, callouts as "> [!NOTE]", "> [!TIP]" or "> [!WARNING]", diagrams as \`\`\`mermaid, and colored text as <span style="color:...">. Short answers can be plain text.`;
 
 /** Default wait for a model's first output, and the cap for a pause mid-reply. */
 export const MODEL_TIMEOUT_MS = 300_000;
@@ -252,6 +260,7 @@ export async function* runAgent(options: RunAgentOptions): AsyncGenerator<ChatCh
   const sideChannel = new Map<string, ToolSideChannel>();
   const tools: ToolSet = {};
   const instructions: string[] = [];
+  const overridden: string[] = [];
 
   // 1. Connect MCP servers in parallel and expose their tools.
   const states = await Promise.all(options.servers.map((server) => mcp.ensure(server)));
@@ -274,7 +283,10 @@ export async function* runAgent(options: RunAgentOptions): AsyncGenerator<ChatCh
         idempotent: mcpTool.annotations?.idempotentHint === true,
         schemaHash: shortHash(stableJson(mcpTool.inputSchema ?? {})),
       });
-      tools[key] = mcpToolToAiTool(mcpTool, server, options, sideChannel);
+      // The wording the model sees (an override, if there is one); calls still go to the server's tool.
+      const override = toolOverrideFor(server, mcpTool.name, options.toolOverrides);
+      if (override) overridden.push(key);
+      tools[key] = mcpToolToAiTool(applyToolOverride(mcpTool, override), server, options, sideChannel);
     }
   });
 
@@ -346,6 +358,7 @@ export async function* runAgent(options: RunAgentOptions): AsyncGenerator<ChatCh
 
   const system = [
     workspace.systemPrompt?.trim(),
+    workspace.formatHints !== false && !options.toolMode ? FORMAT_HINTS : "",
     skillsSystemPrompt(skills),
     instructions.length ? `## MCP server instructions\n\n${instructions.join("\n\n")}` : "",
   ]
@@ -357,7 +370,7 @@ export async function* runAgent(options: RunAgentOptions): AsyncGenerator<ChatCh
     kind: "run.start",
     runId,
     title: `Run started · ${llm.name} (${llm.model})`,
-    data: { profile: llm.id, model: llm.model, tools: Object.keys(tools), system },
+    data: { profile: llm.id, model: llm.model, tools: Object.keys(tools), system, ...(overridden.length ? { overridden } : {}) },
   });
 
   const toolStarts = new Map<string, number>();
@@ -381,10 +394,19 @@ export async function* runAgent(options: RunAgentOptions): AsyncGenerator<ChatCh
       stopWhen: stepCountIs(workspace.maxSteps ?? 12),
       temperature: llm.temperature,
       maxOutputTokens: llm.maxOutputTokens,
-      providerOptions: llm.providerOptions,
+      // Ask for the model's reasoning so the chat can show how it got there.
+      ...reasoningOptions(llm),
       // A gateway that never answers (or stops halfway) ends the run with an error instead of hanging.
       abortSignal: watchdog.signal,
       maxRetries: 1,
+      // A call to `order_coffee` or `default_api.order_coffee` means `moka-demo__order_coffee` when nothing else fits.
+      repairToolCall: async ({ toolCall, tools: available, error }) => {
+        if (!NoSuchToolError.isInstance(error)) return null;
+        const name = repairToolName(toolCall.toolName, Object.keys(available));
+        if (!name || name === toolCall.toolName) return null;
+        bus.emit({ kind: "log", runId, level: "warn", title: `The model called "${toolCall.toolName}"; Moka ran "${name}", the only tool with that name`, data: { id: toolCall.toolCallId, called: toolCall.toolName, ran: name } });
+        return { ...toolCall, toolName: name };
+      },
     });
 
     for await (const part of result.fullStream) {
@@ -520,7 +542,8 @@ export async function* runAgent(options: RunAgentOptions): AsyncGenerator<ChatCh
         case "tool-error": {
           const durationMs = elapsed(toolStarts, part.toolCallId);
           const message = errorMessage(part.error);
-          const errorClass = signal?.aborted ? "cancelled" : invalidCalls.delete(part.toolCallId) ? "input" : errorClassOf(part.error);
+          const invalid = invalidCalls.delete(part.toolCallId);
+          const errorClass = signal?.aborted ? "cancelled" : invalid && !bindings.has(part.toolName) && !(part.toolName in tools) ? "unknown-tool" : invalid ? "input" : errorClassOf(part.error);
           const at = attempts.get(part.toolCallId);
           attempts.delete(part.toolCallId);
           const outcomeUnknown = !!at?.write && isOutcomeUnknown(part.error, errorClass);

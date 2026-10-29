@@ -1,0 +1,67 @@
+---
+title: Record, replay & faults
+description: Turn real server traffic into a mock server, and inject delays, errors and crashes on purpose.
+---
+
+import { Aside } from "@astrojs/starlight/components";
+
+## Record
+
+Turn on **Record traffic** for a server in Settings → MCP → *Record & faults*. While it's on, every JSON-RPC message to and from the server is written to `~/.moka/recordings/<server id>/<time>.jsonl`. It starts with the next message, without reconnecting.
+
+Recordings use the same format as the [proxy's](/guides/proxy/) session logs, so traffic between your editor and a server can be replayed too.
+
+Headers and environment variables are never written. Tool arguments and results are, since it's your machine. Look before you share a recording.
+
+## Replay as a server
+
+The **Proxy** view lists your recordings. **Replay** adds a server that answers from the recording and connects it in the current workspace. Proxy sessions have a **Replay as server** button too.
+
+```json title="moka.json"
+{ "id": "mock-github", "name": "GitHub (replay)", "transport": "stdio", "command": "moka:mock", "args": ["/Users/me/.moka/recordings/github/2026-10-28T09-12-44-120Z.jsonl"] }
+```
+
+Anywhere else, Claude Desktop, Cursor or a CI job included:
+
+```bash
+npx @mokalabs/sandbox mock recording.jsonl
+```
+
+The mock serves both MCP revisions (2025-11-25 and 2026-07-28), with the recorded server name, instructions, tools, prompts and resources. A `tools/call` is answered from the recording:
+
+1. the same tool with the same arguments
+2. else the recorded call of that tool that shares the most argument values
+3. else an error, *No recording for this call*. With `--fallback last`, the tool's last recorded result instead
+
+Each replayed result carries `_meta["dev.moka/replayed"]`: whether it matched exactly or partially, and when it was recorded.
+
+<Aside type="tip">A mock makes [tool tests in CI](/guides/tests/#in-ci-moka-test) need no backend and no server credentials: only model keys, or a local model.</Aside>
+
+## Faults
+
+In the same section, **Fault injection** slows down or breaks tool calls on purpose, so you can see how models (and your agent) cope. Faults are injected in Moka's connection to the server, so the server needs no changes.
+
+| Failure | What the client sees |
+|---|---|
+| *Delay* | The call is sent after a delay (fixed, or a `[min, max]` range in ms) |
+| `error` | A JSON-RPC error |
+| `tool-error` | A result with `isError: true` |
+| `hang` | No reply, until the call's timeout |
+| `crash` | The connection closes mid-call |
+| `malformed` | A result that breaks the schema |
+
+Each rule picks a tool (or every tool), a share of calls and a failure. With a **seed**, the same calls fail on every run. The inspector marks every injected message `⚡ injected`, so you never mistake one for a real bug. Changes apply to the next call, without reconnecting.
+
+```json title="moka.json"
+"faults": {
+  "seed": 42,
+  "rules": [
+    { "tools": ["search"], "delayMs": [500, 3000] },
+    { "tools": ["create_issue"], "rate": 0.3, "fail": "error" },
+    { "rate": 0.1, "fail": "tool-error" },
+    { "tools": ["slow_report"], "fail": "hang" }
+  ]
+}
+```
+
+Set `"enabled": false` to switch faults off and keep the rules.

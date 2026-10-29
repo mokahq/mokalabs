@@ -16,8 +16,12 @@ export type SessionRecord =
       client?: string;
       /** Server name given with --name (the key in the client's config). */
       name: string;
+      /** The server's command, or its URL for an HTTP server. */
       command: string;
       args: string[];
+      /** HTTP servers: the URL and transport ("http" Streamable HTTP, "sse" HTTP+SSE). */
+      url?: string;
+      transport?: "http" | "sse";
       cwd: string;
       pid: number;
       proxy: string;
