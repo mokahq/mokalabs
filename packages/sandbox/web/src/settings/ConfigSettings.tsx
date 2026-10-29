@@ -107,7 +107,7 @@ export function ConfigSettings() {
         <label className={cn("mb-4 flex items-center justify-between gap-4 text-[13px]", !branded && "opacity-50")}>
           <span>
             <span className="font-medium">Animate Moka</span>
-            <span className="block text-muted">The puppy on the empty chat watches your cursor, and plays peekaboo when clicked.</span>
+            <span className="block text-muted">The puppy on the empty chat watches your cursor, and wags when petted.</span>
           </span>
           <Switch
             disabled={!branded}

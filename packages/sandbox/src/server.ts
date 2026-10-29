@@ -15,14 +15,20 @@ import {
   PROVIDER_PRESETS,
   redactConfig,
   skillSchema,
+  changesAsCode,
+  changesAsMarkdown,
+  pickImprover,
   type CodeTarget,
+  type ImproveOptions,
   type MokaEngine,
+  type ProposedChange,
+  type VariantScore,
   type SessionStore,
 } from "@mokalabs/core";
 import { exportSessions } from "@mokalabs/proxy";
 import { Hono, type Context } from "hono";
 import { stream } from "hono/streaming";
-import { readFile, stat } from "node:fs/promises";
+import { readdir, readFile, rm, stat } from "node:fs/promises";
 import path from "node:path";
 
 import type { ProxySessions } from "./proxy-sessions.js";
@@ -39,6 +45,8 @@ export interface ServerOptions {
   env?: NodeJS.ProcessEnv;
   /** Sessions recorded by @mokalabs/proxy. */
   proxy?: ProxySessions;
+  /** Where servers with `record: true` write their traffic. */
+  recordingsDir?: string;
 }
 
 const ENV_HINTS = [
@@ -412,6 +420,62 @@ export function createApp(options: ServerOptions): Hono {
         await s.write(`${JSON.stringify(result)}\n`);
       }
     });
+  });
+
+  // --- Improve: better tool wording, proposed from failures and verified on the tests ---
+  app.get("/api/improve/improver", async (c) => {
+    const ctx = await engine.improveContext(c.req.query("workspaceId") || undefined);
+    return c.json({ improverId: pickImprover(ctx.llms, ctx.workspaceLlmId)?.id });
+  });
+  app.post("/api/improve", async (c) => {
+    const req = await body<ImproveOptions>(c);
+    if (!Array.isArray(req.llmIds) || req.llmIds.length === 0) return badRequest(c, "llmIds must list at least one model");
+    c.header("Content-Type", "application/x-ndjson; charset=utf-8");
+    c.header("Cache-Control", "no-cache, no-transform");
+    c.header("X-Accel-Buffering", "no");
+    const controller = new AbortController();
+    c.req.raw.signal?.addEventListener("abort", () => controller.abort(), { once: true });
+    return stream(c, async (s) => {
+      s.onAbort(() => controller.abort());
+      try {
+        for await (const event of engine.improve({ ...req, signal: controller.signal })) {
+          if (s.aborted) break;
+          await s.write(`${JSON.stringify(event)}\n`);
+        }
+      } catch (error) {
+        if (!s.aborted) await s.write(`${JSON.stringify({ type: "error", message: errorMessage(error) })}\n`);
+      }
+    });
+  });
+  app.post("/api/improve/code", async (c) => {
+    const req = await body<{ changes: ProposedChange[]; workspaceId?: string; before?: VariantScore; after?: VariantScore }>(c);
+    const ctx = await engine.improveContext(req.workspaceId);
+    return c.json({ ts: changesAsCode(req.changes ?? [], "ts"), python: changesAsCode(req.changes ?? [], "python"), markdown: changesAsMarkdown(req.changes ?? [], ctx.tools, req.before, req.after) });
+  });
+
+  // --- Recordings (servers with record: true), replayable with moka:mock ---
+  app.get("/api/recordings", async (c) => {
+    const dir = options.recordingsDir;
+    const recordings: Array<{ server: string; name: string; file: string; size: number; at: number }> = [];
+    if (dir) {
+      for (const server of await readdir(dir).catch(() => [] as string[])) {
+        for (const name of await readdir(path.join(dir, server)).catch(() => [] as string[])) {
+          if (!name.endsWith(".jsonl")) continue;
+          const file = path.join(dir, server, name);
+          const info = await stat(file).catch(() => undefined);
+          if (info) recordings.push({ server, name, file, size: info.size, at: info.mtimeMs });
+        }
+      }
+    }
+    recordings.sort((a, b) => b.at - a.at);
+    return c.json({ dir, recordings });
+  });
+  app.delete("/api/recordings", async (c) => {
+    const file = c.req.query("file") ?? "";
+    const dir = options.recordingsDir;
+    if (!dir || !file.endsWith(".jsonl") || path.relative(dir, path.resolve(file)).startsWith("..")) return badRequest(c, "Not a recording");
+    await rm(path.resolve(file), { force: true });
+    return c.json({ ok: true });
   });
 
   app.post("/api/tests/suggest", async (c) => {

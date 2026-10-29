@@ -1,4 +1,6 @@
 import { getDefaultEnvironment, StdioClientTransport } from "@modelcontextprotocol/client/stdio";
+import { createWriteStream, mkdirSync, type WriteStream } from "node:fs";
+import path from "node:path";
 import { auth, Client, ProtocolError, ProtocolErrorCode, SdkError, SdkErrorCode, SSEClientTransport, StreamableHTTPClientTransport, UnauthorizedError } from "@modelcontextprotocol/client";
 import type { Transport, CreateMessageRequest, CreateMessageResult, McpSubscription, VersionNegotiationOptions } from "@modelcontextprotocol/client";
 import type { InteractionBroker } from "./interactions.js";
@@ -7,7 +9,8 @@ import { resolveRecord, resolveSecret, type McpServerConfig } from "./config.js"
 import type { EventBus } from "./events.js";
 import { tracingFetch, type HttpExchange } from "./http-trace.js";
 import { stableJson, withErrorClass } from "./lineage.js";
-import { formatWait, RpcTracker } from "./rpc-tracker.js";
+import { formatWait, RpcTracker, rpcTitle } from "./rpc-tracker.js";
+import { decideFault, faultReply, seededRandom } from "./faults.js";
 
 /** "auth" = the server needs the user to sign in (OAuth); see `authUrl`. */
 /** `disconnected`: it was connected, then the server closed the connection (exited or crashed). */
@@ -68,6 +71,10 @@ interface Connection {
   tracker?: RpcTracker;
   /** A `server/discover` went over this connection's transport. */
   discovered?: boolean;
+  /** Open recording file (while `record` is on). */
+  recording?: { file: string; stream: WriteStream };
+  /** Fault dice for this connection, re-seeded when the seed changes. */
+  dice?: { seed: number | undefined; random: () => number };
 }
 
 /** Host hooks for server-initiated requests (elicitation, sampling). */
@@ -77,6 +84,8 @@ export interface McpClientHooks {
   sample?: (params: CreateMessageRequest["params"], server: McpServerConfig, signal?: AbortSignal) => Promise<CreateMessageResult>;
   /** OAuth for remote servers: where tokens live and the loopback redirect URL. */
   oauth?: { store: OAuthStore; redirectUrl: () => string | undefined };
+  /** Where `record: true` servers write their traffic (one folder per server). */
+  recordingsDir?: string;
 }
 
 /** Lets hosts map virtual commands (e.g. `moka:demo`) to real executables. */
@@ -101,7 +110,8 @@ export function networkEnv(env: NodeJS.ProcessEnv): Record<string, string> {
 const STDERR_LINES = 200;
 
 function fingerprint(config: McpServerConfig): string {
-  const { disabledTools: _ignored, name: _name, ...rest } = config;
+  // Wording, recording and faults apply live, without reconnecting.
+  const { disabledTools: _ignored, name: _name, toolOverrides: _wording, record: _record, faults: _faults, ...rest } = config;
   return JSON.stringify(rest);
 }
 
@@ -492,6 +502,42 @@ export class McpManager {
     return this.reconnect(conn.config);
   }
 
+  /** The fault (if any) for an outgoing `tools/call`, from the server's live `faults` setting. */
+  private rollFault(conn: Connection, message: any): ReturnType<typeof decideFault> {
+    const faults = conn.config.faults;
+    if (!faults?.rules.length || faults.enabled === false || message?.method !== "tools/call" || message.id === undefined) return undefined;
+    if (!conn.dice || conn.dice.seed !== faults.seed) conn.dice = { seed: faults.seed, random: faults.seed === undefined ? Math.random : seededRandom(faults.seed) };
+    return decideFault(faults, String(message.params?.name ?? ""), conn.dice.random);
+  }
+
+  /** Append one message to the server's recording, in the proxy's session-log format, while `record` is on. */
+  private writeRecording(conn: Connection, direction: "in" | "out", message: unknown): void {
+    const dir = this.hooks.recordingsDir;
+    if (!conn.config.record || !dir) {
+      if (conn.recording) {
+        conn.recording.stream.end();
+        conn.recording = undefined;
+      }
+      return;
+    }
+    try {
+      if (!conn.recording) {
+        const folder = path.join(dir, conn.config.id.replace(/[^\w.-]+/g, "_"));
+        mkdirSync(folder, { recursive: true });
+        const t = Date.now();
+        const file = path.join(folder, `${new Date(t).toISOString().replace(/[:.]/g, "-")}.jsonl`);
+        const stream = createWriteStream(file, { flags: "a" });
+        stream.on("error", () => (conn.recording = undefined));
+        conn.recording = { file, stream };
+        const c = conn.config;
+        stream.write(`${JSON.stringify({ type: "start", v: 1, t, id: `${c.id}-${t}`, client: "moka", name: c.name, command: c.command ?? c.url ?? "", args: c.args ?? [], ...(c.url ? { url: c.url, transport: c.transport === "sse" ? "sse" : "http" } : {}), cwd: c.cwd ?? process.cwd(), pid: process.pid, proxy: "moka" })}\n`);
+      }
+      conn.recording.stream.write(`${JSON.stringify({ type: "msg", t: Date.now(), dir: direction, msg: message })}\n`);
+    } catch {
+      conn.recording = undefined;
+    }
+  }
+
   /** Forget OAuth tokens for a server and reconnect (it will ask to sign in again). */
   async signOut(config: McpServerConfig): Promise<McpServerState> {
     await this.hooks.oauth?.store.clear(config.id);
@@ -520,15 +566,30 @@ export class McpManager {
       },
     });
     conn.tracker = tracker;
-    const record = (direction: "in" | "out", message: any) => {
+    const record = (direction: "in" | "out", message: any, injected?: string) => {
       if (message?.method === "server/discover") conn.discovered = true;
-      tracker.record(direction, message);
+      tracker.record(direction, message, Date.now(), injected ? { title: `⚡ injected ${injected} · ${rpcTitle(message)}`, level: "warn" } : {});
+      this.writeRecording(conn, direction, message);
     };
 
     const send = transport.send.bind(transport);
     transport.send = async (message, options) => {
-      record("out", message);
-      return send(message, options);
+      const fault = this.rollFault(conn, message);
+      if (fault?.delayMs) await new Promise((resolve) => setTimeout(resolve, fault.delayMs));
+      record("out", message, fault ? [fault.delayMs ? `delay ${formatWait(fault.delayMs)}` : "", fault.fail ?? ""].filter(Boolean).join(" + ") : undefined);
+      if (!fault?.fail) return send(message, options);
+      const id = (message as { id: string | number }).id;
+      const reply = faultReply(fault.fail, id);
+      if (reply) {
+        // Answer on the next tick, as a reply from the wire would.
+        setTimeout(() => {
+          record("in", reply, fault.fail);
+          handler?.(reply as any);
+        }, 0);
+      } else if (fault.fail === "crash") {
+        setTimeout(() => void transport.close().catch(() => {}), 0);
+      }
+      // "hang": never sent, never answered; the call's timeout ends it.
     };
     let handler: Transport["onmessage"];
     Object.defineProperty(transport, "onmessage", {
@@ -758,6 +819,8 @@ export class McpManager {
     await listening?.close().catch(() => {});
     await conn.client?.close().catch(() => {});
     await conn.transport?.close().catch(() => {});
+    conn.recording?.stream.end();
+    conn.recording = undefined;
     conn.state.status = "idle";
     this.emitStatus(conn);
   }

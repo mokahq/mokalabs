@@ -61,6 +61,8 @@ Any other file: `npx @mokalabs/proxy wrap path/to/mcp.json`.
 
 The proxy starts the real server (everything after `--`), passes every byte through untouched in both directions, and appends each message to a session log in `~/.moka/proxy/sessions/` (`MOKA_HOME` moves it). Moka reads those logs whether it starts before or after your editor. The proxy never writes to stdout itself, and if the log can't be written it keeps passing messages through.
 
-Everything stays on your machine. Local (stdio) servers only for now: `wrap` skips HTTP servers.
+Remote servers work too: an HTTP entry (`"type": "http"`/`"sse"`, `url`, `httpUrl`, `serverUrl`) becomes a local bridge (`--url https://…`) that forwards every message to the real URL, with its headers and session, and records it. Servers that sign in with OAuth need their credentials as headers.
+
+Everything stays on your machine.
 
 [Docs](https://mokalabs.dev/guides/proxy/) · [GitHub](https://github.com/mokahq/mokalabs) · MIT

@@ -1,9 +1,10 @@
-import { Check, ClipboardCopy, FlaskConical, Pencil, Play, Plus, Sparkles, Square, Trash2, X } from "lucide-react";
+import { Check, ClipboardCopy, FlaskConical, Pencil, Play, Plus, Sparkles, Square, Trash2, Wand2, X } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import { api, streamTests } from "../api";
 import { uid } from "../runner";
 import { useStore } from "../store";
 import type { TestResult, ToolTest } from "../types";
+import { ImprovePanel } from "./Improve";
 import { Badge, Button, Empty, IconButton, JsonView, Select, Spinner, Textarea, cn, formatMs, formatNumber } from "./ui";
 
 type ToolMode = "run" | "read-only" | "none";
@@ -46,6 +47,7 @@ export function TestsView() {
   const [editing, setEditing] = useState<string | "new" | undefined>();
   const [open, setOpen] = useState<{ testId: string; llmId: string }>();
   const [suggesting, setSuggesting] = useState(false);
+  const [improving, setImproving] = useState(false);
   const controller = useRef<AbortController | undefined>(undefined);
 
   const tools = useMemo(
@@ -104,6 +106,9 @@ export function TestsView() {
   };
 
   const detail = open ? cellOf(results, open.testId, open.llmId) : undefined;
+  const failing = results.some((r) => !r.passed && models.includes(r.llmId));
+
+  if (improving) return <ImprovePanel models={models} runs={runs} mode={mode} baseline={results} onClose={() => setImproving(false)} />;
   const openTest = open ? tests.find((t) => t.id === open.testId) : undefined;
 
   return (
@@ -130,6 +135,18 @@ export function TestsView() {
         {results.length > 0 && (
           <Button size="sm" variant="ghost" icon={<ClipboardCopy className="h-3.5 w-3.5" />} onClick={scorecard}>
             Copy scorecard
+          </Button>
+        )}
+        {!running && tests.length > 0 && (
+          <Button
+            size="sm"
+            variant={failing ? "outline" : "ghost"}
+            icon={<Wand2 className="h-3.5 w-3.5" />}
+            disabled={!models.length || !tools.length}
+            title="Propose better tool descriptions from the failures, and prove them on these tests"
+            onClick={() => setImproving(true)}
+          >
+            Improve
           </Button>
         )}
         {running ? (

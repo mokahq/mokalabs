@@ -35,6 +35,12 @@ export async function runTurn(options: {
     if (!frame) frame = requestAnimationFrame(flush);
   };
   const lastPart = () => message.parts[message.parts.length - 1];
+  // The reasoning part being written, and when it started: its duration is set when the model moves on.
+  let thinking: { part: Extract<Part, { type: "reasoning" }>; since: number } | undefined;
+  const doneThinking = () => {
+    if (thinking) thinking.part.ms = Math.round(performance.now() - thinking.since);
+    thinking = undefined;
+  };
 
   try {
     for await (const chunk of streamChat(
@@ -46,6 +52,7 @@ export async function runTurn(options: {
       },
       options.signal,
     )) {
+      if (chunk.type !== "reasoning") doneThinking();
       switch (chunk.type) {
         case "start":
           message.meta = { ...message.meta, model: chunk.model, profileId: chunk.profileId, runId: chunk.runId };
@@ -55,7 +62,10 @@ export async function runTurn(options: {
           if (message.meta!.firstTokenMs === undefined) message.meta!.firstTokenMs = Math.round(performance.now() - started);
           const last = lastPart();
           if (last && last.type === chunk.type) last.text += chunk.text;
-          else message.parts.push({ type: chunk.type, text: chunk.text });
+          else {
+            message.parts.push({ type: chunk.type, text: chunk.text });
+            if (chunk.type === "reasoning") thinking = { part: lastPart() as Extract<Part, { type: "reasoning" }>, since: performance.now() };
+          }
           break;
         }
         case "tool-call":

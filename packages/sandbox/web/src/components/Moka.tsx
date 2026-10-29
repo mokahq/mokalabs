@@ -1,6 +1,7 @@
-import { Coffee } from "lucide-react";
+import { ArrowUpRight } from "lucide-react";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import puppy from "../moka-puppy.svg?raw";
+import { DOCS_URL, REPO_URL } from "../links";
 import { useStore } from "../store";
 import { cn } from "./ui";
 
@@ -60,15 +61,18 @@ export function Moka({
 
 /**
  * Moka in a round window, like a profile picture that notices you: its eyes
- * follow the pointer, hovering pets it (happy eyes, perked ears, tongue out),
- * and a click is peekaboo: Moka ducks and a "moka" sign pops up. Still when
- * motion is off.
+ * follow the pointer and hovering pets it (happy eyes, perked ears). A click
+ * boops it and opens a small card: what Moka is, its version, and links.
+ * Still when motion is off; the card opens either way.
  */
 export function MokaPortrait({ className }: { className?: string }) {
   const motion = useMokaMotion();
   const ref = useRef<HTMLButtonElement>(null);
+  const wrap = useRef<HTMLDivElement>(null);
   const [petted, setPetted] = useState(false);
-  const [peek, setPeek] = useState(false);
+  const [booped, setBooped] = useState(false);
+  const [open, setOpen] = useState(false);
+  const version = useStore((s) => s.version);
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
   useEffect(() => () => clearTimeout(timer.current), []);
 
@@ -97,48 +101,78 @@ export function MokaPortrait({ className }: { className?: string }) {
     };
   }, [motion]);
 
-  const peekaboo = () => {
-    if (!motion || peek) return;
-    setPeek(true);
-    timer.current = setTimeout(() => setPeek(false), 1500);
+  // The card closes on a click elsewhere or Escape.
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: PointerEvent) => wrap.current && !wrap.current.contains(e.target as Node) && setOpen(false);
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    window.addEventListener("pointerdown", onDown);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("pointerdown", onDown);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  const click = () => {
+    setOpen((o) => !o);
+    if (!motion) return;
+    setBooped(true);
+    clearTimeout(timer.current);
+    timer.current = setTimeout(() => setBooped(false), 450);
   };
 
   return (
-    <button
-      ref={ref}
-      type="button"
-      title="Moka"
-      aria-label="Moka the puppy"
-      onPointerEnter={() => motion && setPetted(true)}
-      onPointerLeave={() => setPetted(false)}
-      onClick={peekaboo}
-      className={cn(
-        "relative block h-24 w-24 overflow-hidden rounded-full bg-gradient-to-b from-panel-2 to-panel ring-1 ring-line transition-[box-shadow] duration-200",
-        petted && "ring-2 ring-accent",
-        motion ? "cursor-pointer" : "cursor-default",
-        className,
-      )}
-    >
-      <span
-        aria-hidden
+    <div ref={wrap} className={cn("relative w-fit", className)}>
+      <button
+        ref={ref}
+        type="button"
+        title="About Moka"
+        aria-label="About Moka"
+        aria-expanded={open}
+        onPointerEnter={() => motion && setPetted(true)}
+        onPointerLeave={() => setPetted(false)}
+        onClick={click}
         className={cn(
-          "absolute inset-0 transition-transform duration-300 ease-in-out [&>svg]:h-full [&>svg]:w-full",
-          !motion && "mood-off",
-          petted && !peek && "petted",
-          peek ? "translate-y-full" : "translate-y-[8%]",
-        )}
-        dangerouslySetInnerHTML={{ __html: PORTRAIT }}
-      />
-      <span
-        aria-hidden
-        className={cn(
-          "absolute inset-0 flex flex-col items-center justify-center gap-0.5 bg-[#1c1411] text-[#f8c47e] transition-transform duration-300 ease-in-out",
-          peek ? "translate-y-0 delay-200" : "translate-y-full",
+          "relative block h-24 w-24 cursor-pointer overflow-hidden rounded-full bg-gradient-to-b from-panel-2 to-panel ring-1 ring-line transition-[box-shadow] duration-200",
+          (petted || open) && "ring-2 ring-accent",
+          booped && "moka-boop",
         )}
       >
-        <Coffee className="h-6 w-6" strokeWidth={1.8} />
-        <span className="text-[15px] font-bold tracking-tight">moka</span>
-      </span>
-    </button>
+        <span
+          aria-hidden
+          className={cn("absolute inset-0 translate-y-[8%] [&>svg]:h-full [&>svg]:w-full", !motion && "mood-off", (petted || booped) && "petted")}
+          dangerouslySetInnerHTML={{ __html: PORTRAIT }}
+        />
+      </button>
+      {open && (
+        <div
+          role="dialog"
+          aria-label="About Moka"
+          className="moka-card absolute top-full left-1/2 z-30 mt-3 w-72 -translate-x-1/2 rounded-xl border border-line bg-elev p-4 text-left shadow-soft"
+        >
+          <div className="flex items-center gap-2.5">
+            <img src="/favicon.svg" alt="" className="h-7 w-7 rounded-lg" />
+            <span className="text-[14px] font-semibold tracking-tight">Moka</span>
+            {version && <span className="ml-auto rounded-md border border-line px-1.5 py-0.5 font-mono text-[11px] text-subtle">v{version}</span>}
+          </div>
+          <p className="mt-2 text-[12.5px] leading-relaxed text-muted">See what your agent and your MCP servers do: every model step, tool call and message, on your machine.</p>
+          <div className="mt-3 flex items-center gap-3 border-t border-line pt-3 text-[12.5px]">
+            <CardLink href={`${REPO_URL}/releases`}>What's new</CardLink>
+            <CardLink href={DOCS_URL}>Docs</CardLink>
+            <CardLink href={REPO_URL}>GitHub</CardLink>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CardLink({ href, children }: { href: string; children: React.ReactNode }) {
+  return (
+    <a href={href} target="_blank" rel="noreferrer noopener" className="inline-flex items-center gap-1 text-muted transition-colors hover:text-accent">
+      {children}
+      <ArrowUpRight className="h-3 w-3" />
+    </a>
   );
 }

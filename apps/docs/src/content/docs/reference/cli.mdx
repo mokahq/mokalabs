@@ -17,6 +17,9 @@ moka [config.json] [options]            # after npm install -g @mokalabs/sandbox
 | `moka init [file]` | Write a starter `moka.json` (detected models + demo server + guide skill) |
 | `moka demo-server` | Run the bundled demo MCP server on stdio (use it from any MCP client) |
 | `moka demo-agent [--port 4100]` | Run a demo agent that speaks A2A and AG-UI (with A2UI). See [Remote agents](/guides/agents/) |
+| `moka test [config]` | Run the workspace's [tool tests](/guides/tests/#in-ci-moka-test); `--min-pass`, `--markdown`, `--baseline` for CI |
+| `moka improve [config]` | Propose and verify better tool wording from test failures; `--apply` saves it. See [Improve](/guides/improve/#from-the-command-line) |
+| `moka mock <recording.jsonl> [--fallback last]` | Serve a recording as an MCP server on stdio. See [Record & replay](/guides/record-replay/) |
 
 ## Options
 

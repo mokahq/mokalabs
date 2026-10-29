@@ -1,7 +1,8 @@
-import { normaliseSchema, toolKey } from "./agent.js";
+import { FORMAT_HINTS, normaliseSchema, toolKey } from "./agent.js";
 import { buildRenderUiDescription, buildRenderUiSchema, resolveGenerativeUi, workspaceRegistry, type LoadedCatalog } from "./catalog.js";
 import type { McpServerConfig, Workspace } from "./config.js";
 import type { McpServerState } from "./mcp.js";
+import { applyToolOverride } from "./overrides.js";
 import { skillsSystemPrompt, type LoadedSkill } from "./skills.js";
 import { toolVisibleToModel } from "./ui.js";
 
@@ -42,7 +43,7 @@ export function estimateTokens(text: string): number {
 }
 
 /** A tool as providers receive it (the OpenAI function format; others are close). */
-function toolTokens(name: string, description: string, schema: unknown): number {
+export function toolTokens(name: string, description: string, schema: unknown): number {
   return estimateTokens(JSON.stringify({ type: "function", function: { name, description, parameters: schema } }));
 }
 
@@ -58,6 +59,7 @@ export function contextBudget(options: {
   const notConnected: ContextBudget["notConnected"] = [];
 
   if (workspace.systemPrompt?.trim()) items.push({ kind: "system", name: "System prompt", source: "workspace", tokens: estimateTokens(workspace.systemPrompt.trim()) });
+  if (workspace.formatHints !== false) items.push({ kind: "system", name: "Formatting hints", source: "Moka", tokens: estimateTokens(FORMAT_HINTS) });
 
   const skills = options.skills.filter((s) => !s.error);
   if (skills.length) items.push({ kind: "skills", name: `Skills list (${skills.length})`, source: "skills", tokens: estimateTokens(skillsSystemPrompt(skills)) });
@@ -70,8 +72,9 @@ export function contextBudget(options: {
     }
     if (state.instructions) items.push({ kind: "instructions", name: "Server instructions", source: server.name, serverId: server.id, tokens: estimateTokens(`### ${server.name}\n${state.instructions}`) });
     const hidden = new Set(server.disabledTools ?? []);
-    for (const tool of state.tools) {
-      if (!toolVisibleToModel(tool)) continue;
+    for (const serverTool of state.tools) {
+      if (!toolVisibleToModel(serverTool)) continue;
+      const tool = applyToolOverride(serverTool, server.toolOverrides?.[serverTool.name]);
       items.push({
         kind: "tool",
         name: tool.name,

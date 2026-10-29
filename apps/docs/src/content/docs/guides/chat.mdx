@@ -8,6 +8,19 @@ import filesGif from "../../../../../../docs/assets/files.gif";
 
 <img src={filesGif.src} width={filesGif.width} height={filesGif.height} alt="A tool makes a PDF and then a Word document, each opening next to the chat; an attached PDF opens the same way" />
 
+## See how the model thinks
+
+When a model reasons before it answers, Moka shows its thinking as it happens: **Thinking…** with the thoughts streaming in, then folded to **Thought for 6s** once it answers or calls a tool. Click it to read it again. With tools, you see the thinking before each call, so you know why the model picked that tool and those arguments.
+
+| Provider | What you see |
+|---|---|
+| OpenAI (Responses API), Azure | Reasoning summaries from reasoning models (gpt-5, o-series) |
+| Anthropic | Claude's thinking (3.7 and later; summarized on 4.6 and later) |
+| Google | Gemini 2.5 and later's thought summaries. Flash models barely think by default, so *Auto* asks them for a little (low thinking level) |
+| Ollama, LM Studio and other OpenAI-compatible servers | `<think>` blocks (Qwen3, DeepSeek-R1, QwQ…) and `reasoning_content` |
+
+Set it per model in Settings → Models → **Reasoning**: *Auto* (default) asks for it where the model can reason, at its usual effort; *low*, *medium* or *high* also set the effort (high is slower and uses more tokens); *Don't ask for it* turns it off. Your own `providerOptions` win over Moka's.
+
 ## Attach files and images
 
 Click the paperclip, paste, or drag files onto the composer (up to 10 MB each):
@@ -65,6 +78,8 @@ Replies render Markdown the way GitHub does, plus what models like to write:
 | `$x^2$`, `\(x^2\)`, `$$…$$`, `\[…\]` | Math, typeset with KaTeX. Prices like "$5 and $10" stay text |
 | `- [ ]` / `- [x]` | Checklists |
 | `<span style="color:…">`, `<mark>`, `<kbd>`, `<sub>`, `<sup>`, `<u>` | Colored, highlighted or keyboard text, sub/superscript |
+
+Models only use these when they choose to. So that they know they can, Moka adds a short **formatting hint** to the system prompt (about 100 tokens; it's in the context budget and the inspector's run start). Turn it off per workspace with `"formatHints": false`. Tool tests never send it.
 
 Other HTML in a reply is dropped (its text stays): no scripts, styles beyond color and emphasis, or event handlers. Whole HTML pages open in the preview, as above.
 

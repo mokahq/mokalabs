@@ -334,6 +334,27 @@ body {
   font-size: 12.5px;
 }
 
+/* The empty chat's puppy: a click is a quick boop, and the about card fades in. */
+@keyframes moka-boop {
+  0% { transform: scale(1); }
+  35% { transform: scale(0.93); }
+  70% { transform: scale(1.03); }
+  100% { transform: scale(1); }
+}
+.moka-boop {
+  animation: moka-boop 0.42s cubic-bezier(0.3, 0.7, 0.4, 1);
+}
+@keyframes moka-card-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: none; }
+}
+.moka-card {
+  animation: moka-card-in 0.16s ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .moka-boop, .moka-card { animation: none; }
+}
+
 @keyframes blink {
   50% {
     opacity: 0;

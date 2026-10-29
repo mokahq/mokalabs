@@ -11,7 +11,7 @@ import { tolerantStreamFetch } from "./sse-filter.js";
  * and falls back to `max_completion_tokens` where `max_tokens` is rejected (Azure).
  */
 const compatFetch = tolerantStreamFetch(maxTokensFallbackFetch());
-import { simulateStreamingMiddleware, wrapLanguageModel, type LanguageModel } from "ai";
+import { extractReasoningMiddleware, simulateStreamingMiddleware, wrapLanguageModel, type LanguageModel } from "ai";
 import { resolveRecord, resolveSecret, type LlmProfile, type ProviderKind } from "./config.js";
 
 export interface ProviderPreset {
@@ -74,18 +74,83 @@ function createProviderModel(profile: LlmProfile, env: NodeJS.ProcessEnv) {
         apiVersion: profile.apiVersion || undefined,
       })(profile.model);
     case "ollama":
-      return createOpenAICompatible({
-        name: "ollama",
-        baseURL: baseURL ?? "http://localhost:11434/v1",
-        apiKey,
-        headers,
-        fetch: compatFetch,
-      })(profile.model);
+      return thinkTags(
+        createOpenAICompatible({
+          name: "ollama",
+          baseURL: baseURL ?? "http://localhost:11434/v1",
+          apiKey,
+          headers,
+          fetch: compatFetch,
+        })(profile.model),
+      );
     case "openai-compatible":
       if (!baseURL) throw new Error(`Model "${profile.name}" needs a base URL.`);
       // Gateways often add their own events (timings, metadata) to the stream: skip those.
-      return createOpenAICompatible({ name: "custom", baseURL, apiKey, headers, includeUsage: true, fetch: compatFetch })(profile.model);
+      return thinkTags(createOpenAICompatible({ name: "custom", baseURL, apiKey, headers, includeUsage: true, fetch: compatFetch })(profile.model));
   }
+}
+
+/**
+ * Local and open models (Qwen3, DeepSeek-R1, QwQ…) often write their reasoning
+ * inline as `<think>…</think>`. Show it as reasoning, not as part of the answer.
+ * (Servers that send `reasoning_content` are handled by the provider already.)
+ */
+function thinkTags(model: ReturnType<ReturnType<typeof createOpenAICompatible>>) {
+  return wrapLanguageModel({ model, middleware: extractReasoningMiddleware({ tagName: "think" }) });
+}
+
+type ThinkingKind = "none" | "budget" | "adaptive";
+
+/** How a Claude model thinks: not at all (Claude 3, 3.5), with a token budget (3.7 to 4.5), or adaptively (4.6 and later). */
+export function claudeThinking(model: string): ThinkingKind {
+  const id = model.toLowerCase();
+  if (!id.includes("claude")) return "none";
+  if (/claude-(2|instant|3-(?!7))|claude-3-?(haiku|opus|sonnet)/.test(id)) return "none";
+  if (/claude-3-7|claude-(opus|sonnet|haiku)-4(?:-[0-5])?(?:-\d{8})?(?=$|[@:.-])/.test(id) && !/claude-(opus|sonnet|haiku)-4-[6-9]/.test(id)) return "budget";
+  return "adaptive";
+}
+
+const BUDGET: Record<"low" | "medium" | "high", number> = { low: 2048, medium: 8192, high: 24576 };
+
+/**
+ * What to send so the model's reasoning comes back and can be shown, for
+ * `streamText`: a reasoning level, and provider options. The profile's own
+ * `providerOptions` win over these.
+ */
+export function reasoningOptions(profile: LlmProfile): { reasoning?: "low" | "medium" | "high"; providerOptions?: Record<string, any> } {
+  const setting = profile.reasoning ?? "auto";
+  const level = setting === "low" || setting === "medium" || setting === "high" ? setting : undefined;
+  const ours: Record<string, any> = {};
+  if (setting !== "off") {
+    switch (profile.provider) {
+      case "openai":
+      case "azure":
+        // Summaries of the reasoning (OpenAI doesn't send the raw chain of thought). Only sent to reasoning models.
+        if (!(profile.provider === "openai" && profile.useChatApi)) ours[profile.provider] = { reasoningSummary: "auto", ...(level ? { reasoningEffort: level } : {}) };
+        break;
+      case "anthropic": {
+        const kind = claudeThinking(profile.model);
+        if (kind === "adaptive") ours.anthropic = { thinking: { type: "adaptive", display: "summarized" }, ...(level ? { effort: level } : {}) };
+        else if (kind === "budget") ours.anthropic = { thinking: { type: "enabled", budgetTokens: BUDGET[level ?? "low"] } };
+        break;
+      }
+      case "google": {
+        if (!/gemini-(2\.5|[3-9])|gemini-(flash|pro)(-lite)?-latest/i.test(profile.model)) break;
+        // Flash models barely think at their default level (Gemini 3.x Flash: often no reasoning tokens at all,
+        // 2.5 Flash-Lite: thinking off), so Auto asks for a little. A chosen level is sent as `reasoning` instead.
+        const id = profile.model.toLowerCase();
+        const nudge = level ? {} : /gemini-[3-9][\d.]*-flash|gemini-flash(-lite)?-latest/.test(id) ? { thinkingLevel: "low" } : /gemini-2\.5-flash-lite/.test(id) ? { thinkingBudget: 1024 } : {};
+        ours.google = { thinkingConfig: { includeThoughts: true, ...nudge } };
+        break;
+      }
+    }
+  }
+  const merged = { ...ours };
+  for (const [key, value] of Object.entries(profile.providerOptions ?? {})) merged[key] = value && typeof value === "object" && !Array.isArray(value) ? { ...merged[key], ...value } : value;
+  return {
+    ...(level && profile.provider !== "anthropic" && profile.provider !== "openai" && profile.provider !== "azure" ? { reasoning: level } : {}),
+    ...(Object.keys(merged).length ? { providerOptions: merged } : {}),
+  };
 }
 
 /** Detect usable providers from environment variables. */

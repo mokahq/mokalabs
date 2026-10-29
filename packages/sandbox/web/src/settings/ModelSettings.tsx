@@ -364,6 +364,19 @@ function ModelForm({ initial }: { initial: LlmProfile }) {
                 </Field>
               </>
             )}
+            <Field
+              label="Reasoning"
+              className="sm:col-span-2"
+              hint="Show how the model thinks, live in the chat. Auto asks for it where the model can reason (OpenAI reasoning models send summaries; Claude, Gemini 2.5+ and local models like Qwen3 or DeepSeek-R1 send their thinking)."
+            >
+              <Select value={draft.reasoning ?? "auto"} onChange={(e) => patch({ reasoning: e.target.value === "auto" ? undefined : (e.target.value as LlmProfile["reasoning"]) })}>
+                <option value="auto">Auto: show it when the model reasons</option>
+                <option value="low">Show it, low effort</option>
+                <option value="medium">Show it, medium effort</option>
+                <option value="high">Show it, high effort (slower, more tokens)</option>
+                <option value="off">Don't ask for it</option>
+              </Select>
+            </Field>
           </div>
         </Section>
 

@@ -61,7 +61,7 @@ npx @mokalabs/sandbox test moka.json --models qwen3-4b,gpt-5-mini --runs 3
      17/24   71%  LM Studio (qwen3-4b)  avg 1.3s · 2380 tokens
 ```
 
-It exits with code 1 if any run fails, so it can gate a pull request.
+It exits with code 1 if any run fails, so it can gate a pull request. Models aren't deterministic, though: with `--min-pass 0.9` it fails only below a 90% pass rate.
 
 | Option | |
 |---|---|
@@ -69,11 +69,21 @@ It exits with code 1 if any run fails, so it can gate a pull request.
 | `-w, --workspace <id>` | Workspace (default: the active one) |
 | `--runs <n>` | Runs per test and model, 1–20 (default 1) |
 | `--tools <mode>` | `read-only` (default), `run` or `none` |
-| `--json` | Results as JSON, for your own reports |
+| `--min-pass <0–1>` | Exit 1 only below this pass rate (default 1: any failure) |
+| `--markdown <file>` | Write the scorecard as Markdown, for a job summary or a PR comment |
+| `--baseline <file>` | Compare with a saved `--json` run: the change per model, in the terminal and the Markdown |
+| `--json` | Results as JSON (with `passRate`), for your own reports or as a baseline |
+
+### GitHub Actions
+
+This workflow runs the tests on every pull request, shows the scorecard in the job summary, and keeps one comment on the PR up to date:
 
 ```yaml title=".github/workflows/tool-tests.yml"
 name: Tool tests
 on: [pull_request]
+permissions:
+  contents: read
+  pull-requests: write
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -81,12 +91,40 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
-      - run: npx -y @mokalabs/sandbox test moka.json --models gpt-5-mini --runs 3
+      - name: Run tool tests
+        run: |
+          npx -y @mokalabs/sandbox test moka.json --models gpt-5-mini --runs 3 \
+            --min-pass 0.9 --markdown scorecard.md \
+            $([ -f moka-baseline.json ] && echo --baseline moka-baseline.json)
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      - name: Job summary
+        if: always()
+        run: cat scorecard.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Comment on the PR
+        if: always()
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: moka-tool-tests
+          path: scorecard.md
 ```
 
-<Aside type="tip">Keep model API keys in `env:` references in `moka.json` (`"apiKey": "env:OPENAI_API_KEY"`), so the file is safe to commit.</Aside>
+The comment is updated in place on each push, not stacked:
+
+```md
+### ❌ Moka tool tests: 39/48 passed (81%)
+
+| Model | Passed | % | vs baseline | Avg time |
+|---|---|---|---|---|
+| OpenAI (gpt-5-mini) | 22/24 | 92% | 20/24 → 22/24 (+8 pts) | 1.8s |
+| LM Studio (qwen3-4b) | 17/24 | 71% | 18/24 → 17/24 (-4 pts) | 1.3s |
+```
+
+For the `vs baseline` column, save a run from your main branch and commit it: `moka test moka.json --runs 3 --json > moka-baseline.json`.
+
+<Aside type="tip">Keep model API keys in `env:` references in `moka.json` (`"apiKey": "env:OPENAI_API_KEY"`), so the file is safe to commit. To test without your server's backend or credentials, [record its traffic](/guides/record-replay/) once and point the CI config at the replay (`"command": "moka:mock"`).</Aside>
+
+When tests fail on wording, [Improve](/guides/improve/) can propose and verify better descriptions.
 
 ## In `moka.json`
 

@@ -1,4 +1,4 @@
-import type { ChatChunk, MokaEvent, TestResult } from "./types";
+import type { ChatChunk, ImproveEvent, MokaEvent, TestResult } from "./types";
 
 const TOKEN_KEY = "moka.token";
 
@@ -113,6 +113,19 @@ export async function* streamTests(
     throw new ApiError(data?.error ?? res.statusText, res.status);
   }
   yield* ndjson<TestResult>(res);
+}
+
+/** Run Improve; phases, results and the verdict arrive as they happen. */
+export async function* streamImprove(
+  body: { workspaceId?: string; llmIds: string[]; runs?: number; toolMode?: "run" | "read-only" | "none"; improverId?: string; proposals?: number; baseline?: TestResult[] },
+  signal: AbortSignal,
+): AsyncGenerator<ImproveEvent> {
+  const res = await fetch("/api/improve", { method: "POST", headers: headers({ "content-type": "application/json" }), body: JSON.stringify(body), signal });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new ApiError(data?.error ?? res.statusText, res.status);
+  }
+  yield* ndjson<ImproveEvent>(res);
 }
 
 /** Subscribe to the inspector event stream, reconnecting automatically. */

@@ -21,6 +21,8 @@ export type ToolErrorClass =
   | "declined"
   /** The model's arguments didn't match the tool's input schema, or the tool doesn't exist. */
   | "input"
+  /** The model called a tool that doesn't exist (a made-up or misspelled name). */
+  | "unknown-tool"
   | "other";
 
 /** Error classes after which nobody knows whether a write happened. */
@@ -84,7 +86,8 @@ export function errorClassOf(error: unknown): ToolErrorClass {
   const tagged = (error as { errorClass?: ToolErrorClass } | undefined)?.errorClass;
   if (tagged) return tagged;
   const name = String((error as { name?: string } | undefined)?.name ?? "");
-  if (/InvalidToolInput|NoSuchTool|ToolCallRepair/i.test(name)) return "input";
+  if (/NoSuchTool/i.test(name)) return "unknown-tool";
+  if (/InvalidToolInput|ToolCallRepair/i.test(name)) return "input";
   if (/Abort/i.test(name)) return "cancelled";
   return "other";
 }

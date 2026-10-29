@@ -3,8 +3,9 @@ import { readdirSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
-import { applyPlan, knownLocations, locationForFile, planConfig, type ConfigPlan } from "./configs.js";
+import { applyPlan, HEADER_ENV_PREFIX, headersFromEnv, knownLocations, locationForFile, planConfig, type ConfigPlan } from "./configs.js";
 import { exportFileName, exportSessions } from "./export.js";
+import { runHttpProxy } from "./http.js";
 import { runProxy } from "./run.js";
 import { sessionsDir } from "./session.js";
 import { VERSION } from "./version.js";
@@ -25,6 +26,8 @@ Then open the inspector:
 
 Run one server through the proxy (what wrap puts in your config):
   npx @mokalabs/proxy [--client <label>] [--name <server>] -- <command> [args…]
+  npx @mokalabs/proxy [--client <label>] [--name <server>] --url <url> [--transport http|sse] [--header "Name: value"]…
+      (an HTTP server: the editor talks stdio to the proxy, the proxy talks HTTP to the server)
 
 Messages pass through untouched. Each session is recorded to
 ${sessionsDir()}
@@ -50,6 +53,8 @@ async function main(argv: string[]): Promise<number> {
 async function proxyCommand(argv: string[]): Promise<number> {
   let client: string | undefined;
   let name: string | undefined;
+  let url: string | undefined;
+  let transport: "http" | "sse" = "http";
   let i = 0;
   for (; i < argv.length; i++) {
     const arg = argv[i]!;
@@ -59,8 +64,16 @@ async function proxyCommand(argv: string[]): Promise<number> {
     }
     if (arg === "--client") client = argv[++i];
     else if (arg === "--name") name = argv[++i];
-    else break; // the server command itself, without a "--"
+    else if (arg === "--url") url = argv[++i];
+    else if (arg === "--transport") transport = argv[++i] === "sse" ? "sse" : "http";
+    else if (arg === "--url-key" || arg === "--type") i++; // for unwrap
+    else if (arg === "--header") {
+      const header = argv[++i] ?? "";
+      process.env[`${HEADER_ENV_PREFIX}${Object.keys(process.env).filter((k) => k.startsWith(HEADER_ENV_PREFIX)).length + 1}`] = header;
+    } else break; // the server command itself, without a "--"
   }
+  // An HTTP server: bridge stdio to its URL. Headers come from MOKA_PROXY_HEADER_n ("Name: value").
+  if (url) return runHttpProxy({ url, transport, headers: headersFromEnv(process.env), client, name });
   const [command, ...args] = argv.slice(i);
   if (!command) {
     process.stderr.write(`[moka proxy] no server command given.\n\n${HELP}`);
@@ -138,7 +151,7 @@ function describe(plan: ConfigPlan, mode: "wrap" | "unwrap"): string {
     plan.servers
       .map((s) => {
         const note =
-          s.state === "skip" ? `skipped: ${s.reason}` : s.state === "wrapped" ? (mode === "wrap" ? "already wrapped" : "will be unwrapped") : mode === "wrap" ? "will be wrapped" : "not wrapped";
+          s.state === "skip" ? `skipped: ${s.reason}` : s.state === "wrapped" ? (mode === "wrap" ? "already wrapped" : "will be unwrapped") : mode === "wrap" ? (s.http ? `will be wrapped (${s.http.transport === "sse" ? "HTTP+SSE" : "HTTP"}: ${s.http.url})` : "will be wrapped") : "not wrapped";
         return `      ${s.name.padEnd(24)} ${note}\n`;
       })
       .join("")

@@ -1,7 +1,14 @@
 export { runProxy, guessName, type RunProxyOptions } from "./run.js";
+export { runHttpProxy, type RunHttpProxyOptions, type HttpTransportKind } from "./http.js";
 export { mokaHome, sessionsDir, SessionLog, type SessionRecord } from "./session.js";
 export {
   applyPlan,
+  headersFromEnv,
+  httpEntry,
+  unwrappedHttpEntry,
+  wrappedHttpEntry,
+  HEADER_ENV_PREFIX,
+  type HttpEntry,
   isWrapped,
   knownLocations,
   locationForFile,

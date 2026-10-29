@@ -13,7 +13,7 @@ minimumReleaseAge: 20160
 overrides:
   "rollup@4": 4.63.1
   "yaml@2": 2.9.0
-  "tsx@4": 4.23.13
+  "tsx@4": 4.23.15
   "@types/node@24": 24.13.4
   "@types/node@22": 22.20.2
   "enhanced-resolve@5": 5.24.5

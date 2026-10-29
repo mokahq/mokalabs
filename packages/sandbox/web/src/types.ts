@@ -15,6 +15,8 @@ export interface LlmProfile {
   temperature?: number;
   maxOutputTokens?: number;
   providerOptions?: Record<string, unknown>;
+  /** Show the model's reasoning: auto (default), off, or an effort level. */
+  reasoning?: "auto" | "off" | "low" | "medium" | "high";
 }
 
 export type AgentProtocol = "a2a" | "ag-ui";
@@ -46,8 +48,43 @@ export interface McpServerConfig {
   approval?: { default?: ApprovalMode; tools?: Record<string, ApprovalMode> };
   oauth?: boolean | { clientId?: string; clientSecret?: string; scopes?: string[] };
   sampling?: "ask" | "auto" | "deny";
+  /** Better wording for tools, applied on Moka's side (Improve writes these). */
+  toolOverrides?: Record<string, ToolOverride>;
   /** MCP revision: auto (2026-07-28 if the server has it, else 2025), 2025 or 2026. */
   protocol?: "auto" | "2025" | "2026";
+  /** Write this server's traffic to ~/.moka/recordings, to replay it with moka:mock. */
+  record?: boolean;
+  /** Delays and failures injected into tool calls on Moka's side. */
+  faults?: Faults;
+}
+
+export type FaultKind = "error" | "tool-error" | "hang" | "crash" | "malformed";
+
+export interface FaultRule {
+  tools?: string[];
+  rate?: number;
+  delayMs?: number | [number, number];
+  fail?: FaultKind;
+}
+
+export interface Faults {
+  enabled?: boolean;
+  seed?: number;
+  rules: FaultRule[];
+}
+
+/** A file written by a server with `record: true`. */
+export interface RecordingFile {
+  server: string;
+  name: string;
+  file: string;
+  size: number;
+  at: number;
+}
+
+export interface ToolOverride {
+  description?: string;
+  params?: Record<string, { description?: string; examples?: unknown[] }>;
 }
 
 export type ApprovalMode = "auto" | "ask";
@@ -326,7 +363,8 @@ export interface Attachment {
 export type Part =
   | { type: "text"; text: string }
   | { type: "attachment"; attachment: Omit<Attachment, "text"> & { text?: undefined } }
-  | { type: "reasoning"; text: string }
+  /** `ms`: how long the model thought, once it moved on. */
+  | { type: "reasoning"; text: string; ms?: number }
   | {
       type: "tool";
       id: string;
@@ -485,3 +523,59 @@ export interface TestResult {
   error?: string;
   runId: string;
 }
+
+/* ------------------------------------------------------------ Improve */
+
+export type DiagnosisKind = "wrong-tool" | "missed-call" | "wrong-args" | "forbidden-call" | "answer" | "error";
+
+export interface Diagnosis {
+  kind: DiagnosisKind;
+  tool?: string;
+  testId: string;
+  models: Array<{ llmId: string; failed: number; runs: number }>;
+  detail: string;
+}
+
+export interface ProposedChange {
+  serverId: string;
+  tool: string;
+  description?: string;
+  params?: Record<string, { description?: string; examples?: unknown[] }>;
+  reason: string;
+}
+
+export interface Proposal {
+  id: string;
+  summary: string;
+  changes: ProposedChange[];
+}
+
+export interface VariantScore {
+  variant: string;
+  passed: number;
+  total: number;
+  holdoutPassed: number;
+  holdoutTotal: number;
+  perModel: Array<{ llmId: string; passed: number; total: number }>;
+}
+
+export interface ProposalVerdict extends VariantScore {
+  accepted: boolean;
+  notes: string[];
+  regressions: string[];
+  findings: SecurityFinding[];
+  tokens: { before: number; after: number };
+}
+
+export type ImproveResult = TestResult & { variant: string; holdout: boolean };
+
+export type ImproveEvent =
+  | { type: "start"; improver: { id: string; name: string; model: string }; tests: number; models: string[]; runs: number; estimatedRuns: number }
+  | { type: "phase"; phase: "baseline" | "diagnosis" | "holdout" | "proposals" | "verify" | "verdict" }
+  | { type: "result"; result: ImproveResult }
+  | { type: "diagnosis"; diagnosis: Diagnosis[] }
+  | { type: "holdout"; tests: ToolTest[] }
+  | { type: "proposals"; proposals: Proposal[] }
+  | { type: "verdict"; baseline: VariantScore; verdicts: ProposalVerdict[]; winner?: string }
+  | { type: "done"; message?: string }
+  | { type: "error"; message: string };
