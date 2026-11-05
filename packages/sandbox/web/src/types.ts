@@ -151,7 +151,35 @@ export type Interaction = { id: string; createdAt: number } & (
   | { kind: "tool-approval"; runId?: string; toolCallId: string; serverId: string; serverName: string; tool: string; input: unknown; annotations?: Record<string, unknown> }
   | { kind: "elicitation"; serverId: string; serverName: string; message: string; mode: "form" | "url"; requestedSchema?: JsonSchema; url?: string }
   | { kind: "sampling"; serverId: string; serverName: string; messages: unknown[]; systemPrompt?: string; maxTokens?: number; modelHint?: string }
+  | ({ kind: "breakpoint"; breakpointId?: string } & BreakpointHit)
 );
+
+export type BreakpointPhase = "before-tool" | "after-tool" | "error" | "model-step";
+
+/** Where a run is paused. */
+export interface BreakpointHit {
+  phase: BreakpointPhase;
+  runId: string;
+  serverId?: string;
+  serverName?: string;
+  tool?: string;
+  toolCallId?: string;
+  input?: unknown;
+  output?: string;
+  error?: string;
+  step?: number;
+  model?: string;
+  messages?: unknown[];
+}
+
+export interface Breakpoint {
+  id: string;
+  on: BreakpointPhase;
+  /** Tool name or `server/tool`; empty: every tool. */
+  tool?: string;
+  when?: { arg: string; op: "eq" | "ne" | "contains" | "gt" | "lt" | "exists"; value?: unknown };
+  enabled?: boolean;
+}
 
 export interface SkillConfig {
   id: string;
@@ -174,6 +202,10 @@ export interface Workspace {
   generativeUi?: boolean | GenerativeUiConfig;
   requireApproval?: boolean;
   tests?: ToolTest[];
+  /** Where chats pause (Breakpoints panel in the inspector). */
+  breakpoints?: Breakpoint[];
+  /** `false`: keep the breakpoints but don't stop at them. */
+  breakpointsActive?: boolean;
 }
 
 export interface MokaConfig {
@@ -339,9 +371,12 @@ export type ChatChunk =
       errorClass?: string;
       outcomeUnknown?: boolean;
       possibleDoubleWrite?: boolean;
+      /** Changed at a breakpoint. */
+      edited?: "arguments" | "result";
+      input?: unknown;
     }
   | { type: "step"; usage: Usage; finishReason: string }
-  | { type: "finish"; usage: Usage; durationMs: number; messages: unknown[] }
+  | { type: "finish"; usage: Usage; durationMs: number; messages: unknown[]; replacesLast?: boolean }
   | { type: "error"; message: string };
 
 /** A file, image or MCP resource the user attached to a message. */
@@ -361,7 +396,7 @@ export interface Attachment {
 }
 
 export type Part =
-  | { type: "text"; text: string }
+  | { type: "text"; text: string; edited?: boolean }
   | { type: "attachment"; attachment: Omit<Attachment, "text"> & { text?: undefined } }
   /** `ms`: how long the model thought, once it moved on. */
   | { type: "reasoning"; text: string; ms?: number }
@@ -388,7 +423,30 @@ export type Part =
       possibleDoubleWrite?: boolean;
       ui?: UiDescriptor;
       raw?: RawToolResult;
+      /** Time-travel: this result or these arguments were changed by hand in a fork. */
+      edited?: "result" | "arguments";
     };
+
+/** Time-travel: where a fork branches off a turn, and what was changed there. */
+export interface ForkMeta {
+  /** 1-based step of the turn the fork starts at. */
+  step: number;
+  edit: "result" | "arguments" | "reply" | "model" | "retry";
+  tool?: string;
+  label: string;
+  /** The run it was forked from. */
+  runId?: string;
+}
+
+/** One branch of a turn: its reply, the turn's model messages, and the conversation after it. */
+export interface Branch {
+  label: string;
+  fork?: ForkMeta;
+  message: UiMessage;
+  turnModel: unknown[];
+  tail: UiMessage[];
+  tailModel: unknown[];
+}
 
 /** A server session recorded by @mokalabs/proxy (another client, such as GitHub Copilot, and one server). */
 export interface ProxySession {
@@ -429,7 +487,14 @@ export interface UiMessage {
     via?: "a2ui" | "mcp-app";
     /** When a user message was sent (ms since epoch). */
     sentAt?: number;
+    /** Time-travel: the first parts, up to here, are shared with the branch this one was forked from. */
+    inherited?: number;
   };
+  /** Time-travel: how this branch was forked. */
+  fork?: ForkMeta;
+  /** Time-travel: every branch of this turn (the active one is `branch`). */
+  branches?: Branch[];
+  branch?: number;
 }
 
 export interface SessionData {

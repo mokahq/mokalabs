@@ -41,6 +41,22 @@ When tests fail, **Improve** diagnoses why (wrong tool, wrong argument, a call t
 
 `npx @mokalabs/sandbox improve --models a,b --runs 3 --apply` does the same from the command line. [Improve guide →](https://mokalabs.dev/guides/improve/)
 
+## Go back in time, or stop on a breakpoint
+
+**Time-travel:** fork any reply from any step. Edit what a tool returned (or make it fail), change a call's arguments, rewrite the model's reply, or run the rest on another model. Branches sit side by side, with what changed highlighted. **Breakpoints** pause a chat before or after a tool, on an error, or before each model step: edit, step, continue.
+
+<img src="docs/assets/time-travel.gif" alt="A reply's get_time result is edited to an error; the fork runs on and the model explains the outage; then the answer runs again on another model, and the branches are compared side by side" width="100%" />
+
+[Time-travel →](https://mokalabs.dev/guides/time-travel/) · [Breakpoints →](https://mokalabs.dev/guides/breakpoints/)
+
+## Write an MCP server in Moka
+
+**Studio** starts a server from a template, lets you edit it in the browser, and restarts it on save, so its tools are ready in chat, Tools and Tests at once. No `npm install`; export it as a project when it works.
+
+<img src="docs/assets/studio.gif" alt="A new server from the Blank template; its tool is renamed and saved, the server restarts, and the tool runs in the Tools view" width="100%" />
+
+[Server Studio guide →](https://mokalabs.dev/guides/studio/)
+
 ## Compare models
 
 Run one prompt against several models with the same MCP tools, side by side: answers, tool calls, latency and tokens.

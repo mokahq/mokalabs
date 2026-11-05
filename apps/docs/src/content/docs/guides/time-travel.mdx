@@ -1,0 +1,49 @@
+---
+title: Time-travel
+description: Fork any reply from any step. Edit a tool's result or arguments, the model's reply, or switch model, and run on. Compare the branches.
+---
+
+import { Aside } from "@astrojs/starlight/components";
+import timeTravelGif from "../../../../../../docs/assets/time-travel.gif";
+
+<img src={timeTravelGif.src} width={timeTravelGif.width} height={timeTravelGif.height} alt="A reply's get_time result is edited to an error; the fork runs on and the model explains the outage; then the answer runs again on another model, and the three branches are compared side by side" />
+
+Agents go wrong a few steps in: a tool returns something odd, the model picks the wrong argument, or it gives up. **Time-travel** lets you go back to that step, change it, and see what happens next, without starting the conversation over.
+
+## Fork a reply
+
+Hover any step of a reply (thinking, a tool call, or text) and click **⑂** in the margin:
+
+| | What happens |
+|---|---|
+| **Edit result…** | The model continues as if the tool had returned your text. Tick *Return it as an error* to see how it copes with a failure. The tool doesn't run again |
+| **Edit arguments…** | Moka runs the tool again with your arguments (approvals, faults and overrides apply as usual), then the model continues |
+| **Edit reply…** | Change the model's text. Mid-reply, the model continues from your version; for the final answer, your version is saved as the branch |
+| **Retry from here** | The same step again: models aren't deterministic |
+| **Run from here with…** | Another model takes over from this step, with the same history |
+
+The model's thinking can't be edited. When you edit a reply, the thinking at that step is dropped (Claude, for one, rejects modified thinking).
+
+## Branches
+
+The fork streams in as a new **branch** of the reply. Steps it shares with the original are dimmed above a *Forked at step 2 · edited result of get_time* line; edited steps carry an **✎ edited** badge, so nobody mistakes an edit for real model output.
+
+- **‹ 2 / 3 ›** under the reply switches branch. Each branch keeps the conversation that followed it, so switching branch switches the rest of the chat too.
+- **Compare** shows the branches side by side: each one's tool calls (with arguments and results) and answer, in order, with steps that differ highlighted, and the time, tokens and tool calls of each.
+- In the inspector, a fork's run starts with *Fork started · edited result of get_time* and links to the run it came from.
+
+Branches are saved with the chat, and survive export and import.
+
+<Aside type="note">Replies from [remote agents](/guides/agents/) (A2A, AG-UI) can't be forked: their state lives in the agent.</Aside>
+
+## From the API
+
+A fork is a normal `POST /api/chat` with the history up to the fork point. When that history ends with tool calls that have no results (their arguments were edited), Moka runs them first. `forkOf` labels the run in the inspector:
+
+```json
+{
+  "messages": [ /* up to and including the step, with the edit */ ],
+  "llmId": "gpt-5-mini",
+  "forkOf": { "step": 2, "edit": "model", "label": "gpt-5-mini from step 2" }
+}
+```

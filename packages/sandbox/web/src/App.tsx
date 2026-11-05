@@ -11,6 +11,7 @@ import { TestsView } from "./components/Tests";
 import { ToolRunner } from "./components/ToolRunner";
 import { PreviewPane } from "./components/Preview";
 import { ProxyView } from "./components/ProxyView";
+import { StudioView } from "./components/Studio";
 import { Button, Input, Spinner, cn } from "./components/ui";
 import { dockInspector, isInspectorPopout, onInspectorDock, onInspectorSelect } from "./popout";
 import { Settings } from "./settings/Settings";
@@ -109,6 +110,7 @@ export function App() {
           {view === "compare" && <CompareView />}
           {view === "tools" && <ToolRunner />}
           {view === "tests" && <TestsView />}
+          {view === "studio" && <StudioView />}
           {view === "proxy" && <ProxyView />}
         </main>
         {previewing && <PreviewPane />}

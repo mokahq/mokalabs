@@ -3,6 +3,7 @@ import { api, subscribeEvents } from "./api";
 import { inspectorWindowOpen, showInInspectorWindow } from "./popout";
 import { isDocument, isFullPage, previewKind, replyArtifacts, toolFiles } from "./preview";
 import { runTurn, uid } from "./runner";
+import { snapshot, switchBranch, turnRange, type ForkPlan } from "./timetravel";
 import type {
   Attachment,
   TestResult,
@@ -18,9 +19,10 @@ import type {
   ProxySession,
   UiMessage,
   Workspace,
+  Branch,
 } from "./types";
 
-export type View = "chat" | "compare" | "tools" | "tests" | "proxy";
+export type View = "chat" | "compare" | "tools" | "tests" | "studio" | "proxy";
 export type SettingsTab = "models" | "agents" | "mcp" | "skills" | "genui" | "workspaces" | "config";
 
 interface Toast {
@@ -107,6 +109,10 @@ interface State {
   retry: () => Promise<void>;
   /** Send a user message again, dropping everything after it. */
   rerun: (messageId: string) => Promise<void>;
+  /** Time-travel: run a reply again from one of its steps, with an edit or another model, as a new branch. */
+  fork: (messageId: string, plan: ForkPlan, llmId?: string) => Promise<void>;
+  /** Time-travel: show another branch of a reply (and the conversation after it). */
+  showBranch: (messageId: string, to: number) => void;
 
   newChat: () => void;
   /** A new chat in a workspace, switching to it. */
@@ -456,6 +462,67 @@ export const useStore = create<State>((set, get) => ({
       },
     });
     await get().send(text, { via: target.meta?.via, replay: { content, parts: target.parts } });
+  },
+
+  fork: async (messageId, plan, llmId) => {
+    const { session, streaming } = get();
+    if (streaming) return;
+    const index = session.messages.findIndex((m) => m.id === messageId && m.role === "assistant");
+    if (index < 0) return;
+    const current = session.messages[index]!;
+    const [start] = turnRange(session.messages, session.modelMessages, index);
+    // Keep every branch so far, the one on screen up to date.
+    const branches: Branch[] = [...(current.branches ?? [])];
+    branches[current.branch ?? 0] = snapshot(session.messages, session.modelMessages, index);
+    const to = branches.length;
+    const before = session.modelMessages.slice(0, start);
+    const kept = plan.parts.length;
+    const sessionId = session.id;
+    const place = (message: UiMessage, turnModel: unknown[]) => {
+      const all = [...branches];
+      all[to] = { label: plan.fork.label, fork: plan.fork, message, turnModel, tail: [], tailModel: [] };
+      set((s) => ({
+        session: { ...s.session, messages: [...s.session.messages.slice(0, index), { ...message, branches: all, branch: to }], modelMessages: [...before, ...turnModel] },
+      }));
+    };
+    const first: UiMessage = { id: uid("a"), role: "assistant", parts: plan.parts, meta: { ...(plan.done ? current.meta : {}), inherited: kept }, fork: plan.fork };
+    if (plan.done) {
+      place(first, plan.prefix);
+      void persist(get().session);
+      return;
+    }
+    const controller = new AbortController();
+    set({ streaming: true, controller });
+    place(first, plan.prefix);
+    const result = await runTurn({
+      modelMessages: [...before, ...plan.prefix],
+      workspaceId: session.workspaceId,
+      ...(llmId ? { llmId } : {}),
+      forkOf: plan.fork,
+      signal: controller.signal,
+      onUpdate: (message) => {
+        if (get().session.id !== sessionId) return;
+        place({ ...message, id: first.id, parts: [...plan.parts, ...message.parts], meta: { ...message.meta, inherited: kept }, fork: plan.fork }, plan.prefix);
+      },
+    });
+    if (get().session.id !== sessionId) {
+      set({ streaming: false, controller: undefined });
+      return;
+    }
+    const turnModel = result.replacesLast ? [...plan.prefix.slice(0, -1), ...result.responseMessages] : [...plan.prefix, ...result.responseMessages];
+    place({ ...result.message, id: first.id, parts: [...plan.parts, ...result.message.parts], meta: { ...result.message.meta, inherited: kept }, fork: plan.fork }, turnModel);
+    set({ streaming: false, controller: undefined });
+    void persist(get().session);
+  },
+
+  showBranch: (messageId, to) => {
+    const { session, streaming } = get();
+    if (streaming) return;
+    const index = session.messages.findIndex((m) => m.id === messageId);
+    if (index < 0) return;
+    const next = switchBranch(session.messages, session.modelMessages, index, to);
+    set({ session: { ...session, ...next } });
+    void persist(get().session);
   },
 
   newChat: () => {

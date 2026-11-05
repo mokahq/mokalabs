@@ -89,16 +89,18 @@ export function TopBar() {
           { value: "compare", label: <span className="hidden sm:inline">Compare</span>, icon: <GitCompareArrows className="h-3.5 w-3.5" /> },
           { value: "tools", label: <span className="hidden sm:inline">Tools</span>, icon: <Wrench className="h-3.5 w-3.5" /> },
           { value: "tests", label: <span className="hidden sm:inline">Tests</span>, icon: <FlaskConical className="h-3.5 w-3.5" /> },
+          { value: "studio", label: <span className="hidden sm:inline">Studio</span>, icon: <Code2 className="h-3.5 w-3.5" /> },
           { value: "proxy", label: <span className="hidden sm:inline">Proxy</span>, icon: <Cable className="h-3.5 w-3.5" /> },
         ]}
       />
       <span className="flex-1" />
       <button
         onClick={() => set({ paletteOpen: true })}
-        className="hidden h-8 items-center gap-2 rounded-lg border border-line bg-panel-2 px-2.5 text-[12px] text-muted transition-colors hover:text-fg lg:inline-flex"
+        title="Search & commands (⌘K)"
+        className="hidden h-8 items-center gap-2 rounded-lg border border-line bg-panel-2 px-2.5 text-[12px] whitespace-nowrap text-muted transition-colors hover:text-fg lg:inline-flex"
       >
         <Search className="h-3.5 w-3.5" />
-        Search & commands
+        <span className="hidden 2xl:inline">Search & commands</span>
         <Kbd>⌘K</Kbd>
       </button>
       <IconButton label="Export as code" onClick={() => set({ exportOpen: true })}>
@@ -643,6 +645,7 @@ export function CommandPalette() {
       { id: "chat", label: "Go to Chat", icon: <MessageSquare className={i} />, run: () => s.set({ view: "chat" }) },
       { id: "compare", label: "Go to Compare", icon: <GitCompareArrows className={i} />, run: () => s.set({ view: "compare" }) },
       { id: "proxy", label: "Go to Proxy (traffic from other clients)", icon: <Cable className={i} />, run: () => s.set({ view: "proxy" }) },
+      { id: "studio", label: "Go to Studio (write an MCP server)", icon: <Code2 className={i} />, run: () => s.set({ view: "studio" }) },
       { id: "tests", label: "Go to Tests (tool tests across models)", icon: <FlaskConical className={i} />, run: () => s.set({ view: "tests" }) },
       { id: "tools", label: "Go to Tools", icon: <Wrench className={i} />, run: () => s.set({ view: "tools" }) },
       { id: "models", label: "Settings: Models", icon: <Cpu className={i} />, run: () => s.openSettings("models") },

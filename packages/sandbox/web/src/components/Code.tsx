@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { KeyboardEvent, ReactNode } from "react";
 import { languageOf, useHighlight } from "../highlight";
 import { CopyButton, cn } from "./ui";
 
@@ -40,6 +40,8 @@ export function CodeEditor({
   className,
   placeholder,
   ariaLabel,
+  fill,
+  onKeyDown,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -48,13 +50,16 @@ export function CodeEditor({
   className?: string;
   placeholder?: string;
   ariaLabel?: string;
+  /** Take the parent's height instead of `rows`. */
+  fill?: boolean;
+  onKeyDown?: (e: KeyboardEvent<HTMLTextAreaElement>) => void;
 }) {
   const html = useHighlight(value, lang);
   const layer = "col-start-1 row-start-1 m-0 min-w-0 px-3 py-2 font-mono text-[12.5px] leading-[1.6] whitespace-pre-wrap break-words";
   return (
     <div
       className={cn("shiki-code overflow-auto rounded-lg border border-line bg-panel transition-colors focus-within:border-accent/60 focus-within:ring-3 focus-within:ring-accent/15", className)}
-      style={{ height: `calc(${rows} * 1.6 * 12.5px + 1rem + 2px)` }}
+      style={fill ? undefined : { height: `calc(${rows} * 1.6 * 12.5px + 1rem + 2px)` }}
     >
       <div className="grid min-h-full">
         <pre aria-hidden className={cn(layer, "pointer-events-none text-fg")}>
@@ -69,6 +74,17 @@ export function CodeEditor({
           placeholder={placeholder}
           value={value}
           onChange={(e) => onChange(e.target.value)}
+          onKeyDown={(e) => {
+            // Tab indents instead of leaving the editor.
+            if (e.key === "Tab" && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
+              e.preventDefault();
+              const el = e.currentTarget;
+              const { selectionStart: a, selectionEnd: b } = el;
+              onChange(`${value.slice(0, a)}  ${value.slice(b)}`);
+              requestAnimationFrame(() => el.setSelectionRange(a + 2, a + 2));
+            }
+            onKeyDown?.(e);
+          }}
           className={cn(layer, "resize-none overflow-hidden bg-transparent text-transparent caret-[var(--fg)] outline-none selection:bg-accent/25 placeholder:text-subtle")}
         />
       </div>

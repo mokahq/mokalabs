@@ -62,7 +62,7 @@ Missing variables resolve to an empty string.
 | `id` | string | Unique id (also the tool-name prefix) |
 | `name` | string | Display name |
 | `transport` | `stdio` · `http` · `sse` | `http` is Streamable HTTP |
-| `command` | string? | stdio: executable. `moka:demo` = built-in demo server; `moka:mock` = a recording replayed (its file in `args`) |
+| `command` | string? | stdio: executable. `moka:demo` = built-in demo server; `moka:mock` = a recording replayed (its file in `args`); `moka:studio` = a [Studio](/guides/studio/) server (its folder in `args`) |
 | `args` | string[]? | stdio: arguments |
 | `env` | object? | stdio: extra environment variables |
 | `cwd` | string? | stdio: working directory |
@@ -133,6 +133,8 @@ A2UI component catalogs. See [custom catalogs](/generative-ui/catalogs/).
 | `generativeUi` | boolean \| object? | `false` to turn off the render tool, or [settings](/generative-ui/customize/): `toolName`, `catalogIds`, `standard`, `allow`, `deny`, `instructions`, `description`, `examples`, `repair`, `theme`. Default on |
 | `requireApproval` | boolean? | Ask before every MCP tool call in this workspace |
 | `tests` | object[]? | [Tool tests](/guides/tests/): `id`, `name?`, `prompt`, `expectTools?`, `forbidTools?`, `expectArgs?` (by tool name), `answerIncludes?` |
+| `breakpoints` | object[]? | [Breakpoints](/guides/breakpoints/): `id`, `on` (`before-tool` · `after-tool` · `error` · `model-step`), `tool?` (name or `server/tool`), `when?` (`{arg, op: eq\|ne\|contains\|gt\|lt\|exists, value?}`), `enabled?` |
+| `breakpointsActive` | boolean? | `false` keeps the breakpoints without stopping at them |
 
 ## `ui`
 

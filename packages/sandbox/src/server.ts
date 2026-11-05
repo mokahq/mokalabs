@@ -19,6 +19,7 @@ import {
   changesAsMarkdown,
   pickImprover,
   type CodeTarget,
+  type ForkInfo,
   type ImproveOptions,
   type MokaEngine,
   type ProposedChange,
@@ -28,9 +29,11 @@ import {
 import { exportSessions } from "@mokalabs/proxy";
 import { Hono, type Context } from "hono";
 import { stream } from "hono/streaming";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { readdir, readFile, rm, stat } from "node:fs/promises";
 import path from "node:path";
 
+import { ENTRY_FILES, exportFiles, listFiles as listStudioFiles, readFile as readStudioFile, STUDIO_COMMAND, studioDir, TEMPLATES, typeStrippingFlags, writeFile as writeStudioFile, zip, type TemplateId } from "./studio.js";
 import type { ProxySessions } from "./proxy-sessions.js";
 
 export interface ServerOptions {
@@ -47,6 +50,10 @@ export interface ServerOptions {
   proxy?: ProxySessions;
   /** Where servers with `record: true` write their traffic. */
   recordingsDir?: string;
+  /** Server Studio: where new servers are created (~/.moka/studio). */
+  studioRoot?: string;
+  /** Server Studio: reloads a server when one of its files is saved. */
+  studio?: { saved(dir: string, file: string): void };
 }
 
 const ENV_HINTS = [
@@ -380,7 +387,7 @@ export function createApp(options: ServerOptions): Hono {
 
   // --- Chat -----------------------------------------------------------------
   app.post("/api/chat", async (c) => {
-    const req = await body<{ messages: any[]; workspaceId?: string; llmId?: string; agentId?: string }>(c);
+    const req = await body<{ messages: any[]; workspaceId?: string; llmId?: string; agentId?: string; forkOf?: ForkInfo }>(c);
     if (!Array.isArray(req.messages)) return badRequest(c, "messages must be an array");
     c.header("Content-Type", "application/x-ndjson; charset=utf-8");
     c.header("Cache-Control", "no-cache, no-transform");
@@ -395,6 +402,7 @@ export function createApp(options: ServerOptions): Hono {
         workspaceId: req.workspaceId,
         llmId: req.llmId,
         agentId: req.agentId,
+        ...(req.forkOf ? { forkOf: req.forkOf } : {}),
         signal: controller.signal,
       })) {
         if (s.aborted) break;
@@ -451,6 +459,93 @@ export function createApp(options: ServerOptions): Hono {
     const req = await body<{ changes: ProposedChange[]; workspaceId?: string; before?: VariantScore; after?: VariantScore }>(c);
     const ctx = await engine.improveContext(req.workspaceId);
     return c.json({ ts: changesAsCode(req.changes ?? [], "ts"), python: changesAsCode(req.changes ?? [], "python"), markdown: changesAsMarkdown(req.changes ?? [], ctx.tools, req.before, req.after) });
+  });
+
+  // --- Server Studio: MCP servers written in Moka ---
+  // Folders Studio may read and write: its own root, and the folders of the config's Studio servers.
+  const studioFolder = (dir: string | undefined): string => {
+    if (!dir) throw new Error("dir is required");
+    const full = path.resolve(dir);
+    const root = options.studioRoot ? path.resolve(options.studioRoot) : undefined;
+    const known = engine.getConfig().mcpServers.map((s) => studioDir(s)).filter(Boolean);
+    if (known.includes(full) || (root && !path.relative(root, full).startsWith("..") && path.relative(root, full) !== "")) return full;
+    throw new Error("Not a Studio server's folder.");
+  };
+  const addStudioServer = async (name: string, dir: string) => {
+    const config = engine.getConfig();
+    const base = `studio-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "server"}`;
+    let id = base;
+    for (let n = 2; config.mcpServers.some((s) => s.id === id); n++) id = `${base}-${n}`;
+    const workspace = engine.workspace();
+    await engine.setConfig({
+      ...config,
+      mcpServers: [...config.mcpServers, { id, name, transport: "stdio", command: STUDIO_COMMAND, args: [dir] }],
+      workspaces: config.workspaces.map((w) => (w.id === workspace.id ? { ...w, mcpServerIds: [...w.mcpServerIds, id] } : w)),
+    });
+    return id;
+  };
+  app.get("/api/studio", (c) => {
+    const servers = engine.getConfig().mcpServers.filter((s) => studioDir(s));
+    return c.json({
+      root: options.studioRoot,
+      typescript: typeStrippingFlags() !== undefined,
+      node: process.versions.node,
+      templates: Object.entries(TEMPLATES).map(([id, t]) => ({ id, label: t.label, description: t.description })),
+      projects: servers.map((s) => ({ serverId: s.id, name: s.name, dir: studioDir(s)!, files: listStudioFiles(studioDir(s)!) })),
+    });
+  });
+  app.get("/api/studio/file", (c) => {
+    try {
+      return c.json({ content: readStudioFile(studioFolder(c.req.query("dir")), c.req.query("path") ?? "") });
+    } catch (error) {
+      return c.json({ error: errorMessage(error) }, 400);
+    }
+  });
+  app.put("/api/studio/file", async (c) => {
+    const req = await body<{ dir: string; path: string; content: string }>(c);
+    try {
+      const dir = studioFolder(req.dir);
+      writeStudioFile(dir, req.path, String(req.content ?? ""));
+      options.studio?.saved(dir, req.path);
+      return c.json({ ok: true });
+    } catch (error) {
+      return c.json({ error: errorMessage(error) }, 400);
+    }
+  });
+  app.post("/api/studio/create", async (c) => {
+    const req = await body<{ name: string; template?: TemplateId; dir?: string }>(c);
+    const name = String(req.name ?? "").trim();
+    if (!name) return badRequest(c, "name is required");
+    const template = TEMPLATES[req.template ?? "blank"];
+    if (!template) return badRequest(c, "Unknown template");
+    const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "server";
+    const dir = path.resolve(req.dir?.trim() || path.join(options.studioRoot ?? ".", slug));
+    if (existsSync(dir) && listStudioFiles(dir).length) return badRequest(c, `${dir} isn't empty. Use "Open folder" for an existing server.`);
+    mkdirSync(dir, { recursive: true });
+    for (const [file, content] of Object.entries(template.files(name))) writeFileSync(path.join(dir, file), content);
+    return c.json({ serverId: await addStudioServer(name, dir), dir });
+  });
+  app.post("/api/studio/open", async (c) => {
+    const req = await body<{ dir: string; name?: string }>(c);
+    const dir = path.resolve(String(req.dir ?? ""));
+    if (!ENTRY_FILES.some((f) => existsSync(path.join(dir, f)))) return badRequest(c, `No server.ts (or server.mjs) in ${dir}.`);
+    const existing = engine.getConfig().mcpServers.find((s) => studioDir(s) === dir);
+    if (existing) return c.json({ serverId: existing.id, dir });
+    return c.json({ serverId: await addStudioServer(req.name?.trim() || path.basename(dir), dir), dir });
+  });
+  app.get("/api/studio/export", (c) => {
+    try {
+      const dir = studioFolder(c.req.query("dir"));
+      const server = engine.getConfig().mcpServers.find((s) => studioDir(s) === dir);
+      const name = server?.name ?? path.basename(dir);
+      const files = Object.fromEntries(listStudioFiles(dir).map((f) => [f.path, readStudioFile(dir, f.path)]));
+      const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "mcp-server";
+      c.header("Content-Type", "application/zip");
+      c.header("Content-Disposition", `attachment; filename="${slug}.zip"`);
+      return c.body(new Uint8Array(zip(exportFiles(name, files), slug)));
+    } catch (error) {
+      return c.json({ error: errorMessage(error) }, 400);
+    }
   });
 
   // --- Recordings (servers with record: true), replayable with moka:mock ---

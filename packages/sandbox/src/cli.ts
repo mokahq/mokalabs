@@ -410,6 +410,12 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (command === "studio-run") {
+    const { runStudioServer } = await import("./studio.js");
+    await runStudioServer(argv[1] ?? ".");
+    return;
+  }
+
   if (command === "demo-server") {
     const { runDemoServer, VERSION } = await import("./index.js");
     await runDemoServer(VERSION);
