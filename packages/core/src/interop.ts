@@ -50,6 +50,10 @@ function portable(server: McpServerConfig): McpServerConfig {
   if (server.transport === "stdio" && server.command === "moka:demo") {
     return { ...server, command: "npx", args: ["-y", "@mokalabs/sandbox", "demo-server"] };
   }
+  // A Studio server: run its folder's server.ts with Node (22.18+ runs TypeScript; export it from Studio for package.json).
+  if (server.transport === "stdio" && server.command === "moka:studio") {
+    return { ...server, command: "node", args: [`${server.args?.[0] ?? "."}/server.ts`] };
+  }
   if (server.transport === "stdio" && server.command === "moka:mock") {
     return { ...server, command: "npx", args: ["-y", "@mokalabs/sandbox", "mock", ...(server.args ?? [])] };
   }

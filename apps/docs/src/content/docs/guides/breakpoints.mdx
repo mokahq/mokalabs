@@ -1,0 +1,56 @@
+---
+title: Breakpoints
+description: Pause a chat before or after a tool, on an error, or before each model step. Inspect, edit, step, continue.
+---
+
+import { Aside } from "@astrojs/starlight/components";
+
+Breakpoints stop a run where you want to look: before a tool runs, when its result comes back, when something fails, or before the model is called. While paused you can see exactly what's about to happen, change it, and go on one step at a time.
+
+## Set breakpoints
+
+- **The red dot.** Hover a tool call in the chat and click the dot in the margin: chats pause before that tool runs. Click again to remove it.
+- **The Breakpoints panel.** In the inspector, click **⦿**. Add, switch off or remove breakpoints, or turn them all off for a while with the switch at the top.
+
+| Breakpoint | Stops |
+|---|---|
+| **Before a tool runs** | Before the call is sent. Change the arguments, skip the call, or make it fail |
+| **After a tool returns** | When the result arrives, before the model sees it. Change the result |
+| **On a tool error** | When a call fails or times out. Type a result to use instead, or let the error through |
+| **Before each model step** | Before every request to the model. See the exact messages it's about to get, and pick another model for this step |
+
+A tool breakpoint can apply to one tool or every tool, and can have a condition on the arguments: `priority` *is* `"high"`, `title` *contains* `prod`, `count` *>* `5`, `labels` *contains* `bug`, or *is set*. Conditions compare values; no code runs.
+
+## While paused
+
+A **Paused at…** bar opens above the message box, with the data to edit and:
+
+| | |
+|---|---|
+| **Continue** (F8) | Go on, with your edits if you made any |
+| **Step** (F10) | Go on, and pause again at the next tool call or model step |
+| **Skip** | Before a tool: don't run it. The model is told it was skipped |
+| **Fail** | The tool fails, as if it had returned an error |
+| **Stop** | End the run |
+
+The model's timeout doesn't run while you look. Edits show in the chat: the tool card says **✎ edited arguments** or **✎ edited result**, and the inspector shows each pause and what you chose.
+
+<Aside type="tip">Tool tests, Improve and `moka test` never pause: they run unattended.</Aside>
+
+## In `moka.json`
+
+Breakpoints belong to the workspace, so a demo or a bug repro carries them:
+
+```json
+"workspaces": [{
+  "id": "default",
+  "breakpoints": [
+    { "id": "bp1", "on": "before-tool", "tool": "create_issue", "when": { "arg": "priority", "op": "eq", "value": "high" } },
+    { "id": "bp2", "on": "error" },
+    { "id": "bp3", "on": "model-step", "enabled": false }
+  ],
+  "breakpointsActive": true
+}]
+```
+
+`tool` is a tool name or `server/tool`; leave it out for every tool. `breakpointsActive: false` keeps the breakpoints without stopping at them.

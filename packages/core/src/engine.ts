@@ -1,3 +1,4 @@
+import { matchBreakpoint, type Debugger } from "./breakpoints.js";
 import { dynamicTool, generateText, jsonSchema, stepCountIs, type ModelMessage } from "ai";
 import path from "node:path";
 import { contextBudget, type ContextBudget } from "./budget.js";
@@ -76,6 +77,17 @@ export interface ChatRequest {
   toolMode?: ToolMode;
   /** Tool wording to try for this chat (Improve), over the servers' saved `toolOverrides`. */
   toolOverrides?: ToolOverrides;
+  /** Time-travel: this run continues another run from one of its steps (shown in the inspector). */
+  forkOf?: ForkInfo;
+}
+
+/** Where a forked run branches off, and what was changed there. */
+export interface ForkInfo {
+  runId?: string;
+  step: number;
+  edit: "result" | "arguments" | "reply" | "model" | "retry";
+  tool?: string;
+  label?: string;
 }
 
 /**
@@ -252,6 +264,25 @@ export class MokaEngine {
       }
     }
     return this.interactions.respond(id, response);
+  }
+
+  /**
+   * Breakpoints for a chat in this workspace, read live (a breakpoint added
+   * mid-run applies to its next step). After "Step", the run pauses again at
+   * the next tool call, model step or error.
+   */
+  private debuggerFor(workspaceId: string): Debugger {
+    let stepping = false;
+    return async (hit, signal) => {
+      const workspace = this.workspace(workspaceId);
+      const active = workspace.breakpointsActive !== false;
+      const match = active ? matchBreakpoint(workspace.breakpoints, hit) : undefined;
+      const step = stepping && hit.phase !== "after-tool";
+      if (!match && !step) return undefined;
+      const decision = await this.interactions.request({ kind: "breakpoint", ...hit, ...(match ? { breakpointId: match.id } : {}) }, signal);
+      stepping = decision.action === "step";
+      return decision;
+    };
   }
 
   private authorizer(workspace: Workspace) {
@@ -443,6 +474,9 @@ export class MokaEngine {
       env: this.env,
       ...(request.toolMode ? { toolMode: request.toolMode } : {}),
       ...(request.toolOverrides ? { toolOverrides: request.toolOverrides } : {}),
+      ...(request.forkOf ? { forkOf: request.forkOf } : {}),
+      // Tests and Improve run unattended: no breakpoints.
+      ...(request.toolMode ? {} : { debug: this.debuggerFor(workspace.id), pickModel: (id: string) => this.llm(id) }),
     });
   }
 

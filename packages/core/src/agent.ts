@@ -1,3 +1,4 @@
+import type { BreakpointDecision, BreakpointHit, Debugger } from "./breakpoints.js";
 import { dynamicTool, jsonSchema, NoSuchToolError, stepCountIs, streamText, type ModelMessage, type ToolSet } from "ai";
 import { adaptAttachments } from "./attachments.js";
 import type { LlmProfile, McpServerConfig, Workspace } from "./config.js";
@@ -65,9 +66,13 @@ export type ChatChunk =
       outcomeUnknown?: boolean;
       /** This attempt succeeded after an earlier attempt with an unknown outcome: the write may have happened twice. */
       possibleDoubleWrite?: boolean;
+      /** Changed at a breakpoint: the call ran with `input` instead of the model's arguments, or its result was typed in. */
+      edited?: "arguments" | "result";
+      input?: unknown;
     }
   | { type: "step"; usage: Usage; finishReason: string }
-  | { type: "finish"; usage: Usage; durationMs: number; messages: ModelMessage[] }
+  /** `replacesLast`: `messages` starts with a replacement for the last message sent (a fork's tool results). */
+  | { type: "finish"; usage: Usage; durationMs: number; messages: ModelMessage[]; replacesLast?: boolean }
   | { type: "error"; message: string };
 
 export interface Usage {
@@ -99,7 +104,15 @@ export interface RunAgentOptions {
   toolMode?: ToolMode;
   /** Tool wording to try for this run (Improve), over the servers' saved `toolOverrides`. */
   toolOverrides?: ToolOverrides;
+  /** Time-travel: the run and step this run was forked from. */
+  forkOf?: { runId?: string; step: number; edit: string; tool?: string; label?: string };
+  /** Breakpoints: asked before and after each MCP tool call, on errors, and before each model step. */
+  debug?: Debugger;
+  /** A model by id, for switching model at a paused model step. */
+  pickModel?: (llmId: string) => LlmProfile | undefined;
 }
+
+type Pause = (hit: Omit<BreakpointHit, "runId">, signal?: AbortSignal) => Promise<BreakpointDecision | undefined>;
 
 export type ToolMode = "run" | "read-only" | "none";
 
@@ -149,6 +162,16 @@ class ModelWatchdog {
 
   stop(): void {
     this.pause();
+  }
+
+  /** The run is paused at a breakpoint: no timeout while the user looks. */
+  hold(): void {
+    this.pause();
+  }
+
+  /** Back from a breakpoint before a model step: wait for its first output again. */
+  resume(): void {
+    this.arm(this.firstMs);
   }
 
   private pause(): void {
@@ -213,6 +236,8 @@ export interface RawToolResult {
 interface ToolSideChannel {
   ui?: UiDescriptor;
   raw?: RawToolResult;
+  /** Changed at a breakpoint: the arguments it ran with, or the result the model got. */
+  edited?: { input?: unknown; result?: boolean };
 }
 
 /** Tool names must match ^[a-zA-Z0-9_-]{1,64}$ for most providers. */
@@ -286,7 +311,7 @@ export async function* runAgent(options: RunAgentOptions): AsyncGenerator<ChatCh
       // The wording the model sees (an override, if there is one); calls still go to the server's tool.
       const override = toolOverrideFor(server, mcpTool.name, options.toolOverrides);
       if (override) overridden.push(key);
-      tools[key] = mcpToolToAiTool(applyToolOverride(mcpTool, override), server, options, sideChannel);
+      tools[key] = mcpToolToAiTool(applyToolOverride(mcpTool, override), server, options, sideChannel, (hit, s) => pause?.(hit, s) ?? Promise.resolve(undefined));
     }
   });
 
@@ -369,8 +394,8 @@ export async function* runAgent(options: RunAgentOptions): AsyncGenerator<ChatCh
   bus.emit({
     kind: "run.start",
     runId,
-    title: `Run started · ${llm.name} (${llm.model})`,
-    data: { profile: llm.id, model: llm.model, tools: Object.keys(tools), system, ...(overridden.length ? { overridden } : {}) },
+    title: `${options.forkOf ? "Fork" : "Run"} started · ${llm.name} (${llm.model})${options.forkOf?.label ? ` · ${options.forkOf.label}` : ""}`,
+    data: { profile: llm.id, model: llm.model, tools: Object.keys(tools), system, ...(overridden.length ? { overridden } : {}), ...(options.forkOf ? { forkOf: options.forkOf } : {}) },
   });
 
   const toolStarts = new Map<string, number>();
@@ -383,34 +408,23 @@ export async function* runAgent(options: RunAgentOptions): AsyncGenerator<ChatCh
   const invalidCalls = new Set<string>();
   let stepStarted = Date.now();
   let stepIndex = 0;
-  const watchdog = new ModelWatchdog(llm, signal);
+  // "Stop" at a breakpoint ends the run like the Stop button.
+  const stopper = new AbortController();
+  const watchdog = new ModelWatchdog(llm, signal ? AbortSignal.any([signal, stopper.signal]) : stopper.signal);
+  const pause: Pause | undefined = options.debug
+    ? async (hit, abortSignal) => {
+        const decision = await options.debug!({ ...hit, runId }, abortSignal ?? watchdog.signal);
+        if (decision?.action === "stop") {
+          stopper.abort(new Error("Stopped at a breakpoint"));
+          throw withErrorClass(new Error("Stopped at a breakpoint."), "cancelled");
+        }
+        return decision;
+      }
+    : undefined;
 
   try {
-    const result = streamText({
-      model: createModel(llm, options.env),
-      system: system || undefined,
-      messages: adaptAttachments(options.messages, llm.provider),
-      tools: Object.keys(tools).length ? tools : undefined,
-      stopWhen: stepCountIs(workspace.maxSteps ?? 12),
-      temperature: llm.temperature,
-      maxOutputTokens: llm.maxOutputTokens,
-      // Ask for the model's reasoning so the chat can show how it got there.
-      ...reasoningOptions(llm),
-      // A gateway that never answers (or stops halfway) ends the run with an error instead of hanging.
-      abortSignal: watchdog.signal,
-      maxRetries: 1,
-      // A call to `order_coffee` or `default_api.order_coffee` means `moka-demo__order_coffee` when nothing else fits.
-      repairToolCall: async ({ toolCall, tools: available, error }) => {
-        if (!NoSuchToolError.isInstance(error)) return null;
-        const name = repairToolName(toolCall.toolName, Object.keys(available));
-        if (!name || name === toolCall.toolName) return null;
-        bus.emit({ kind: "log", runId, level: "warn", title: `The model called "${toolCall.toolName}"; Moka ran "${name}", the only tool with that name`, data: { id: toolCall.toolCallId, called: toolCall.toolName, ran: name } });
-        return { ...toolCall, toolName: name };
-      },
-    });
-
-    for await (const part of result.fullStream) {
-      watchdog.saw(part.type);
+    // One stream part → what the chat and the inspector see. Also used for the tool calls of a fork, which Moka runs itself.
+    const onPart = function* (part: any): Generator<ChatChunk> {
       switch (part.type) {
         case "text-delta":
           yield { type: "text", text: part.text };
@@ -444,7 +458,7 @@ export async function* runAgent(options: RunAgentOptions): AsyncGenerator<ChatCh
           rawInputs.set(part.id, (rawInputs.get(part.id) ?? "") + part.delta);
           break;
         case "tool-call": {
-          const binding = bindings.get(part.toolName) ?? { source: "unknown", tool: part.toolName };
+          const binding: ToolBinding = bindings.get(part.toolName) ?? { source: "unknown", tool: part.toolName };
           toolStarts.set(part.toolCallId, Date.now());
           let duplicateOf: string | undefined;
           let lineage: ToolLineage | undefined;
@@ -536,6 +550,7 @@ export async function* runAgent(options: RunAgentOptions): AsyncGenerator<ChatCh
             ui: extra?.ui,
             raw: extra?.raw,
             ...(possibleDoubleWrite ? { possibleDoubleWrite } : {}),
+            ...breakpointEdits(extra),
           };
           break;
         }
@@ -572,22 +587,98 @@ export async function* runAgent(options: RunAgentOptions): AsyncGenerator<ChatCh
             raw: extra?.raw,
             errorClass,
             ...(outcomeUnknown ? { outcomeUnknown } : {}),
+            ...breakpointEdits(extra),
           };
           break;
         }
         case "error":
           throw part.error;
+        // Stopped (the Stop button, or Stop at a breakpoint): end the run as stopped, not finished.
+        case "abort":
+          throw new Error("aborted");
         default:
           break;
       }
+    };
+
+    // A fork whose last step's tool calls have no results yet (their arguments were edited): run them first, like the model's own calls.
+    let messages = options.messages;
+    let resultMessage: ModelMessage | undefined;
+    const pending = pendingToolCalls(messages);
+    if (pending) {
+      const done: any[] = [];
+      for (const call of pending.calls) {
+        yield* onPart({ type: "tool-call", toolCallId: call.toolCallId, toolName: call.toolName, input: call.input });
+        const tool = tools[call.toolName] as { execute?: (input: unknown, options: any) => Promise<unknown> } | undefined;
+        try {
+          if (!tool?.execute) throw withErrorClass(new Error(`Tool ${call.toolName} is not available in this workspace.`), "unknown-tool");
+          const output = await tool.execute(call.input, { toolCallId: call.toolCallId, messages, abortSignal: watchdog.signal });
+          yield* onPart({ type: "tool-result", toolCallId: call.toolCallId, toolName: call.toolName, input: call.input, output });
+          done.push({ type: "tool-result", toolCallId: call.toolCallId, toolName: call.toolName, output: typeof output === "string" ? { type: "text", value: output } : { type: "json", value: output ?? null } });
+        } catch (error) {
+          yield* onPart({ type: "tool-error", toolCallId: call.toolCallId, toolName: call.toolName, input: call.input, error });
+          done.push({ type: "tool-result", toolCallId: call.toolCallId, toolName: call.toolName, output: { type: "error-text", value: errorMessage(error) } });
+        }
+      }
+      // Results go in the step's tool message, in the order the model made the calls.
+      const order = pending.order;
+      const merged = [...(pending.existing?.content ?? []), ...done].sort((a: any, b: any) => order.indexOf(a.toolCallId) - order.indexOf(b.toolCallId));
+      resultMessage = { role: "tool", content: merged } as ModelMessage;
+      messages = [...(pending.existing ? messages.slice(0, -1) : messages), resultMessage];
+    }
+
+    const result = streamText({
+      model: createModel(llm, options.env),
+      system: system || undefined,
+      messages: adaptAttachments(messages, llm.provider),
+      tools: Object.keys(tools).length ? tools : undefined,
+      stopWhen: stepCountIs(workspace.maxSteps ?? 12),
+      temperature: llm.temperature,
+      maxOutputTokens: llm.maxOutputTokens,
+      // Ask for the model's reasoning so the chat can show how it got there.
+      ...reasoningOptions(llm),
+      // Breakpoints before a model step: see what it's about to be sent, or switch model for it.
+      ...(pause
+        ? {
+            prepareStep: async ({ stepNumber, messages: sending }: { stepNumber: number; messages: ModelMessage[] }) => {
+              watchdog.hold();
+              try {
+                const decision = await pause({ phase: "model-step", step: stepNumber + 1, model: llm.model, messages: sending });
+                const next = decision?.llmId && decision.llmId !== llm.id ? options.pickModel?.(decision.llmId) : undefined;
+                if (next) bus.emit({ kind: "log", runId, title: `Step ${stepNumber + 1} runs on ${next.name} (${next.model}), chosen at a breakpoint` });
+                return next ? { model: createModel(next, options.env) } : undefined;
+              } finally {
+                watchdog.resume();
+              }
+            },
+          }
+        : {}),
+      // A gateway that never answers (or stops halfway) ends the run with an error instead of hanging.
+      abortSignal: watchdog.signal,
+      maxRetries: 1,
+      // A call to `order_coffee` or `default_api.order_coffee` means `moka-demo__order_coffee` when nothing else fits.
+      repairToolCall: async ({ toolCall, tools: available, error }) => {
+        if (!NoSuchToolError.isInstance(error)) return null;
+        const name = repairToolName(toolCall.toolName, Object.keys(available));
+        if (!name || name === toolCall.toolName) return null;
+        bus.emit({ kind: "log", runId, level: "warn", title: `The model called "${toolCall.toolName}"; Moka ran "${name}", the only tool with that name`, data: { id: toolCall.toolCallId, called: toolCall.toolName, ran: name } });
+        return { ...toolCall, toolName: name };
+      },
+    });
+
+    for await (const part of result.fullStream) {
+      watchdog.saw(part.type);
+      yield* onPart(part);
     }
 
     const [usage, responseMessages] = await Promise.all([result.totalUsage, result.responseMessages]);
     const durationMs = Date.now() - started;
     bus.emit({ kind: "run.finish", runId, title: `Run finished · ${usage.totalTokens ?? "?"} tokens`, durationMs, data: toUsage(usage) });
-    yield { type: "finish", usage: toUsage(usage), durationMs, messages: responseMessages as ModelMessage[] };
+    // A fork's tool results replace the tool message it sent (or follow its last message).
+    const produced = [...(resultMessage ? [resultMessage] : []), ...(responseMessages as ModelMessage[])];
+    yield { type: "finish", usage: toUsage(usage), durationMs, messages: produced, ...(pending?.existing ? { replacesLast: true } : {}) };
   } catch (error) {
-    const message = signal?.aborted ? "Stopped" : watchdog.timedOut ? watchdog.message() : describeError(error);
+    const message = signal?.aborted ? "Stopped" : stopper.signal.aborted ? "Stopped at a breakpoint" : watchdog.timedOut ? watchdog.message() : describeError(error);
     bus.emit({ kind: "run.error", runId, level: "error", title: message, durationMs: Date.now() - started, data: serialiseError(error) });
     yield { type: "error", message };
   } finally {
@@ -595,7 +686,7 @@ export async function* runAgent(options: RunAgentOptions): AsyncGenerator<ChatCh
   }
 }
 
-function mcpToolToAiTool(mcpTool: McpTool, server: McpServerConfig, options: RunAgentOptions, sideChannel: Map<string, ToolSideChannel>) {
+function mcpToolToAiTool(mcpTool: McpTool, server: McpServerConfig, options: RunAgentOptions, sideChannel: Map<string, ToolSideChannel>, pause: Pause) {
   const appUri = toolUiResourceUri(mcpTool);
   return dynamicTool({
     description: mcpTool.description ?? mcpTool.title ?? mcpTool.name,
@@ -606,6 +697,15 @@ function mcpToolToAiTool(mcpTool: McpTool, server: McpServerConfig, options: Run
         options.bus.emit({ kind: "log", runId: options.runId, serverId: server.id, title: `${mcpTool.name} not run (test run, ${mode === "none" ? "no tools run" : "only read-only tools run"})`, data: { tool: mcpTool.name, input } });
         return `[Test run: ${mcpTool.name} was not executed, so there is no real result. Assume it succeeded and continue.]`;
       }
+      const where = { serverId: server.id, serverName: server.name, tool: mcpTool.name, toolCallId };
+      const before = await pause({ phase: "before-tool", ...where, input }, abortSignal);
+      if (before?.action === "skip") return `[Skipped at a breakpoint: ${mcpTool.name} did not run, so there is no result. Continue without it.]`;
+      if (before?.action === "fail") throw withErrorClass(new Error(before.message || `${mcpTool.name} failed (set at a breakpoint).`), "tool");
+      if (before?.input !== undefined) {
+        input = before.input;
+        sideChannel.set(toolCallId, { ...sideChannel.get(toolCallId), edited: { input } });
+      }
+      const edited = (result: boolean) => sideChannel.set(toolCallId, { ...sideChannel.get(toolCallId), edited: { ...sideChannel.get(toolCallId)?.edited, result } });
       if (options.authorizeTool) {
         const allowed = await options.authorizeTool({ runId: options.runId, toolCallId, server, tool: mcpTool, input, signal: abortSignal });
         if (!allowed) throw withErrorClass(new Error("The user declined to run this tool. Ask them how to proceed instead of retrying."), "declined");
@@ -622,16 +722,56 @@ function mcpToolToAiTool(mcpTool: McpTool, server: McpServerConfig, options: Run
               ? "\n\nThe tool may have run anyway. Check whether it did before retrying."
               : "\n\nThe request reached the server, but the connection broke before it answered, so the tool may have run. Check whether it did before retrying.";
         }
+        // At an error breakpoint, a result typed by the user stands in for the error.
+        const onError = await pause({ phase: "error", ...where, input, error: errorMessage(error) }, abortSignal);
+        if (onError?.output !== undefined) {
+          edited(true);
+          return onError.output;
+        }
         throw error;
       }
       let ui: UiDescriptor | undefined = appUri ? { kind: "mcp-app", serverId: server.id, resourceUri: appUri } : detectResultUi(server.id, result);
       if (ui?.kind === "a2ui") ui = { kind: "a2ui", messages: await expandServerUi(ui.messages, server.id, options) };
-      sideChannel.set(toolCallId, { ui, raw: { content: result.content, structuredContent: result.structuredContent, isError: result.isError } });
+      sideChannel.set(toolCallId, { ...sideChannel.get(toolCallId), ui, raw: { content: result.content, structuredContent: result.structuredContent, isError: result.isError } });
       const text = mcpContentToText(result);
-      if (result.isError) throw withErrorClass(new Error(text || "Tool reported an error"), "tool");
-      return text;
+      if (result.isError) {
+        const onError = await pause({ phase: "error", ...where, input, error: text || "Tool reported an error" }, abortSignal);
+        if (onError?.output !== undefined) {
+          edited(true);
+          return onError.output;
+        }
+        throw withErrorClass(new Error(text || "Tool reported an error"), "tool");
+      }
+      const after = await pause({ phase: "after-tool", ...where, input, output: text }, abortSignal);
+      if (after?.action === "fail") throw withErrorClass(new Error(after.message || `${mcpTool.name} failed (set at a breakpoint).`), "tool");
+      if (after?.output !== undefined && after.output !== text) edited(true);
+      return after?.output ?? text;
     },
   });
+}
+
+/**
+ * Tool calls in the last step of `messages` that have no result yet: the
+ * history ends with an assistant message with tool calls, or with its tool
+ * message missing some results. That's a fork with edited arguments.
+ */
+export function pendingToolCalls(messages: ModelMessage[]): { calls: Array<{ toolCallId: string; toolName: string; input: unknown }>; order: string[]; existing?: { content: unknown[] } } | undefined {
+  const last = messages.at(-1) as any;
+  const assistant = (last?.role === "tool" ? messages.at(-2) : last) as any;
+  if (assistant?.role !== "assistant" || !Array.isArray(assistant.content)) return undefined;
+  const calls = assistant.content.filter((p: any) => p?.type === "tool-call" && !p.providerExecuted);
+  if (!calls.length) return undefined;
+  const existing = last?.role === "tool" && Array.isArray(last.content) ? { content: last.content as unknown[] } : undefined;
+  const answered = new Set((existing?.content ?? []).map((p: any) => p?.toolCallId));
+  const open = calls.filter((c: any) => !answered.has(c.toolCallId));
+  if (!open.length) return undefined;
+  return { calls: open.map((c: any) => ({ toolCallId: c.toolCallId, toolName: c.toolName, input: c.input })), order: calls.map((c: any) => c.toolCallId), ...(existing ? { existing } : {}) };
+}
+
+/** What was changed at a breakpoint, for the chat: the arguments a tool ran with, or a result typed in. */
+function breakpointEdits(extra: ToolSideChannel | undefined): { input?: unknown; edited?: "arguments" | "result" } {
+  if (!extra?.edited) return {};
+  return { ...(extra.edited.input !== undefined ? { input: extra.edited.input } : {}), edited: extra.edited.result ? "result" : "arguments" };
 }
 
 function lineageData(at: { lineage: Lineage; attempt: number } | undefined): { lineage?: ToolLineage } {

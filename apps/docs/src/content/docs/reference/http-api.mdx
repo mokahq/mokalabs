@@ -30,6 +30,7 @@ curl -N -H "x-moka-token: $TOKEN" -H 'content-type: application/json' \
 | `workspaceId` | Optional; defaults to the active workspace |
 | `llmId` | Optional; override the workspace's model |
 | `agentId` | Optional; talk to this remote agent instead |
+| `forkOf` | Optional; [time-travel](/guides/time-travel/): `{step, edit, tool?, label?, runId?}` labels this run as a fork in the inspector. If `messages` ends with tool calls that have no results, Moka runs them first |
 
 File parts the model can't take (a PDF for an OpenAI-compatible model, a Word file for any model) are replaced by text before the request: the part's `providerOptions.moka.text` if it has one, otherwise a note that the model can't read the file. The web UI puts the text it read from PDFs and Word files there.
 
@@ -38,9 +39,9 @@ File parts the model can't take (a PDF for an OpenAI-compatible model, a Word fi
 | `start` | `runId`, `model`, `profileId`, `tools` (count) |
 | `text` / `reasoning` | `text` (delta) |
 | `tool-call` | `id`, `name`, `tool`, `source`, `serverId` (MCP tools), `input` |
-| `tool-result` | `id`, `output`, `isError`, `durationMs`, `ui?`, `raw?` |
+| `tool-result` | `id`, `output`, `isError`, `durationMs`, `ui?`, `raw?`, `edited?` (`arguments` or `result`, changed at a breakpoint), `input?` (the arguments it ran with) |
 | `step` | `usage`, `finishReason` |
-| `finish` | `usage`, `durationMs`, `messages` — append these to your history for the next turn |
+| `finish` | `usage`, `durationMs`, `messages` — append these to your history for the next turn; with `replacesLast`, the first one replaces the last message you sent (a fork's tool results) |
 | `error` | `message` |
 
 `ui` is one of `{kind:"mcp-app", serverId, resourceUri}`, `{kind:"mcp-ui", …}` or `{kind:"a2ui", messages}`.
@@ -68,6 +69,11 @@ File parts the model can't take (a PDF for an OpenAI-compatible model, a Word fi
 | `POST /api/improve` | `{llmIds, workspaceId?, runs?, toolMode?, improverId?, proposals?, baseline?}` → NDJSON stream of Improve events (`start`, `phase`, `result`, `diagnosis`, `holdout`, `proposals`, `verdict`, `done`, `error`) |
 | `GET /api/improve/improver` | `{improverId}`: the model Improve would pick to write proposals |
 | `POST /api/improve/code` | `{changes, workspaceId?, before?, after?}` → `{ts, python, markdown}` |
+| `GET /api/studio` | Studio servers (`projects` with `serverId`, `name`, `dir`, `files`), `templates`, and whether this Node runs TypeScript |
+| `GET /api/studio/file?dir=&path=` · `PUT /api/studio/file` | Read or save a file of a Studio server (`{dir, path, content}`); saving restarts it |
+| `POST /api/studio/create` | `{name, template?, dir?}` → `{serverId, dir}`: a new server from a template, added to the active workspace |
+| `POST /api/studio/open` | `{dir, name?}` → `{serverId, dir}`: add a folder with a `server.ts` |
+| `GET /api/studio/export?dir=` | The server as a `.zip` with `package.json`, `tsconfig.json` and a README |
 | `GET /api/recordings` | `{dir, recordings: [{server, name, file, size, at}]}` |
 | `DELETE /api/recordings?file=` | Delete a recording |
 | `GET /oauth/callback` | OAuth redirect target (no token needed) |

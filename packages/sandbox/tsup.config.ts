@@ -5,7 +5,14 @@ import { defineConfig } from "tsup";
 // dependencies. Versions come from the repo's pnpm lockfile, which only admits
 // releases at least 14 days old (pnpm-workspace.yaml: minimumReleaseAge).
 export default defineConfig({
-  entry: ["src/cli.ts", "src/index.ts"],
+  entry: {
+    cli: "src/cli.ts",
+    index: "src/index.ts",
+    // Server Studio: the SDK and zod as modules of their own, for servers whose folder has no node_modules.
+    "studio/sdk-server": "src/studio/sdk-server.ts",
+    "studio/sdk-server-stdio": "src/studio/sdk-server-stdio.ts",
+    "studio/zod": "src/studio/zod.ts",
+  },
   format: ["esm"],
   platform: "node",
   target: "node20",

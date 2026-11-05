@@ -1,3 +1,4 @@
+import { breakpointSchema } from "./breakpoints.js";
 import { z } from "zod";
 
 /**
@@ -267,6 +268,10 @@ export const workspaceSchema = z.object({
   requireApproval: z.boolean().optional(),
   /** Tool tests for this workspace's servers, run across models (Tests view, `moka test`). */
   tests: z.array(toolTestSchema).optional(),
+  /** Where chats pause: before or after a tool, on an error, or before each model step. Tests and Improve don't pause. */
+  breakpoints: z.array(breakpointSchema).optional(),
+  /** `false`: keep the breakpoints but don't stop at them. */
+  breakpointsActive: z.boolean().optional(),
 });
 export type Workspace = z.infer<typeof workspaceSchema>;
 

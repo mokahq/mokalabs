@@ -20,6 +20,7 @@ moka [config.json] [options]            # after npm install -g @mokalabs/sandbox
 | `moka test [config]` | Run the workspace's [tool tests](/guides/tests/#in-ci-moka-test); `--min-pass`, `--markdown`, `--baseline` for CI |
 | `moka improve [config]` | Propose and verify better tool wording from test failures; `--apply` saves it. See [Improve](/guides/improve/#from-the-command-line) |
 | `moka mock <recording.jsonl> [--fallback last]` | Serve a recording as an MCP server on stdio. See [Record & replay](/guides/record-replay/) |
+| `moka studio-run <folder>` | Run a [Studio](/guides/studio/) server's `server.ts` on stdio, with Moka's copies of the MCP SDK and zod (what `moka:studio` runs) |
 
 ## Options
 

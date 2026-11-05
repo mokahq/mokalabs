@@ -1,5 +1,6 @@
 export * from "./config.js";
 export * from "./faults.js";
+export * from "./breakpoints.js";
 export * from "./events.js";
 export * from "./providers.js";
 export * from "./mcp.js";
@@ -17,7 +18,7 @@ export * from "./http-trace.js";
 export * from "./remote-agent.js";
 export * from "./interop.js";
 export * from "./store.js";
-export { approvalMode, MokaEngine, type EngineOptions } from "./engine.js";
+export { approvalMode, MokaEngine, type EngineOptions, type ForkInfo } from "./engine.js";
 export { acceptsFile, adaptAttachments } from "./attachments.js";
 export { contextBudget, estimateTokens, type BudgetItem, type ContextBudget } from "./budget.js";
 export { scanServer, serverKey, ToolPins, type SecurityFinding, type ServerSecurity, type Severity, type ToolChange } from "./security.js";

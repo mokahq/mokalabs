@@ -8,6 +8,7 @@ import {
   ArrowDownLeft,
   ArrowUpRight,
   Ban,
+  CircleDot,
   Bot,
   ChevronLeft,
   Download,
@@ -27,6 +28,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { dockInspector, isInspectorPopout, openInspectorWindow } from "../popout";
 import { useStore } from "../store";
 import type { MokaEvent, ToolLineage } from "../types";
+import { BreakpointsPanel } from "./Breakpoints";
 import { Highlighted } from "./Code";
 import { IconButton, Input, JsonView, Tabs, cn, formatMs } from "./ui";
 
@@ -87,6 +89,8 @@ function time(ts: number): string {
 }
 
 export function Inspector() {
+  const [breakpoints, setBreakpoints] = useState(false);
+  const breakpointCount = useStore((s) => (s.workspace().breakpoints ?? []).filter((b) => b.enabled !== false).length);
   const events = useStore((s) => s.events);
   const connected = useStore((s) => s.eventsConnected);
   const selectedId = useStore((s) => s.selectedEventId);
@@ -200,6 +204,10 @@ export function Inspector() {
               <ExternalLink className="h-3.5 w-3.5" />
             </IconButton>
           )}
+          <IconButton label="Breakpoints" onClick={() => setBreakpoints(!breakpoints)} className={cn("relative h-7 w-7", breakpoints && "bg-panel-2 text-fg")}>
+            <CircleDot className={cn("h-3.5 w-3.5", breakpointCount > 0 && "text-err")} />
+            {breakpointCount > 0 && <span className="absolute -top-0.5 -right-0.5 rounded-full bg-err px-1 font-mono text-[9px] leading-[14px] text-white">{breakpointCount}</span>}
+          </IconButton>
           <IconButton label="Download trace" onClick={download} className="h-7 w-7">
             <Download className="h-3.5 w-3.5" />
           </IconButton>
@@ -230,6 +238,7 @@ export function Inspector() {
           <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Filter events…" className="h-8 pl-8 text-[13px]" />
         </div>
       </div>
+      {breakpoints && <BreakpointsPanel onClose={() => setBreakpoints(false)} />}
       <div
         ref={listRef}
         className="min-h-0 flex-1 overflow-y-auto py-1"

@@ -1,0 +1,39 @@
+---
+title: Server Studio
+description: Write an MCP server in Moka. Save, and its tools are ready in chat, Tools and Tests. Export it as a project.
+---
+
+import { Aside, Steps } from "@astrojs/starlight/components";
+import studioGif from "../../../../../../docs/assets/studio.gif";
+
+<img src={studioGif.src} width={studioGif.width} height={studioGif.height} alt="A new server from the Blank template; its tool is renamed and saved with Ctrl+S, the server restarts, and the tool runs in the Tools view" />
+
+**Studio** (top bar) is the shortest way from an idea to a working MCP server: write a tool, save, and try it with real models, all in Moka.
+
+<Steps>
+
+1. **New server**: pick a template.
+   - *Blank*: one tool, ready to change.
+   - *HTTP API wrapper*: a tool that calls a JSON API, with errors the model can act on.
+   - *Read a folder*: list and read text files in one folder, and nothing outside it.
+2. Edit `server.ts`. It's a normal MCP server using the official TypeScript SDK (`@modelcontextprotocol/server`) and `zod`.
+3. **Save** (⌘S / Ctrl+S). The server restarts in about a second; its tools update in chat, Tools and Tests. Errors, with their line, and anything you `console.error()` show in the **Server log**.
+4. **Try** a tool in the Tools view, or **Test with models** to run the workspace's [tool tests](/guides/tests/) on it, and [Improve](/guides/improve/) its wording.
+5. **Export** when it works: a `.zip` with `server.ts`, `package.json`, `tsconfig.json` and a README with the `mcp.json` snippet for Claude Desktop, Cursor or VS Code.
+
+</Steps>
+
+## How it runs
+
+- New servers go in `~/.moka/studio/<name>/`, or a folder you choose (for example inside your repo). **Open folder** adds an existing folder with a `server.ts` or `server.mjs`.
+- The server is a normal stdio entry in `moka.json`, so everything else in Moka (approvals, faults, recording, the inspector) works on it:
+
+  ```json
+  { "id": "studio-my-tools", "name": "My tools", "transport": "stdio", "command": "moka:studio", "args": ["/Users/me/.moka/studio/my-tools"] }
+  ```
+- **No `npm install`.** Moka supplies the MCP SDK and `zod`. Other packages work once the folder has its own `node_modules`, which is also used first when it has the SDK.
+- Moka watches the folder: saving from any editor restarts the server too.
+
+<Aside type="caution">
+TypeScript runs with Node's built-in type stripping: **Node 22.18 or later** (or 22.6+ with Moka passing the flag). Type-only syntax works; `enum`, `namespace` and parameter properties don't, and relative imports need their extension (`./util.ts`). On Node 20, write `server.mjs` in plain JavaScript.
+</Aside>

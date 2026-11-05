@@ -20,7 +20,7 @@ import {
   Wrench,
   Zap,
 } from "lucide-react";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api";
 import { uid } from "../runner";
 import { useStore } from "../store";
@@ -32,6 +32,8 @@ import { MokaPortrait, useMokaBranding } from "./Moka";
 import { ApprovalBar, usePendingApproval } from "./Interactions";
 import { Markdown } from "./Markdown";
 import { BudgetBadge } from "./Budget";
+import { BranchBar, ForkDivider, ForkMenu } from "./Fork";
+import { PausedBar, ToolBreakDot } from "./Breakpoints";
 import { ToolFiles } from "./Preview";
 import { ToolUi } from "./ToolUi";
 import { Badge, Button, CopyButton, IconButton, JsonView, Kbd, Spinner, cn, formatMs, formatNumber } from "./ui";
@@ -78,6 +80,9 @@ export function ChatView() {
             ))}
           </div>
         )}
+      </div>
+      <div className="px-5">
+        <PausedBar />
       </div>
       <Composer />
     </div>
@@ -258,6 +263,7 @@ function MessageView({ message, live, last }: { message: UiMessage; live: boolea
   const text = message.parts.map((p) => (p.type === "text" ? p.text : "")).join("");
   const empty = message.parts.length === 0;
   const toolParts = message.parts.filter((p) => p.type === "tool").length;
+  const inherited = message.meta?.inherited ?? 0;
 
   return (
     <div className="animate-in group mb-8">
@@ -269,8 +275,26 @@ function MessageView({ message, live, last }: { message: UiMessage; live: boolea
           </div>
         )}
         {message.parts.map((part, i) => (
-          <PartView key={i} part={part} messageId={message.id} live={live && i === message.parts.length - 1} />
+          <Fragment key={i}>
+            {i === inherited && inherited > 0 && <ForkDivider message={message} />}
+            {/* Parts shared with the branch this one was forked from are dimmed. */}
+            <div className={cn("group/part relative", i < inherited && "opacity-60 transition-opacity hover:opacity-100")}>
+              {!streaming && part.type !== "attachment" && (
+                <div className="absolute top-0.5 -left-10 hidden opacity-0 transition-opacity group-hover/part:opacity-100 focus-within:opacity-100 md:block">
+                  <ForkMenu message={message} partIndex={i} />
+                </div>
+              )}
+              {/* The breakpoint gutter: pause before this tool next time. */}
+              {part.type === "tool" && part.serverId && (
+                <div className="absolute top-[11px] -left-[15px] hidden md:block">
+                  <ToolBreakDot tool={part.tool} />
+                </div>
+              )}
+              <PartView part={part} messageId={message.id} live={live && i === message.parts.length - 1} />
+            </div>
+          </Fragment>
         ))}
+        {message.fork && (inherited === 0 || inherited >= message.parts.length) && <ForkDivider message={message} />}
         {meta.error && (
           <div className="flex items-start gap-3 rounded-xl border border-err/25 bg-err/5 px-4 py-3 text-sm">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-err" />
@@ -295,6 +319,7 @@ function MessageView({ message, live, last }: { message: UiMessage; live: boolea
       </div>
       {!live && !empty && (
         <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-subtle opacity-70 transition-opacity group-hover:opacity-100">
+          <BranchBar message={message} />
           {meta.model && <span className="font-medium">{meta.model}</span>}
           {meta.durationMs !== undefined && (
             <span className="inline-flex items-center gap-1">
@@ -353,7 +378,15 @@ function PartView({ part, messageId, live }: { part: Part; messageId: string; li
   if (part.type === "text") {
     // A reply that is a whole HTML page without a code fence: show it like one.
     const text = !live && /^\s*(<!doctype html|<html[\s>])/i.test(part.text) ? `\`\`\`\`html\n${part.text.trim()}\n\`\`\`\`` : part.text;
-    return <Markdown text={text} className={live ? "caret" : undefined} messageId={live ? undefined : messageId} />;
+    const body = <Markdown text={text} className={live ? "caret" : undefined} messageId={live ? undefined : messageId} />;
+    return part.edited ? (
+      <div>
+        <Badge tone="violet">✎ edited by you</Badge>
+        <div className="mt-1.5">{body}</div>
+      </div>
+    ) : (
+      body
+    );
   }
   if (part.type === "reasoning") return <Reasoning text={part.text} live={live} ms={part.ms} />;
   return (
@@ -511,6 +544,7 @@ export function ToolCard({ part }: { part: Extract<Part, { type: "tool" }> }) {
           {!open && inputPreview && <div className="truncate font-mono text-[11px] text-subtle">{inputPreview}</div>}
         </div>
         {approval && <Badge tone="warn">waiting for you</Badge>}
+        {part.edited && <Badge tone="violet">✎ edited {part.edited}</Badge>}
         <AttemptBadge part={part} />
         {part.durationMs !== undefined && <span className="font-mono text-[11px] text-subtle">{formatMs(part.durationMs)}</span>}
         <ChevronRight className={cn("h-3.5 w-3.5 text-subtle transition-transform", open && "rotate-90")} />

@@ -15,10 +15,12 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { sessionsDir } from "@mokalabs/proxy";
 import { ProxySessions } from "./proxy-sessions.js";
+import { STUDIO_COMMAND, StudioWatcher, studioRoot, typeStrippingFlags } from "./studio.js";
 import { createApp } from "./server.js";
 
 export { createApp } from "./server.js";
 export { createDemoServer, runDemoServer } from "./demo-server.js";
+export { runStudioServer, STUDIO_COMMAND, TEMPLATES, typeStrippingFlags, zip } from "./studio.js";
 export { createMockServer, findRecorded, parseRecording, runMockServer, type MockMatch, type RecordedCall, type Recording } from "./mock.js";
 export { startDemoAgent, type DemoAgent } from "./demo-agent.js";
 
@@ -155,7 +157,9 @@ export async function startSandbox(options: StartOptions = {}): Promise<RunningS
         ? { command: process.execPath, args: [...cliArgs, "demo-server"] }
         : command === MOCK_COMMAND
           ? { command: process.execPath, args: [...cliArgs, "mock", ...args] }
-          : undefined,
+          : command === STUDIO_COMMAND
+            ? { command: process.execPath, args: [...(typeStrippingFlags() ?? []), ...cliArgs, "studio-run", ...args] }
+            : undefined,
   });
 
   const token =
@@ -164,10 +168,15 @@ export async function startSandbox(options: StartOptions = {}): Promise<RunningS
   // Traffic recorded by @mokalabs/proxy between other clients (GitHub Copilot, Cursor…) and their servers.
   const proxy = new ProxySessions(engine.bus, sessionsDir(env));
   proxy.start();
+  // Server Studio: servers written in Moka restart when their files change.
+  const studio = new StudioWatcher(engine);
+  studio.start();
   const app = createApp({
     engine,
     proxy,
     recordingsDir: path.join(mokaHome(env), "recordings"),
+    studioRoot: studioRoot(mokaHome(env)),
+    studio,
     sessions: new SessionStore(path.join(mokaHome(env), "sessions")),
     webDir: options.ui === false ? undefined : webDir,
     token,
@@ -192,6 +201,7 @@ export async function startSandbox(options: StartOptions = {}): Promise<RunningS
     seeded,
     close: async () => {
       proxy.stop();
+      studio.close();
       await engine.close();
       await new Promise<void>((resolve) => server.close(() => resolve()));
     },

@@ -1,3 +1,4 @@
+import type { BreakpointDecision, BreakpointHit } from "./breakpoints.js";
 import type { EventBus } from "./events.js";
 
 /**
@@ -10,7 +11,7 @@ import type { EventBus } from "./events.js";
  * programmatically instead.
  */
 
-export type InteractionKind = "tool-approval" | "elicitation" | "sampling";
+export type InteractionKind = "tool-approval" | "elicitation" | "sampling" | "breakpoint";
 
 export interface ToolApprovalRequest {
   kind: "tool-approval";
@@ -44,18 +45,27 @@ export interface SamplingRequest {
   modelHint?: string;
 }
 
-export type InteractionRequest = ToolApprovalRequest | ElicitationRequest | SamplingRequest;
+/** A run paused at a breakpoint (or stepping): the user inspects, edits and continues. */
+export interface BreakpointRequest extends BreakpointHit {
+  kind: "breakpoint";
+  /** The breakpoint that matched; none when the run is stepping. */
+  breakpointId?: string;
+}
+
+export type InteractionRequest = ToolApprovalRequest | ElicitationRequest | SamplingRequest | BreakpointRequest;
 
 export type ToolApprovalResponse = { approved: boolean; remember?: "session" | "always" };
 export type ElicitationResponse = { action: "accept" | "decline" | "cancel"; content?: Record<string, unknown> };
 export type SamplingResponse = { approved: boolean };
-export type InteractionResponse = ToolApprovalResponse | ElicitationResponse | SamplingResponse;
+export type InteractionResponse = ToolApprovalResponse | ElicitationResponse | SamplingResponse | BreakpointDecision;
 
 export type ResponseFor<R extends InteractionRequest> = R extends ToolApprovalRequest
   ? ToolApprovalResponse
   : R extends ElicitationRequest
     ? ElicitationResponse
-    : SamplingResponse;
+    : R extends BreakpointRequest
+      ? BreakpointDecision
+      : SamplingResponse;
 
 export type Interaction = InteractionRequest & { id: string; createdAt: number };
 
@@ -70,6 +80,7 @@ const CANCELLED: Record<InteractionKind, InteractionResponse> = {
   "tool-approval": { approved: false },
   elicitation: { action: "cancel" },
   sampling: { approved: false },
+  breakpoint: { action: "continue" },
 };
 
 let counter = 0;
@@ -146,6 +157,8 @@ function titleFor(request: InteractionRequest): string {
       return `Input requested · ${request.serverName}`;
     case "sampling":
       return `Sampling requested · ${request.serverName}`;
+    case "breakpoint":
+      return request.phase === "model-step" ? `Paused before model step ${request.step}` : `Paused ${request.phase === "before-tool" ? "before" : request.phase === "after-tool" ? "after" : "on an error in"} ${request.tool}`;
   }
 }
 

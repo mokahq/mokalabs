@@ -1,4 +1,4 @@
-import type { ChatChunk, ImproveEvent, MokaEvent, TestResult } from "./types";
+import type { ChatChunk, ForkMeta, ImproveEvent, MokaEvent, TestResult } from "./types";
 
 const TOKEN_KEY = "moka.token";
 
@@ -41,6 +41,11 @@ export class ApiError extends Error {
   ) {
     super(message);
   }
+}
+
+/** Headers for a request to Moka's API (the access token), for fetches that need the raw response. */
+export function authHeaders(): Record<string, string> {
+  return headers();
 }
 
 function headers(extra: Record<string, string> = {}): Record<string, string> {
@@ -86,7 +91,7 @@ async function* ndjson<T>(res: Response): AsyncGenerator<T> {
 }
 
 export async function* streamChat(
-  body: { messages: unknown[]; workspaceId?: string; llmId?: string; agentId?: string },
+  body: { messages: unknown[]; workspaceId?: string; llmId?: string; agentId?: string; forkOf?: ForkMeta },
   signal: AbortSignal,
 ): AsyncGenerator<ChatChunk> {
   const res = await fetch("/api/chat", {

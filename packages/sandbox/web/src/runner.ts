@@ -1,5 +1,5 @@
 import { streamChat } from "./api";
-import type { Part, UiMessage } from "./types";
+import type { ForkMeta, Part, UiMessage } from "./types";
 
 export function uid(prefix = "m"): string {
   return `${prefix}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
@@ -8,6 +8,8 @@ export function uid(prefix = "m"): string {
 export interface RunResult {
   message: UiMessage;
   responseMessages: unknown[];
+  /** The first response message replaces the last model message sent (a fork's tool results). */
+  replacesLast?: boolean;
   ok: boolean;
 }
 
@@ -19,12 +21,15 @@ export async function runTurn(options: {
   modelMessages: unknown[];
   workspaceId?: string;
   llmId?: string;
+  /** Time-travel: this turn continues a fork. */
+  forkOf?: ForkMeta;
   signal: AbortSignal;
   onUpdate: (message: UiMessage) => void;
 }): Promise<RunResult> {
   const started = performance.now();
   const message: UiMessage = { id: uid("a"), role: "assistant", parts: [], meta: { steps: 0 } };
   let responseMessages: unknown[] = [];
+  let replacesLast = false;
   let ok = true;
   let frame = 0;
   const flush = () => {
@@ -49,6 +54,7 @@ export async function runTurn(options: {
         workspaceId: options.workspaceId,
         // Compare lanes can target remote agents as "agent:<id>".
         ...(options.llmId?.startsWith("agent:") ? { agentId: options.llmId.slice(6) } : { llmId: options.llmId }),
+        ...(options.forkOf ? { forkOf: options.forkOf } : {}),
       },
       options.signal,
     )) {
@@ -94,6 +100,8 @@ export async function runTurn(options: {
             if (chunk.errorClass) part.errorClass = chunk.errorClass;
             if (chunk.outcomeUnknown) part.outcomeUnknown = true;
             if (chunk.possibleDoubleWrite) part.possibleDoubleWrite = true;
+            if (chunk.edited) part.edited = chunk.edited;
+            if (chunk.input !== undefined) part.input = chunk.input;
           }
           break;
         }
@@ -103,6 +111,7 @@ export async function runTurn(options: {
         case "finish":
           message.meta = { ...message.meta, usage: chunk.usage, durationMs: chunk.durationMs };
           responseMessages = chunk.messages;
+          replacesLast = chunk.replacesLast === true;
           break;
         case "error":
           ok = false;
@@ -122,5 +131,5 @@ export async function runTurn(options: {
   }
   if (message.meta!.durationMs === undefined) message.meta!.durationMs = Math.round(performance.now() - started);
   flush();
-  return { message, responseMessages, ok };
+  return { message, responseMessages, replacesLast, ok };
 }
