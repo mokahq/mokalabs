@@ -1,5 +1,21 @@
 # @mokalabs/core
 
+## 0.6.1
+
+### Patch Changes
+
+- [#54](https://github.com/mokahq/mokalabs/pull/54) [`6872c9e`](https://github.com/mokahq/mokalabs/commit/6872c9ee3f6bf40a67d746ad2d23b34a3f9d0f99) Thanks [@thebunnyweb](https://github.com/thebunnyweb)! - Replies keep running when you switch chats. Before, opening another chat or starting a new one stopped the reply in progress and threw it away (and a chat was only saved once its reply ended). Now the reply carries on in the background with a spinner in the sidebar, shows live when you come back, and is saved when it ends; your message is saved as soon as you send it. Stop still stops it.
+
+- [#54](https://github.com/mokahq/mokalabs/pull/54) [`6872c9e`](https://github.com/mokahq/mokalabs/commit/6872c9ee3f6bf40a67d746ad2d23b34a3f9d0f99) Thanks [@thebunnyweb](https://github.com/thebunnyweb)! - When a prompt doesn't fit in the model's context window, the error now says how big it was (tool definitions by server, system prompt and skills, the conversation), the context LM Studio loaded the model with, and how to fix it for LM Studio, Ollama or a hosted model, with a button to the context budget where tools can be hidden.
+
+- [#54](https://github.com/mokahq/mokalabs/pull/54) [`6872c9e`](https://github.com/mokahq/mokalabs/commit/6872c9ee3f6bf40a67d746ad2d23b34a3f9d0f99) Thanks [@thebunnyweb](https://github.com/thebunnyweb)! - The inspector shows what each model step was sent and what came back. A request event lists the conversation by role (system prompt, your messages, tool calls and their results) with long content folded, the exact request body sent to the provider, and the tool definitions the model saw. A response event shows the step's thinking, text and tool calls with its token usage. `llm.request` events carry `messages`, `system` and the request `body` again (AI SDK 7 stopped including them by default), and `llm.response` events carry `output`.
+
+- [#54](https://github.com/mokahq/mokalabs/pull/54) [`6872c9e`](https://github.com/mokahq/mokalabs/commit/6872c9ee3f6bf40a67d746ad2d23b34a3f9d0f99) Thanks [@thebunnyweb](https://github.com/thebunnyweb)! - The chat input fits the model. Models that can think get a **Thinking** button with the choices they understand: Auto, Off, Low, Medium, High for OpenAI reasoning models, Claude, Gemini and gpt-oss; On or Off for hybrid models like Qwen3; models that always think say so. Speech-to-text models (Whisper, Parakeet…, or `"kind": "transcription"`) turn the chat into a transcriber: it takes audio files only (WAV, MP3, M4A, OGG, FLAC, WebM), adds a **Record** button for the microphone, and replies with the text through the server's `/audio/transcriptions` endpoint (OpenAI, Groq, oMLX, LocalAI, Speaches, whisper.cpp). Settings → Models has a new **Type** field.
+
+- [#54](https://github.com/mokahq/mokalabs/pull/54) [`6872c9e`](https://github.com/mokahq/mokalabs/commit/6872c9ee3f6bf40a67d746ad2d23b34a3f9d0f99) Thanks [@thebunnyweb](https://github.com/thebunnyweb)! - Reasoning **Off** now turns thinking off instead of only not asking for it: the lowest reasoning effort for OpenAI models, thinking disabled for Claude, minimum thinking for Gemini, and for local servers (LM Studio, Ollama, vLLM, llama.cpp) `reasoning_effort: "none"`, `chat_template_kwargs.enable_thinking: false` and Qwen3's `/no_think`.
+
+- [#54](https://github.com/mokahq/mokalabs/pull/54) [`6872c9e`](https://github.com/mokahq/mokalabs/commit/6872c9ee3f6bf40a67d746ad2d23b34a3f9d0f99) Thanks [@thebunnyweb](https://github.com/thebunnyweb)! - Web search is built in. Turn on **Search** in the chat input and any model that can call tools gets `web_search` (titles, links and snippets) and `web_fetch` (a page as readable text), with no MCP server needed. The button is remembered. The first time you turn it on, it asks which provider to use: your own SearXNG, Tavily, Brave Search or DuckDuckGo (no key, but it often blocks scripts; when it does, the chat offers to switch). Change it from the arrow next to the button, Settings → Config file → Web search, or `webSearch` in moka.json.
+
 ## 0.6.0
 
 ### Minor Changes

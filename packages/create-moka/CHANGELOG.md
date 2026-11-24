@@ -1,5 +1,15 @@
 # create-moka
 
+## 0.6.1
+
+### Patch Changes
+
+- [#54](https://github.com/mokahq/mokalabs/pull/54) [`6872c9e`](https://github.com/mokahq/mokalabs/commit/6872c9ee3f6bf40a67d746ad2d23b34a3f9d0f99) Thanks [@thebunnyweb](https://github.com/thebunnyweb)! - Replies keep running when you switch chats. Before, opening another chat or starting a new one stopped the reply in progress and threw it away (and a chat was only saved once its reply ended). Now the reply carries on in the background with a spinner in the sidebar, shows live when you come back, and is saved when it ends; your message is saved as soon as you send it. Stop still stops it.
+
+- [#54](https://github.com/mokahq/mokalabs/pull/54) [`6872c9e`](https://github.com/mokahq/mokalabs/commit/6872c9ee3f6bf40a67d746ad2d23b34a3f9d0f99) Thanks [@thebunnyweb](https://github.com/thebunnyweb)! - When a prompt doesn't fit in the model's context window, the error now says how big it was (tool definitions by server, system prompt and skills, the conversation), the context LM Studio loaded the model with, and how to fix it for LM Studio, Ollama or a hosted model, with a button to the context budget where tools can be hidden.
+
+- [#54](https://github.com/mokahq/mokalabs/pull/54) [`6872c9e`](https://github.com/mokahq/mokalabs/commit/6872c9ee3f6bf40a67d746ad2d23b34a3f9d0f99) Thanks [@thebunnyweb](https://github.com/thebunnyweb)! - Reasoning **Off** now turns thinking off instead of only not asking for it: the lowest reasoning effort for OpenAI models, thinking disabled for Claude, minimum thinking for Gemini, and for local servers (LM Studio, Ollama, vLLM, llama.cpp) `reasoning_effort: "none"`, `chat_template_kwargs.enable_thinking: false` and Qwen3's `/no_think`.
+
 ## 0.6.0
 
 ### Minor Changes
