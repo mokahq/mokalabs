@@ -1,7 +1,10 @@
+import { explainContextOverflow, isContextOverflow, loadedContextLength, type PromptSize } from "./context-overflow.js";
+import { estimateTokens, toolTokens } from "./budget.js";
 import type { BreakpointDecision, BreakpointHit, Debugger } from "./breakpoints.js";
 import { dynamicTool, jsonSchema, NoSuchToolError, stepCountIs, streamText, type ModelMessage, type ToolSet } from "ai";
 import { adaptAttachments } from "./attachments.js";
-import type { LlmProfile, McpServerConfig, Workspace } from "./config.js";
+import type { LlmProfile, McpServerConfig, WebSearchConfig, Workspace } from "./config.js";
+import { formatResults, searchProvider, WEB_SEARCH_LABELS, webFetch, webSearch, webSearchSystemPrompt } from "./web-search.js";
 import type { EventBus } from "./events.js";
 import {
   errorClassOf,
@@ -15,7 +18,7 @@ import {
 } from "./lineage.js";
 import { errorMessage, type McpManager, type McpTool } from "./mcp.js";
 import { applyToolOverride, toolOverrideFor, type ToolOverrides } from "./overrides.js";
-import { createModel, reasoningOptions } from "./providers.js";
+import { createModel, noThinkSwitch, reasoningOptions } from "./providers.js";
 import { repairToolName } from "./tool-names.js";
 import { readSkillFile, skillsSystemPrompt, type LoadedSkill } from "./skills.js";
 import {
@@ -73,7 +76,8 @@ export type ChatChunk =
   | { type: "step"; usage: Usage; finishReason: string }
   /** `replacesLast`: `messages` starts with a replacement for the last message sent (a fork's tool results). */
   | { type: "finish"; usage: Usage; durationMs: number; messages: ModelMessage[]; replacesLast?: boolean }
-  | { type: "error"; message: string };
+  /** `errorKind` "context-overflow": the prompt didn't fit in the model's context window. */
+  | { type: "error"; message: string; errorKind?: "context-overflow" };
 
 export interface Usage {
   inputTokens?: number;
@@ -110,6 +114,12 @@ export interface RunAgentOptions {
   debug?: Debugger;
   /** A model by id, for switching model at a paused model step. */
   pickModel?: (llmId: string) => LlmProfile | undefined;
+  /** Web search is on for this message: adds web_search and web_fetch. */
+  webSearch?: boolean;
+  /** Which search provider to use (moka.json `webSearch`). */
+  webSearchConfig?: WebSearchConfig;
+  /** For tests: what web_search and web_fetch use to reach the web. */
+  webFetcher?: typeof fetch;
 }
 
 type Pause = (hit: Omit<BreakpointHit, "runId">, signal?: AbortSignal) => Promise<BreakpointDecision | undefined>;
@@ -381,11 +391,45 @@ export async function* runAgent(options: RunAgentOptions): AsyncGenerator<ChatCh
     });
   }
 
+  // 4. Web search, when it's on for this message.
+  if (options.webSearch) {
+    const max = options.webSearchConfig?.maxResults ?? 5;
+    const label = WEB_SEARCH_LABELS[searchProvider(options.webSearchConfig)];
+    bindings.set("web_search", { source: "Web search", tool: "web_search", readOnly: true });
+    tools.web_search = dynamicTool({
+      description: `Search the web (${label}). Returns titles, links and snippets. Use web_fetch to read a page.`,
+      inputSchema: jsonSchema({
+        type: "object",
+        properties: { query: { type: "string", description: "What to search for" } },
+        required: ["query"],
+      }),
+      execute: async (input: any, { abortSignal }) => {
+        const query = String(input?.query ?? "").trim();
+        if (!query) throw new Error("query is empty");
+        const results = await webSearch(query, max, { config: options.webSearchConfig, env: options.env, signal: abortSignal, ...(options.webFetcher ? { fetcher: options.webFetcher } : {}) });
+        return formatResults(query, results);
+      },
+    });
+    bindings.set("web_fetch", { source: "Web search", tool: "web_fetch", readOnly: true });
+    tools.web_fetch = dynamicTool({
+      description: "Read a web page as text (http or https). Long pages are cut.",
+      inputSchema: jsonSchema({
+        type: "object",
+        properties: { url: { type: "string", description: "The page's URL" } },
+        required: ["url"],
+      }),
+      execute: async (input: any, { abortSignal }) => webFetch(String(input?.url ?? ""), { signal: abortSignal, ...(options.webFetcher ? { fetcher: options.webFetcher } : {}) }),
+    });
+  }
+
   const system = [
     workspace.systemPrompt?.trim(),
     workspace.formatHints !== false && !options.toolMode ? FORMAT_HINTS : "",
     skillsSystemPrompt(skills),
     instructions.length ? `## MCP server instructions\n\n${instructions.join("\n\n")}` : "",
+    options.webSearch ? webSearchSystemPrompt() : "",
+    // Reasoning off: Qwen3's own switch.
+    noThinkSwitch(llm),
   ]
     .filter(Boolean)
     .join("\n\n");
@@ -408,6 +452,8 @@ export async function* runAgent(options: RunAgentOptions): AsyncGenerator<ChatCh
   const invalidCalls = new Set<string>();
   let stepStarted = Date.now();
   let stepIndex = 0;
+  // What the current model step has produced so far (for the inspector).
+  let stepOutput: { text: string; reasoning: string; toolCalls: Array<{ id: string; name: string; input: unknown }> } = { text: "", reasoning: "", toolCalls: [] };
   // "Stop" at a breakpoint ends the run like the Stop button.
   const stopper = new AbortController();
   const watchdog = new ModelWatchdog(llm, signal ? AbortSignal.any([signal, stopper.signal]) : stopper.signal);
@@ -427,19 +473,30 @@ export async function* runAgent(options: RunAgentOptions): AsyncGenerator<ChatCh
     const onPart = function* (part: any): Generator<ChatChunk> {
       switch (part.type) {
         case "text-delta":
+          stepOutput.text += part.text;
           yield { type: "text", text: part.text };
           break;
         case "reasoning-delta":
+          stepOutput.reasoning += part.text;
           yield { type: "reasoning", text: part.text };
           break;
         case "start-step":
           stepStarted = Date.now();
           stepIndex++;
+          stepOutput = { text: "", reasoning: "", toolCalls: [] };
           bus.emit({
             kind: "llm.request",
             runId,
             title: `→ ${llm.model} · step ${stepIndex}`,
-            data: { model: llm.model, provider: llm.provider, body: part.request?.body, warnings: part.warnings },
+            data: {
+              model: llm.model,
+              provider: llm.provider,
+              step: stepIndex,
+              ...(system ? { system } : {}),
+              messages: part.request?.messages,
+              body: parseBody(part.request?.body),
+              warnings: part.warnings,
+            },
           });
           break;
         case "finish-step": {
@@ -449,7 +506,13 @@ export async function* runAgent(options: RunAgentOptions): AsyncGenerator<ChatCh
             runId,
             title: `← ${llm.model} · ${part.finishReason} · ${usage.totalTokens ?? "?"} tok`,
             durationMs: Date.now() - stepStarted,
-            data: { finishReason: part.finishReason, usage, response: { id: part.response?.id, modelId: part.response?.modelId } },
+            data: {
+              finishReason: part.finishReason,
+              usage,
+              // What this step produced, so a trace reads request → reply.
+              output: { ...(stepOutput.reasoning ? { reasoning: stepOutput.reasoning } : {}), ...(stepOutput.text ? { text: stepOutput.text } : {}), ...(stepOutput.toolCalls.length ? { toolCalls: stepOutput.toolCalls } : {}) },
+              response: { id: part.response?.id, modelId: part.response?.modelId },
+            },
           });
           yield { type: "step", usage, finishReason: part.finishReason };
           break;
@@ -458,6 +521,7 @@ export async function* runAgent(options: RunAgentOptions): AsyncGenerator<ChatCh
           rawInputs.set(part.id, (rawInputs.get(part.id) ?? "") + part.delta);
           break;
         case "tool-call": {
+          stepOutput.toolCalls.push({ id: part.toolCallId, name: part.toolName, input: part.input });
           const binding: ToolBinding = bindings.get(part.toolName) ?? { source: "unknown", tool: part.toolName };
           toolStarts.set(part.toolCallId, Date.now());
           let duplicateOf: string | undefined;
@@ -653,6 +717,8 @@ export async function* runAgent(options: RunAgentOptions): AsyncGenerator<ChatCh
             },
           }
         : {}),
+      // The inspector shows what each step sent: the messages, and the exact request body.
+      include: { requestBody: true, requestMessages: true },
       // A gateway that never answers (or stops halfway) ends the run with an error instead of hanging.
       abortSignal: watchdog.signal,
       maxRetries: 1,
@@ -678,9 +744,12 @@ export async function* runAgent(options: RunAgentOptions): AsyncGenerator<ChatCh
     const produced = [...(resultMessage ? [resultMessage] : []), ...(responseMessages as ModelMessage[])];
     yield { type: "finish", usage: toUsage(usage), durationMs, messages: produced, ...(pending?.existing ? { replacesLast: true } : {}) };
   } catch (error) {
-    const message = signal?.aborted ? "Stopped" : stopper.signal.aborted ? "Stopped at a breakpoint" : watchdog.timedOut ? watchdog.message() : describeError(error);
+    let message = signal?.aborted ? "Stopped" : stopper.signal.aborted ? "Stopped at a breakpoint" : watchdog.timedOut ? watchdog.message() : describeError(error);
+    // A prompt too big for the model: say what took the room and how to make it fit.
+    const overflow = !signal?.aborted && !stopper.signal.aborted && isContextOverflow(message);
+    if (overflow) message = explainContextOverflow(llm, promptSize(system, tools, bindings, options.messages), message, await loadedContextLength(llm));
     bus.emit({ kind: "run.error", runId, level: "error", title: message, durationMs: Date.now() - started, data: serialiseError(error) });
-    yield { type: "error", message };
+    yield { type: "error", message, ...(overflow ? { errorKind: "context-overflow" as const } : {}) };
   } finally {
     watchdog.stop();
   }
@@ -772,6 +841,30 @@ export function pendingToolCalls(messages: ModelMessage[]): { calls: Array<{ too
 function breakpointEdits(extra: ToolSideChannel | undefined): { input?: unknown; edited?: "arguments" | "result" } {
   if (!extra?.edited) return {};
   return { ...(extra.edited.input !== undefined ? { input: extra.edited.input } : {}), edited: extra.edited.result ? "result" : "arguments" };
+}
+
+/** Roughly what a request carried, by part, for explaining a prompt that doesn't fit. */
+function promptSize(system: string, tools: ToolSet, bindings: Map<string, ToolBinding>, messages: ModelMessage[]): PromptSize {
+  const bySource = new Map<string, { source: string; count: number; tokens: number }>();
+  for (const [key, tool] of Object.entries(tools)) {
+    const source = bindings.get(key)?.source ?? "Moka";
+    const schema = (tool as { inputSchema?: { jsonSchema?: unknown } }).inputSchema?.jsonSchema ?? {};
+    const entry = bySource.get(source) ?? { source, count: 0, tokens: 0 };
+    entry.count++;
+    entry.tokens += toolTokens(key, (tool as { description?: string }).description ?? "", schema);
+    bySource.set(source, entry);
+  }
+  return { system: estimateTokens(system), tools: [...bySource.values()], conversation: estimateTokens(JSON.stringify(messages)) };
+}
+
+/** A request body as JSON when it is JSON text (most providers), else as it came. */
+function parseBody(body: unknown): unknown {
+  if (typeof body !== "string") return body;
+  try {
+    return JSON.parse(body);
+  } catch {
+    return body;
+  }
 }
 
 function lineageData(at: { lineage: Lineage; attempt: number } | undefined): { lineage?: ToolLineage } {

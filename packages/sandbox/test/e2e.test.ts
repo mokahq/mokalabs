@@ -99,6 +99,15 @@ describe("sandbox server", () => {
     for (const kind of ["mcp.status", "mcp.rpc", "run.start", "llm.request", "llm.response", "tool.call", "tool.result", "run.finish"]) {
       expect(kinds.has(kind as any), kind).toBe(true);
     }
+    // Model steps carry what was sent (messages and the exact body) and what came back.
+    const requests = events.filter((e) => e.kind === "llm.request" && (e.data as any)?.step !== undefined);
+    const second = requests.at(-1)!.data as any;
+    expect(second.messages.map((m: any) => m.role)).toEqual(["user", "assistant", "tool"]);
+    expect(second.body.messages.length).toBeGreaterThan(0);
+    expect(second.body.tools.map((t: any) => t.function.name)).toContain("moka-demo__calculate");
+    const outputs = events.filter((e) => e.kind === "llm.response").map((e) => (e.data as any)?.output);
+    expect(outputs).toContainEqual(expect.objectContaining({ toolCalls: [expect.objectContaining({ name: "moka-demo__calculate" })] }));
+    expect(outputs).toContainEqual(expect.objectContaining({ text: "The answer is 42" }));
     // The demo server speaks 2026-07-28: no initialize handshake, server/discover instead.
     expect(events.some((e) => e.kind === "mcp.rpc" && e.title.startsWith("server/discover"))).toBe(true);
   });

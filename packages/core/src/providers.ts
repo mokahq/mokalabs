@@ -117,11 +117,37 @@ const BUDGET: Record<"low" | "medium" | "high", number> = { low: 2048, medium: 8
  * `streamText`: a reasoning level, and provider options. The profile's own
  * `providerOptions` win over these.
  */
-export function reasoningOptions(profile: LlmProfile): { reasoning?: "low" | "medium" | "high"; providerOptions?: Record<string, any> } {
+export function reasoningOptions(profile: LlmProfile): { reasoning?: "none" | "low" | "medium" | "high"; providerOptions?: Record<string, any> } {
   const setting = profile.reasoning ?? "auto";
   const level = setting === "low" || setting === "medium" || setting === "high" ? setting : undefined;
   const ours: Record<string, any> = {};
-  if (setting !== "off") {
+  let reasoning: "none" | "low" | "medium" | "high" | undefined = level && profile.provider !== "anthropic" && profile.provider !== "openai" && profile.provider !== "azure" ? level : undefined;
+  if (setting === "off") {
+    // Ask the model not to think, in each provider's words, as far as the model allows.
+    switch (profile.provider) {
+      case "openai":
+      case "azure": {
+        const effort = openAiLowestEffort(profile.model);
+        if (effort) ours[profile.provider] = { reasoningEffort: effort };
+        break;
+      }
+      case "anthropic":
+        if (claudeThinking(profile.model) !== "none") ours.anthropic = { thinking: { type: "disabled" } };
+        break;
+      case "google":
+        if (/gemini-(2\.5|[3-9])|gemini-(flash|pro)(-lite)?-latest/i.test(profile.model)) reasoning = "none";
+        break;
+      case "ollama":
+      case "openai-compatible":
+        // Local servers: the OpenAI-style switch, and the chat-template one (vLLM, llama.cpp, SGLang; Qwen3, DeepSeek templates).
+        // Hosted gateways can reject unknown fields, so they only get the system-prompt switch (below, in the agent).
+        if (isLocalServer(profile)) {
+          reasoning = "none";
+          ours[profile.provider === "ollama" ? "ollama" : "custom"] = { chat_template_kwargs: { enable_thinking: false } };
+        }
+        break;
+    }
+  } else {
     switch (profile.provider) {
       case "openai":
       case "azure":
@@ -148,9 +174,41 @@ export function reasoningOptions(profile: LlmProfile): { reasoning?: "low" | "me
   const merged = { ...ours };
   for (const [key, value] of Object.entries(profile.providerOptions ?? {})) merged[key] = value && typeof value === "object" && !Array.isArray(value) ? { ...merged[key], ...value } : value;
   return {
-    ...(level && profile.provider !== "anthropic" && profile.provider !== "openai" && profile.provider !== "azure" ? { reasoning: level } : {}),
+    ...(reasoning ? { reasoning } : {}),
     ...(Object.keys(merged).length ? { providerOptions: merged } : {}),
   };
+}
+
+/** The lowest reasoning effort an OpenAI reasoning model accepts: none from gpt-5.1, minimal on gpt-5, low on o-series. */
+function openAiLowestEffort(model: string): "none" | "minimal" | "low" | undefined {
+  const id = model.toLowerCase();
+  const gpt = /gpt-(\d+)(?:\.(\d+))?/.exec(id);
+  if (gpt) {
+    const [major, minor] = [Number(gpt[1]), Number(gpt[2] ?? 0)];
+    if (major > 5 || (major === 5 && minor >= 1)) return id.includes("chat") ? undefined : "none";
+    if (major === 5) return id.includes("chat") ? undefined : "minimal";
+    return undefined;
+  }
+  return /^o\d/.test(id) ? "low" : undefined;
+}
+
+/** A model server on this machine or the local network (LM Studio, Ollama, vLLM…), not a hosted gateway. */
+export function isLocalServer(profile: LlmProfile): boolean {
+  if (profile.provider === "ollama") return true;
+  try {
+    const host = new URL(profile.baseURL ?? "").hostname;
+    return /^(localhost|127\.|0\.0\.0\.0|\[?::1\]?$|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(host) || host.endsWith(".local") || host.endsWith(".lan");
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Qwen3 models turn thinking off when the prompt says `/no_think`, on any
+ * server. Added to the system prompt when Reasoning is off.
+ */
+export function noThinkSwitch(profile: LlmProfile): string | undefined {
+  return profile.reasoning === "off" && /qwen-?3/i.test(profile.model) ? "/no_think" : undefined;
 }
 
 /** Detect usable providers from environment variables. */

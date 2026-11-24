@@ -2,7 +2,7 @@ import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { streamText } from "ai";
 import { describe, expect, it } from "vitest";
-import { claudeThinking, createModel, reasoningOptions } from "../src/providers.js";
+import { claudeThinking, createModel, noThinkSwitch, reasoningOptions } from "../src/providers.js";
 
 const profile = (provider: any, model: string, extra: Record<string, unknown> = {}) => ({ id: "x", name: "X", provider, model, ...extra }) as any;
 
@@ -31,7 +31,17 @@ describe("reasoning", () => {
     expect(reasoningOptions(profile("google", "gemini-2.5-flash-lite")).providerOptions).toEqual({ google: { thinkingConfig: { includeThoughts: true, thinkingBudget: 1024 } } });
     expect(reasoningOptions(profile("google", "gemini-3-pro-preview")).providerOptions).toEqual({ google: { thinkingConfig: { includeThoughts: true } } });
     expect(reasoningOptions(profile("google", "gemini-3.5-flash", { reasoning: "medium" }))).toEqual({ reasoning: "medium", providerOptions: { google: { thinkingConfig: { includeThoughts: true } } } });
-    expect(reasoningOptions(profile("openai", "gpt-5", { reasoning: "off" })).providerOptions).toBeUndefined();
+    // Off: each provider's way of not thinking, as far as the model allows.
+    expect(reasoningOptions(profile("openai", "gpt-5.1", { reasoning: "off" })).providerOptions).toEqual({ openai: { reasoningEffort: "none" } });
+    expect(reasoningOptions(profile("openai", "gpt-5-mini", { reasoning: "off" })).providerOptions).toEqual({ openai: { reasoningEffort: "minimal" } });
+    expect(reasoningOptions(profile("openai", "o3", { reasoning: "off" })).providerOptions).toEqual({ openai: { reasoningEffort: "low" } });
+    expect(reasoningOptions(profile("openai", "gpt-4o", { reasoning: "off" }))).toEqual({});
+    expect(reasoningOptions(profile("anthropic", "claude-sonnet-5", { reasoning: "off" })).providerOptions).toEqual({ anthropic: { thinking: { type: "disabled" } } });
+    expect(reasoningOptions(profile("google", "gemini-3.5-flash", { reasoning: "off" }))).toEqual({ reasoning: "none" });
+    expect(reasoningOptions(profile("openai-compatible", "qwen3.8-27b-mlx", { reasoning: "off", baseURL: "http://localhost:1234/v1" }))).toEqual({ reasoning: "none", providerOptions: { custom: { chat_template_kwargs: { enable_thinking: false } } } });
+    expect(reasoningOptions(profile("openai-compatible", "qwen/qwen3-32b", { reasoning: "off", baseURL: "https://openrouter.ai/api/v1" }))).toEqual({});
+    expect(noThinkSwitch(profile("openai-compatible", "qwen3.8-27b-mlx", { reasoning: "off" }))).toBe("/no_think");
+    expect(noThinkSwitch(profile("openai-compatible", "qwen3.8-27b-mlx"))).toBeUndefined();
     expect(reasoningOptions(profile("openai", "o3", { providerOptions: { openai: { reasoningSummary: "detailed" } } })).providerOptions).toEqual({ openai: { reasoningSummary: "detailed" } });
     expect(reasoningOptions(profile("openai-compatible", "qwen3", { reasoning: "low" }))).toEqual({ reasoning: "low" });
   });

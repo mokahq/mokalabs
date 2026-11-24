@@ -91,7 +91,7 @@ async function* ndjson<T>(res: Response): AsyncGenerator<T> {
 }
 
 export async function* streamChat(
-  body: { messages: unknown[]; workspaceId?: string; llmId?: string; agentId?: string; forkOf?: ForkMeta },
+  body: { messages: unknown[]; workspaceId?: string; llmId?: string; agentId?: string; forkOf?: ForkMeta; webSearch?: boolean },
   signal: AbortSignal,
 ): AsyncGenerator<ChatChunk> {
   const res = await fetch("/api/chat", {

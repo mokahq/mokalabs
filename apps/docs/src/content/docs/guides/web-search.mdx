@@ -1,0 +1,56 @@
+---
+title: Web search
+description: Let any model search the web and read pages, with the Search button in the chat input. Your own SearXNG, Tavily, Brave Search or DuckDuckGo.
+---
+
+import { Aside } from "@astrojs/starlight/components";
+import shot from "../../../assets/web-search.png";
+
+Turn on **Search** in the chat input and the model can look things up. Moka adds two tools for that message:
+
+- `web_search` returns the top results: title, link and snippet.
+- `web_fetch` reads a page as text, without scripts, styles or navigation. Long pages are cut at 20,000 characters.
+
+<img src={shot.src} width={shot.width / 2} height={shot.height / 2} alt="Without Search the model says it can't browse; with Search on it calls web_search, then web_fetch on the first result, and answers with a link to the release notes" />
+
+The first time you click it, Moka asks which provider to search with. Change it any time from the arrow next to the button. The button stays on until you turn it off, in every chat. It works with any model that can call tools, local ones too, and with no MCP server. When it's on, the model is told today's date and asked to cite the pages it used.
+
+Both tools show in the chat and the [inspector](/guides/inspector/) like any other, under **Web search**.
+
+## Providers
+
+Choose one from the arrow next to **Search**, in **Settings → Config file → Web search**, or in `moka.json`:
+
+| Provider | Needs | Notes |
+|---|---|---|
+| SearXNG | `url` | Your own instance: local, free, no key. Turn on the JSON format in its `settings.yml` (below) |
+| Tavily | `apiKey` | Search made for agents, with longer snippets. Has a free monthly allowance |
+| Brave Search | `apiKey` | Key from the Brave Search API dashboard |
+| DuckDuckGo | Nothing | DuckDuckGo has no API, and it often answers scripts with a captcha. When it does, the chat says so and offers to switch |
+
+To run SearXNG locally with JSON on:
+
+```sh
+mkdir -p ~/searxng && printf 'use_default_settings: true\nserver:\n  secret_key: "change-me"\nsearch:\n  formats: [html, json]\n' > ~/searxng/settings.yml
+docker run -d --name searxng -p 8080:8080 -v ~/searxng:/etc/searxng searxng/searxng
+```
+
+Then choose **SearXNG** with `http://localhost:8080`.
+
+```json title="moka.json"
+{
+  "webSearch": { "provider": "brave", "apiKey": "env:BRAVE_API_KEY", "maxResults": 5 }
+}
+```
+
+Use `env:VAR_NAME` for keys, so the file is safe to commit. **Download (keys redacted)** replaces a literal key with `<set-me>`.
+
+<Aside type="tip">
+Searches and fetched pages go to the provider and the sites the model picks, from your machine. Everything else stays local. Fetched pages count toward the model's context, so a small local model may do better with fewer results.
+</Aside>
+
+## Where it doesn't apply
+
+- [Remote agents](/guides/agents/) bring their own tools, so the button is hidden for them.
+- [Tool tests](/guides/tests/) and [Improve](/guides/improve/) never search: their runs should only use your servers' tools.
+- [Compare](/guides/compare/) uses the button's setting for every model in the comparison.

@@ -50,9 +50,15 @@ export const llmProfileSchema = z.object({
    * The model's reasoning ("thinking"), shown in the chat as it happens.
    * `auto` (default): ask for it where the model can think, at its usual
    * effort. `low` / `medium` / `high`: also set how hard it thinks. `off`:
-   * don't ask for it (it's still shown if the provider sends it anyway).
+   * ask the model not to think, as far as it allows (some always think a little).
    */
   reasoning: z.enum(["auto", "off", "low", "medium", "high"]).optional(),
+  /**
+   * What the model is for. Detected from its name when unset: Whisper, Parakeet
+   * and other speech-to-text models are `transcription` (the chat then takes
+   * audio files and returns their text); everything else is `chat`.
+   */
+  kind: z.enum(["chat", "transcription"]).optional(),
 });
 export type LlmProfile = z.infer<typeof llmProfileSchema>;
 
@@ -275,6 +281,21 @@ export const workspaceSchema = z.object({
 });
 export type Workspace = z.infer<typeof workspaceSchema>;
 
+export const WEB_SEARCH_PROVIDERS = ["duckduckgo", "brave", "tavily", "searxng"] as const;
+
+/** The built-in web search, turned on per message with the Search button in the chat input. */
+export const webSearchConfigSchema = z.object({
+  /** Default `duckduckgo` (no key). `brave` and `tavily` need `apiKey`; `searxng` needs `url`. */
+  provider: z.enum(WEB_SEARCH_PROVIDERS).optional(),
+  /** Literal key, or `env:VAR_NAME` / `${VAR_NAME}` to read from the environment. */
+  apiKey: z.string().optional(),
+  /** SearXNG only: the instance, e.g. `http://localhost:8080`. */
+  url: z.string().optional(),
+  /** Results per search (default 5). */
+  maxResults: z.number().int().min(1).max(20).optional(),
+});
+export type WebSearchConfig = z.infer<typeof webSearchConfigSchema>;
+
 export const mokaConfigSchema = z.object({
   $schema: z.string().optional(),
   version: z.literal(1).default(1),
@@ -287,6 +308,8 @@ export const mokaConfigSchema = z.object({
   /** A2UI component catalogs available to workspaces. */
   catalogs: z.array(catalogConfigSchema).default([]),
   workspaces: z.array(workspaceSchema).default([]),
+  /** Built-in web search (the Search button in the chat input). */
+  webSearch: webSearchConfigSchema.optional(),
   /** App preferences. */
   ui: z
     .object({
@@ -382,6 +405,7 @@ export function redactConfig(config: MokaConfig): MokaConfig {
       ...(typeof s.oauth === "object" && s.oauth.clientSecret ? { oauth: { ...s.oauth, clientSecret: scrub(s.oauth.clientSecret, "<set-me>") } } : {}),
     })),
     agents: config.agents.map((a) => ({ ...a, headers: scrubRecord(a.headers) })),
+    ...(config.webSearch ? { webSearch: { ...config.webSearch, apiKey: scrub(config.webSearch.apiKey, "<set-me>") } } : {}),
   };
 }
 

@@ -4,6 +4,7 @@ description: Attach files, see the files tools make next to the chat, pull in MC
 ---
 
 import { Aside } from "@astrojs/starlight/components";
+import thinkingShot from "../../../assets/thinking-picker.png";
 import filesGif from "../../../../../../docs/assets/files.gif";
 
 <img src={filesGif.src} width={filesGif.width} height={filesGif.height} alt="A tool makes a PDF and then a Word document, each opening next to the chat; an attached PDF opens the same way" />
@@ -19,7 +20,21 @@ When a model reasons before it answers, Moka shows its thinking as it happens: *
 | Google | Gemini 2.5 and later's thought summaries. Flash models barely think by default, so *Auto* asks them for a little (low thinking level) |
 | Ollama, LM Studio and other OpenAI-compatible servers | `<think>` blocks (Qwen3, DeepSeek-R1, QwQ…) and `reasoning_content` |
 
-Set it per model in Settings → Models → **Reasoning**: *Auto* (default) asks for it where the model can reason, at its usual effort; *low*, *medium* or *high* also set the effort (high is slower and uses more tokens); *Don't ask for it* turns it off. Your own `providerOptions` win over Moka's.
+Set it per model in Settings → Models → **Reasoning**: *Auto* (default) asks for it where the model can reason, at its usual effort; *low*, *medium* or *high* also set the effort (high is slower and uses more tokens). *Off* asks the model not to think, in each provider's way: the lowest reasoning effort for OpenAI models, thinking disabled for Claude, minimum thinking for Gemini, and for local servers (LM Studio, Ollama, vLLM, llama.cpp) `reasoning_effort: "none"` plus `enable_thinking: false` for the chat template, and Qwen3's `/no_think`. Some models always think a little. Your own `providerOptions` win over Moka's.
+
+### From the chat input
+
+For a model that can think, the chat input has a **Thinking** button with the choices that model understands. What you pick is saved as the model's Reasoning setting, from the next message on.
+
+<img src={thinkingShot.src} width={thinkingShot.width / 2} height={thinkingShot.height / 2} alt="The Thinking menu in the chat input for gpt-oss 20B: Auto, Off, Low, Medium and High, with High checked" />
+
+| Model | Choices |
+|---|---|
+| OpenAI reasoning models, Claude 3.7+, Gemini 2.5+, gpt-oss | Auto, Off, Low, Medium, High |
+| Hybrid models that think or not: Qwen3, DeepSeek V3.1, GLM-4.5+, SmolLM3, Granite 3.2+ | On, Off |
+| Models that always think: DeepSeek-R1, QwQ, Magistral, `*-thinking` | No choice, the button says **Thinks** |
+
+Moka knows these by name. Another model shows the button once it has sent its thinking. Models that don't think don't get the button.
 
 ## Attach files and images
 

@@ -48,6 +48,7 @@ export function CompareView() {
           modelMessages: history,
           workspaceId: workspace.id,
           llmId: lane.llmId,
+          webSearch: useStore.getState().webSearch,
           signal: controllers.current[index]!.signal,
           onUpdate: (reply) =>
             setLanes((ls) => ls.map((l) => (l.id === lane.id ? { ...l, turns: l.turns.map((t, i) => (i === l.turns.length - 1 ? { ...t, reply } : t)) } : l))),

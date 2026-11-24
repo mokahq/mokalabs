@@ -13,6 +13,7 @@ import {
   llmProfileSchema,
   mcpServerSchema,
   PROVIDER_PRESETS,
+  modelCapabilities,
   redactConfig,
   skillSchema,
   changesAsCode,
@@ -161,6 +162,8 @@ export function createApp(options: ServerOptions): Hono {
       configPath: options.configPath,
       config,
       presets: PROVIDER_PRESETS,
+      // What each model is for, and how much say you have over its thinking (the chat input's controls).
+      models: Object.fromEntries(config.llms.map((llm) => [llm.id, modelCapabilities(llm)])),
       env: Object.fromEntries(ENV_HINTS.map((k) => [k, Boolean(env[k])])),
       mcp: engine.mcp.states(),
       skills: skills.map(({ body: _b, ...rest }) => rest),
@@ -387,7 +390,7 @@ export function createApp(options: ServerOptions): Hono {
 
   // --- Chat -----------------------------------------------------------------
   app.post("/api/chat", async (c) => {
-    const req = await body<{ messages: any[]; workspaceId?: string; llmId?: string; agentId?: string; forkOf?: ForkInfo }>(c);
+    const req = await body<{ messages: any[]; workspaceId?: string; llmId?: string; agentId?: string; forkOf?: ForkInfo; webSearch?: boolean }>(c);
     if (!Array.isArray(req.messages)) return badRequest(c, "messages must be an array");
     c.header("Content-Type", "application/x-ndjson; charset=utf-8");
     c.header("Cache-Control", "no-cache, no-transform");
@@ -403,6 +406,7 @@ export function createApp(options: ServerOptions): Hono {
         llmId: req.llmId,
         agentId: req.agentId,
         ...(req.forkOf ? { forkOf: req.forkOf } : {}),
+        ...(req.webSearch === true ? { webSearch: true } : {}),
         signal: controller.signal,
       })) {
         if (s.aborted) break;

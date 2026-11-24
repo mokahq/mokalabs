@@ -65,6 +65,8 @@ export default defineConfig({
             { label: "Models & providers", slug: "guides/models" },
             { label: "Remote agents (A2A & AG-UI)", slug: "guides/agents" },
             { label: "Chat, files & replay", slug: "guides/chat", badge: { text: "New", variant: "tip" } },
+            { label: "Web search", slug: "guides/web-search", badge: { text: "New", variant: "tip" } },
+            { label: "Speech to text", slug: "guides/speech-to-text", badge: { text: "New", variant: "tip" } },
             { label: "MCP servers", slug: "guides/mcp-servers" },
             { label: "Sign-in, elicitation & sampling", slug: "guides/mcp-auth-elicitation" },
             { label: "MCP 2026-07-28", slug: "guides/mcp-2026", badge: { text: "New", variant: "tip" } },

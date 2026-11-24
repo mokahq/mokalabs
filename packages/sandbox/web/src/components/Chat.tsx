@@ -11,6 +11,7 @@ import {
   Brain,
   ChevronRight,
   Clock,
+  Gauge,
   Hammer,
   RotateCcw,
   Settings2,
@@ -19,6 +20,7 @@ import {
   Star,
   Wrench,
   Zap,
+  Globe,
 } from "lucide-react";
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api";
@@ -27,6 +29,8 @@ import { useStore } from "../store";
 import type { Attachment, Part, UiMessage } from "../types";
 import { DOCX, documentText } from "../extract";
 import { REPO_URL } from "../links";
+import { AUDIO_ACCEPT, ReasoningPicker, RecordButton, isAudioFile } from "./ModelControls";
+import { SearchControl } from "./SearchControl";
 import { previewKind } from "../preview";
 import { MokaPortrait, useMokaBranding } from "./Moka";
 import { ApprovalBar, usePendingApproval } from "./Interactions";
@@ -306,6 +310,11 @@ function MessageView({ message, live, last }: { message: UiMessage; live: boolea
                   <Button size="xs" variant="outline" icon={<RotateCcw className="h-3 w-3" />} onClick={() => retry()}>
                     Retry
                   </Button>
+                  {meta.errorKind === "context-overflow" && (
+                    <Button size="xs" variant="outline" icon={<Gauge className="h-3 w-3" />} onClick={() => set({ budgetOpen: true })}>
+                      See what fills the context
+                    </Button>
+                  )}
                   {meta.error !== "Stopped" && (
                     <Button size="xs" variant="ghost" onClick={() => openSettings("models")}>
                       Check model settings
@@ -584,7 +593,17 @@ function readAs(file: File, as: "text" | "dataUrl"): Promise<string> {
   });
 }
 
+/** Speech-to-text servers take files up to 25 MB (OpenAI's limit). */
+const MAX_AUDIO = 25 * 1024 * 1024;
+const AUDIO_TYPES: Record<string, string> = { wav: "audio/wav", mp3: "audio/mpeg", m4a: "audio/mp4", ogg: "audio/ogg", oga: "audio/ogg", opus: "audio/ogg", flac: "audio/flac", webm: "audio/webm", aac: "audio/aac", mpga: "audio/mpeg", mpeg: "audio/mpeg", mp4: "audio/mp4" };
+
 async function toAttachment(file: File): Promise<Attachment> {
+  if (isAudioFile(file)) {
+    if (file.size > MAX_AUDIO) throw new Error(`${file.name} is larger than 25 MB, the most speech-to-text servers take. Cut it into shorter parts.`);
+    const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
+    const mediaType = file.type.startsWith("audio/") ? file.type : (AUDIO_TYPES[ext] ?? "audio/wav");
+    return { id: uid("f"), name: file.name || "audio.wav", mediaType, size: file.size, kind: "file", dataUrl: await readAs(file, "dataUrl") };
+  }
   if (file.size > MAX_ATTACHMENT) throw new Error(`${file.name} is larger than 10 MB`);
   const kind = previewKind(file.type, file.name);
   const mediaType = file.type || (kind === "pdf" ? "application/pdf" : kind === "docx" ? DOCX : "application/octet-stream");
@@ -681,14 +700,26 @@ export function Composer({
   const ref = useRef<HTMLTextAreaElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const rich = !onSend; // attachments, resources and prompts only in the main chat
+  // The main chat's model: what it's for (chat or speech-to-text) and how its thinking can be set.
+  const llm = useStore((s) => (rich && !s.workspace().agentId ? (s.config.llms.find((l) => l.id === s.workspace().llmId) ?? s.config.llms[0]) : undefined));
+  const capabilities = useStore((s) => (llm ? s.models[llm.id] : undefined));
+  const learnedThinker = useStore((s) => Boolean(llm && s.thinkers.includes(llm.id)));
+  const transcribing = capabilities?.kind === "transcription";
+  const thinking = llm && !transcribing ? (capabilities?.reasoning ?? (learnedThinker ? "toggle" : undefined)) : undefined;
+  const [searchMenu, setSearchMenu] = useState(false);
+  // The last search was blocked by DuckDuckGo: offer another provider.
+  const searchBlocked = useStore((s) => {
+    const last = [...s.session.messages].reverse().find((m) => m.role === "assistant");
+    return Boolean(last?.parts.some((p) => p.type === "tool" && p.tool === "web_search" && p.isError && /DuckDuckGo didn't return results/.test(String(p.output))));
+  });
   const who = useMokaBranding() ? "Message Moka…" : "Send a message…";
 
   const servers = workspace.mcpServerIds.map((id) => mcp[id]).filter((s): s is NonNullable<typeof s> => s?.status === "connected");
   const resources = servers.flatMap((s) => s.resources.map((r) => ({ ...r, serverId: s.id, serverName: s.name })));
   const prompts: PromptInfo[] = servers.flatMap((s) => s.prompts.map((p) => ({ ...p, serverId: s.id, serverName: s.name })));
-  const slash = rich && /^\/[\w.-]*$/.test(text) ? text.slice(1).toLowerCase() : undefined;
+  const slash = rich && !transcribing && /^\/[\w.-]*$/.test(text) ? text.slice(1).toLowerCase() : undefined;
   // Typing "@" (at the start or after a space) opens the resource picker, filtered by what follows.
-  const mention = rich ? /(^|\s)@([^\s@]*)$/.exec(text) : null;
+  const mention = rich && !transcribing ? /(^|\s)@([^\s@]*)$/.exec(text) : null;
   const resourceQuery = mention?.[2]?.toLowerCase() ?? "";
   const resourceMenuOpen = menu === "resources" || mention !== null;
   const shownResources = resourceQuery
@@ -724,6 +755,10 @@ export function Composer({
 
   const addFiles = async (files: FileList | File[]) => {
     for (const file of Array.from(files)) {
+      if (transcribing && !isAudioFile(file)) {
+        toast(`${file.name} isn't audio. ${llm?.name ?? "This model"} turns speech into text: attach WAV, MP3, M4A, OGG, FLAC or WebM, or record.`, "error");
+        continue;
+      }
       try {
         const attachment = await toAttachment(file);
         setAttachments((a) => [...a, attachment]);
@@ -792,6 +827,15 @@ export function Composer({
     <div className={cn("shrink-0 px-5 pb-5", compact ? "pt-2" : "pt-1")}>
       <div className={cn("relative mx-auto w-full", presenter ? "max-w-4xl" : "max-w-3xl")}>
         {slash === undefined && !menu && !prompt && <WaitingForYou />}
+        {searchBlocked && !searchMenu && !streaming && (
+          <div className="mb-2 flex items-center gap-2 rounded-xl border border-warn/30 bg-warn/5 px-3 py-2 text-[12.5px]">
+            <Globe className="h-3.5 w-3.5 shrink-0 text-warn" />
+            <span className="flex-1">DuckDuckGo is blocking searches from this machine. Pick a provider that works reliably.</span>
+            <Button size="xs" variant="outline" onClick={() => setSearchMenu(true)}>
+              Choose provider
+            </Button>
+          </div>
+        )}
         {slash !== undefined && promptMatches.length > 0 && (
           <div className="absolute right-0 bottom-full left-0 z-20 mb-2 max-h-64 overflow-y-auto rounded-xl border border-line bg-elev p-1 shadow-soft">
             <div className="px-2.5 pt-1 pb-1 text-[11px] font-medium text-subtle uppercase">MCP prompts</div>
@@ -921,21 +965,34 @@ export function Composer({
                 submit();
               }
             }}
-            placeholder={disabledReason ?? (hasModel ? placeholder ?? (rich ? `${who} (@ for resources${prompts.length ? ", / for prompts" : ""})` : who) : "Add a model in Settings to start chatting")}
+            placeholder={
+              disabledReason ??
+              (hasModel
+                ? transcribing
+                  ? `Attach or record audio for ${llm?.name ?? "the model"} to transcribe. Text you type is a hint (names, spelling)`
+                  : (placeholder ?? (rich ? `${who} (@ for resources${prompts.length ? ", / for prompts" : ""})` : who))
+                : "Add a model in Settings to start chatting")
+            }
             className="block w-full resize-none bg-transparent px-4 pt-3.5 pb-1 text-[15px] leading-relaxed placeholder:text-subtle focus:outline-none"
           />
           <div className="flex items-center gap-1 px-3 pb-2.5">
             {rich && (
               <>
-                <input ref={fileInput} type="file" multiple hidden onChange={(e) => e.target.files && void addFiles(e.target.files).then(() => (e.target.value = ""))} />
-                <IconButton label="Attach files or images" className="h-7 w-7" disabled={!hasModel} onClick={() => fileInput.current?.click()}>
+                <input ref={fileInput} type="file" multiple hidden accept={transcribing ? AUDIO_ACCEPT : undefined} onChange={(e) => e.target.files && void addFiles(e.target.files).then(() => (e.target.value = ""))} />
+                <IconButton label={transcribing ? "Attach audio files" : "Attach files or images"} className="h-7 w-7" disabled={!hasModel} onClick={() => fileInput.current?.click()}>
                   <Paperclip className="h-3.5 w-3.5" />
                 </IconButton>
-                <IconButton label="Attach an MCP resource (or type @)" className="h-7 w-7" active={resourceMenuOpen} onClick={() => setMenu(menu ? undefined : "resources")}>
-                  <AtSign className="h-3.5 w-3.5" />
-                </IconButton>
+                {transcribing ? (
+                  <RecordButton disabled={!hasModel || streaming} onRecorded={(a) => setAttachments((list) => [...list, a])} />
+                ) : (
+                  <IconButton label="Attach an MCP resource (or type @)" className="h-7 w-7" active={resourceMenuOpen} onClick={() => setMenu(menu ? undefined : "resources")}>
+                    <AtSign className="h-3.5 w-3.5" />
+                  </IconButton>
+                )}
               </>
             )}
+            {llm && thinking && <ReasoningPicker llm={llm} control={thinking} />}
+            {!workspace.agentId && !transcribing && <SearchControl open={searchMenu} setOpen={setSearchMenu} disabled={!hasModel} />}
             <span className="ml-1 hidden text-[11px] text-subtle sm:inline">
               <Kbd>Enter</Kbd> send · <Kbd>Shift</Kbd>+<Kbd>Enter</Kbd> newline
             </span>

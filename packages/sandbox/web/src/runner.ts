@@ -23,6 +23,8 @@ export async function runTurn(options: {
   llmId?: string;
   /** Time-travel: this turn continues a fork. */
   forkOf?: ForkMeta;
+  /** The Search button is on: the model gets web_search and web_fetch. */
+  webSearch?: boolean;
   signal: AbortSignal;
   onUpdate: (message: UiMessage) => void;
 }): Promise<RunResult> {
@@ -55,6 +57,7 @@ export async function runTurn(options: {
         // Compare lanes can target remote agents as "agent:<id>".
         ...(options.llmId?.startsWith("agent:") ? { agentId: options.llmId.slice(6) } : { llmId: options.llmId }),
         ...(options.forkOf ? { forkOf: options.forkOf } : {}),
+        ...(options.webSearch ? { webSearch: true } : {}),
       },
       options.signal,
     )) {
@@ -115,7 +118,7 @@ export async function runTurn(options: {
           break;
         case "error":
           ok = false;
-          message.meta = { ...message.meta, error: chunk.message };
+          message.meta = { ...message.meta, error: chunk.message, ...(chunk.errorKind ? { errorKind: chunk.errorKind } : {}) };
           break;
       }
       schedule();

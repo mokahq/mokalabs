@@ -41,6 +41,15 @@ describe("attachments", () => {
     expect(content[2].type).toBe("text");
   });
 
+  it("turns audio into a pointer to its transcript for chat models that can't hear", () => {
+    const audio: ModelMessage[] = [
+      { role: "user", content: [{ type: "file", data: "AAAA", mediaType: "audio/wav", filename: "memo.wav" }] },
+      { role: "assistant", content: "Call the vet at five." },
+    ];
+    const text = ((adaptAttachments(audio, "openai-compatible")[0] as any).content[0] as any).text;
+    expect(text).toBe('<file name="memo.wav" type="audio/wav">\n[Audio. If a transcript of it follows in the conversation, use that.]\n</file>');
+  });
+
   it("returns the same array when there's nothing to change", () => {
     const plain: ModelMessage[] = [{ role: "user", content: "hi" }];
     expect(adaptAttachments(plain, "ollama")).toBe(plain);
