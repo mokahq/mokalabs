@@ -8,8 +8,8 @@ Each event has `id`, `ts` (ms), `kind`, `title`, and optionally `runId`, `server
 | Kind | Emitted when | `data` |
 |---|---|---|
 | `run.start` | A chat turn starts | `profile`, `model`, `tools` (names), `system` (full system prompt) |
-| `llm.request` | Each model step begins | `model`, `provider`, `body` (provider request body), `warnings` |
-| `llm.response` | Each model step ends | `finishReason`, `usage`, `response` (`id`, `modelId`) |
+| `llm.request` | Each model step begins | `model`, `provider`, `step`, `system`, `messages` (the conversation the model sees this step), `body` (the exact request body sent to the provider, tools included), `warnings` |
+| `llm.response` | Each model step ends | `finishReason`, `usage`, `response` (`id`, `modelId`), `output` (the step's `reasoning`, `text` and `toolCalls`) |
 | `tool.call` | The model (or you, or an app) calls a tool | `id`, `input`, `rawInput` (the arguments as the model streamed them), `invalid` when they couldn't be parsed; for MCP tools `lineage` (`id` of the first attempt, `attempt`, `fingerprint`); `duplicateOf` when it repeats an earlier call that may write (level `warn`) |
 | `tool.result` | A tool returns | `id`, `output`, `lineage`; `possibleDoubleWrite` when an earlier attempt's outcome is unknown (level `warn`) |
 | `tool.progress` | A server reports `notifications/progress` for a tool call | `id` (tool call), `tool`, `progress`, `total`, `message` |

@@ -1,0 +1,42 @@
+---
+title: Speech to text
+description: "Chat with a Whisper or Parakeet model: attach audio or record from the microphone, and get the text back."
+---
+
+import { Aside } from "@astrojs/starlight/components";
+import shot from "../../../assets/speech-to-text.png";
+
+Pick a speech-to-text model (Whisper, Parakeet…) and the chat becomes a transcriber. Attach an audio file, or press **Record** and talk. The reply is the text.
+
+<img src={shot.src} width={shot.width / 2} height={shot.height / 2} alt="A Whisper model in Moka's chat: an attached WAV file and a recording, each answered with its transcript; the inspector shows the transcription requests" />
+
+## Add the model
+
+Add it like any model, in **Settings → Models**, from a server with an OpenAI-style `/v1/audio/transcriptions` endpoint:
+
+| Server | Provider | Base URL |
+|---|---|---|
+| OpenAI | OpenAI | (default) · `whisper-1`, `gpt-4o-transcribe` |
+| Groq | OpenAI-compatible | `https://api.groq.com/openai/v1` · `whisper-large-v3-turbo` |
+| oMLX, LocalAI, Speaches, whisper.cpp server | OpenAI-compatible | Your server, e.g. `http://localhost:8000/v1` |
+
+Moka sees from the name that it's a speech-to-text model (`whisper`, `parakeet`, `transcribe`, `canary`, `moonshine`…). For another name, set **Type** to *Transcription*, or `"kind": "transcription"` in `moka.json`. **Test** sends half a second of silence to check the endpoint answers.
+
+<Aside type="note">
+Ollama and LM Studio don't serve speech-to-text models. Run Whisper in a server that does and add it as OpenAI-compatible.
+</Aside>
+
+## In the chat
+
+With a speech-to-text model, the chat input changes:
+
+- The paperclip only takes audio: WAV, MP3, M4A, OGG, Opus, FLAC, WebM or AAC, up to 25 MB. Other files are refused with a note.
+- **Record** captures from the microphone and attaches a 16 kHz mono WAV, which every server reads. The browser asks for the microphone once; it needs `localhost` or https.
+- Text you type goes along as the `prompt`: names and words the model should spell your way.
+- Web search, thinking, `@` resources and `/` prompts are hidden: a transcription model can't use them.
+
+Several files in one message are transcribed one after another, each under its name. The [inspector](/guides/inspector/) shows each request (file, size, prompt) and the text that came back.
+
+<Aside type="tip">
+Switch the workspace back to a chat model to summarize or rewrite the transcript: it's in the conversation.
+</Aside>

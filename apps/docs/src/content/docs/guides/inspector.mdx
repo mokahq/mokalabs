@@ -4,6 +4,7 @@ description: See every model step, tool call, token and JSON-RPC message.
 ---
 
 import chatGif from "../../../../../../docs/assets/chat.gif";
+import modelStep from "../../../assets/inspector-model-step.png";
 import { Aside } from "@astrojs/starlight/components";
 
 The inspector (right panel, <kbd>⌘</kbd> <kbd>I</kbd>) streams everything Moka does, live.
@@ -26,10 +27,30 @@ Use the search box to filter by title or payload content (e.g. a tool argument v
 
 Click any event to open it:
 
-- **Payload** — the full JSON: request bodies sent to the provider, tool inputs and outputs, JSON-RPC messages, usage.
+- **Payload** — the full JSON: tool inputs and outputs, JSON-RPC messages, usage. Model steps get their own view (below).
 - **This run** — a waterfall of every step in the same run, so you can spot where time went (slow tool vs. slow model).
 
 From a chat message, **Inspect run →** jumps straight to that run.
+
+## Model steps
+
+Each model step is a pair of events: `→ model · step N` is what Moka sent, `← model · finish reason · tokens` is what came back.
+
+<img src={modelStep.src} width={modelStep.width / 2} height={modelStep.height / 2} alt="A model request in the inspector: the system prompt, the user's question, the assistant's thinking and get_time call, and the tool result, each labelled by role" />
+
+A request has three tabs:
+
+| Tab | Shows |
+|---|---|
+| **Messages** | The conversation the model saw in this step, by role: the system prompt (formatting, skills, server instructions), your messages, the assistant's earlier thinking and tool calls, and tool results. Long content is folded; **Show all** opens it |
+| **Raw request** | The exact JSON body sent to the provider: `messages`, `tools`, and settings such as `max_tokens`, `reasoning_effort` or `chat_template_kwargs` |
+| **Tools** | Each tool definition the model was given, with its schema |
+
+A response shows the step's thinking, text and tool calls, its finish reason and tokens in and out. **Raw** has the JSON.
+
+<Aside type="tip">
+If a model answers a question you never asked, open the last request's **Messages**. If your latest message is there, the model drifted. If Moka sent it but the model still ignored it, the server may be cutting the prompt to fit its context. In LM Studio, set **Context Overflow** to *Stop at Limit* so you get an error instead.
+</Aside>
 
 ## Requests and responses
 

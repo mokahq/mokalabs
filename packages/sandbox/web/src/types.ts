@@ -17,6 +17,16 @@ export interface LlmProfile {
   providerOptions?: Record<string, unknown>;
   /** Show the model's reasoning: auto (default), off, or an effort level. */
   reasoning?: "auto" | "off" | "low" | "medium" | "high";
+  /** What the model is for; detected from its name when unset (Whisper and co. are transcription). */
+  kind?: "chat" | "transcription";
+}
+
+/** How much say you have over a model's thinking (see reasoningControl in core). */
+export type ReasoningControl = "levels" | "toggle" | "always";
+
+export interface ModelCapabilities {
+  kind: "chat" | "transcription";
+  reasoning?: ReasoningControl;
 }
 
 export type AgentProtocol = "a2a" | "ag-ui";
@@ -218,6 +228,17 @@ export interface MokaConfig {
   catalogs: CatalogConfig[];
   workspaces: Workspace[];
   ui?: { starLink?: boolean; animations?: boolean; branding?: boolean };
+  /** Built-in web search (the Search button in the chat input). */
+  webSearch?: WebSearchConfig;
+}
+
+export type WebSearchProvider = "duckduckgo" | "brave" | "tavily" | "searxng";
+
+export interface WebSearchConfig {
+  provider?: WebSearchProvider;
+  apiKey?: string;
+  url?: string;
+  maxResults?: number;
 }
 
 export interface ProviderPreset {
@@ -377,7 +398,7 @@ export type ChatChunk =
     }
   | { type: "step"; usage: Usage; finishReason: string }
   | { type: "finish"; usage: Usage; durationMs: number; messages: unknown[]; replacesLast?: boolean }
-  | { type: "error"; message: string };
+  | { type: "error"; message: string; errorKind?: "context-overflow" };
 
 /** A file, image or MCP resource the user attached to a message. */
 export interface Attachment {
@@ -489,6 +510,8 @@ export interface UiMessage {
     sentAt?: number;
     /** Time-travel: the first parts, up to here, are shared with the branch this one was forked from. */
     inherited?: number;
+    /** The prompt didn't fit in the model's context window. */
+    errorKind?: "context-overflow";
   };
   /** Time-travel: how this branch was forked. */
   fork?: ForkMeta;
@@ -521,6 +544,8 @@ export interface Bootstrap {
   skills: LoadedSkill[];
   catalogs: LoadedCatalog[];
   interactions: Interaction[];
+  /** By model id. */
+  models?: Record<string, ModelCapabilities>;
 }
 
 /** What a workspace's model reads before every conversation, estimated in tokens (see contextBudget in core). */

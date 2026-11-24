@@ -1,4 +1,6 @@
 import { matchBreakpoint, type Debugger } from "./breakpoints.js";
+import { modelKind } from "./capabilities.js";
+import { runTranscription, silentWav, transcribe } from "./transcribe.js";
 import { dynamicTool, generateText, jsonSchema, stepCountIs, type ModelMessage } from "ai";
 import path from "node:path";
 import { contextBudget, type ContextBudget } from "./budget.js";
@@ -79,6 +81,8 @@ export interface ChatRequest {
   toolOverrides?: ToolOverrides;
   /** Time-travel: this run continues another run from one of its steps (shown in the inspector). */
   forkOf?: ForkInfo;
+  /** Web search is on for this message (the Search button). */
+  webSearch?: boolean;
 }
 
 /** Where a forked run branches off, and what was changed there. */
@@ -457,6 +461,11 @@ export class MokaEngine {
       yield { type: "error", message: "No model configured. Add one in Settings → Models." };
       return;
     }
+    // Speech-to-text models: the audio in the last message comes back as text.
+    if (modelKind(llm) === "transcription") {
+      yield* runTranscription({ runId, llm, messages: request.messages, bus: this.bus, env: this.env, ...(request.signal ? { signal: request.signal } : {}) });
+      return;
+    }
     const servers = this.config.mcpServers.filter((s) => workspace.mcpServerIds.includes(s.id));
     const [skills, catalogs] = await Promise.all([this.loadSkills(workspace.skillIds), this.loadCatalogs()]);
     yield* runAgent({
@@ -475,6 +484,7 @@ export class MokaEngine {
       ...(request.toolMode ? { toolMode: request.toolMode } : {}),
       ...(request.toolOverrides ? { toolOverrides: request.toolOverrides } : {}),
       ...(request.forkOf ? { forkOf: request.forkOf } : {}),
+      ...(request.webSearch ? { webSearch: true, webSearchConfig: this.config.webSearch } : {}),
       // Tests and Improve run unattended: no breakpoints.
       ...(request.toolMode ? {} : { debug: this.debuggerFor(workspace.id), pickModel: (id: string) => this.llm(id) }),
     });
@@ -483,6 +493,15 @@ export class MokaEngine {
   /** Send a tiny prompt to verify credentials and connectivity. */
   async testLlm(profile: LlmProfile): Promise<{ ok: boolean; latencyMs: number; text?: string; error?: string }> {
     const started = Date.now();
+    if (modelKind(profile) === "transcription") {
+      // Half a second of silence: the endpoint answers (usually with empty text) if the model is there.
+      try {
+        const result = await transcribe(profile, { name: "silence.wav", mediaType: "audio/wav", bytes: silentWav() }, { env: this.env, signal: AbortSignal.timeout(60_000) });
+        return { ok: true, latencyMs: Date.now() - started, text: result.text || "(transcription endpoint answered)" };
+      } catch (error: any) {
+        return { ok: false, latencyMs: Date.now() - started, error: errorMessage(error) };
+      }
+    }
     try {
       const result = await generateText({
         model: createModel(profile, this.env),

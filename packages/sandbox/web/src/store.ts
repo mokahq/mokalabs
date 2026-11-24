@@ -14,6 +14,7 @@ import type {
   McpServerState,
   MokaConfig,
   MokaEvent,
+  ModelCapabilities,
   ProviderPreset,
   SessionSummary,
   ProxySession,
@@ -48,6 +49,10 @@ interface State {
   configPath: string;
   config: MokaConfig;
   presets: ProviderPreset[];
+  /** What each model is for and how its thinking can be set, by model id. */
+  models: Record<string, ModelCapabilities>;
+  /** Models that have sent their thinking, so the chat input offers Reasoning for them too. Remembered. */
+  thinkers: string[];
   env: Record<string, boolean>;
   mcp: Record<string, McpServerState>;
   skills: LoadedSkill[];
@@ -85,6 +90,9 @@ interface State {
   testResults: TestResult[];
   /** The context budget dialog (Budget.tsx). */
   budgetOpen: boolean;
+  /** The Search button in the chat input: web_search and web_fetch for the model. Remembered. */
+  webSearch: boolean;
+  setWebSearch: (on: boolean) => void;
   paletteOpen: boolean;
   toasts: Toast[];
 
@@ -106,6 +114,8 @@ interface State {
   /** Extra context an MCP App asked to add to the model's next turn (ui/update-model-context). */
   appContext?: string;
   stop: () => void;
+  /** Chats whose reply is still running (also those you switched away from). */
+  running: string[];
   retry: () => Promise<void>;
   /** Send a user message again, dropping everything after it. */
   rerun: (messageId: string) => Promise<void>;
@@ -166,6 +176,48 @@ function savePref(key: string, value: unknown) {
   }
 }
 
+/**
+ * Replies keep running when you switch chats: each running chat's stop
+ * handle, and the chats you left while their reply runs (they get the rest of
+ * the reply, are saved when it ends, and show it live when you come back).
+ */
+const runs = new Map<string, AbortController>();
+const parked = new Map<string, Session>();
+
+/** Change a chat wherever it is: on screen, or parked while its reply runs. Returns the changed chat. */
+function patchSession(id: string, change: (s: Session) => Session): Session | undefined {
+  const { session } = useStore.getState();
+  if (session.id === id) {
+    const next = change(session);
+    useStore.setState({ session: next });
+    return next;
+  }
+  const away = parked.get(id);
+  if (!away) return undefined;
+  const next = change(away);
+  parked.set(id, next);
+  return next;
+}
+
+function startRun(id: string, controller: AbortController) {
+  runs.set(id, controller);
+  const here = useStore.getState().session.id === id;
+  useStore.setState({ running: [...runs.keys()], ...(here ? { streaming: true, controller } : {}) });
+}
+
+function endRun(id: string) {
+  runs.delete(id);
+  const here = useStore.getState().session.id === id;
+  if (!here) parked.delete(id);
+  useStore.setState({ running: [...runs.keys()], ...(here ? { streaming: false, controller: undefined } : {}) });
+}
+
+/** Leaving the chat on screen: if its reply is still running, park it instead of stopping it. */
+function leaveCurrent() {
+  const { session } = useStore.getState();
+  if (runs.has(session.id)) parked.set(session.id, session);
+}
+
 let initialised = false;
 let refreshTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -176,6 +228,8 @@ export const useStore = create<State>((set, get) => ({
   configPath: "",
   config: { version: 1, llms: [], mcpServers: [], skills: [], agents: [], catalogs: [], workspaces: [] },
   presets: [],
+  models: {},
+  thinkers: pref("thinkers", []),
   env: {},
   mcp: {},
   skills: [],
@@ -197,6 +251,7 @@ export const useStore = create<State>((set, get) => ({
   eventsConnected: false,
 
   sessions: [],
+  running: [],
   replaying: false,
   session: freshSession(),
   streaming: false,
@@ -211,6 +266,11 @@ export const useStore = create<State>((set, get) => ({
   settingsTab: "models",
   exportOpen: false,
   budgetOpen: false,
+  webSearch: pref("webSearch", false),
+  setWebSearch: (on) => {
+    savePref("webSearch", on);
+    set({ webSearch: on });
+  },
   testResults: [],
   paletteOpen: false,
   toasts: [],
@@ -271,6 +331,7 @@ export const useStore = create<State>((set, get) => ({
       configPath: boot.configPath,
       config: boot.config,
       presets: boot.presets,
+      models: boot.models ?? {},
       env: boot.env,
       mcp: Object.fromEntries(boot.mcp.map((s) => [s.id, s])),
       skills: boot.skills,
@@ -373,12 +434,11 @@ export const useStore = create<State>((set, get) => ({
     };
     const modelMessages = [...base.modelMessages, { role: "user", content: options?.replay ? options.replay.content : attachments.length ? toModelContent(content, attachments) : content }];
     const title = base.messages.length === 0 ? (shown || attachments[0]?.name || "Chat").slice(0, 60) : base.title;
-    set({
-      streaming: true,
-      controller,
-      session: { ...base, title, messages: [...base.messages, user], modelMessages },
-    });
+    set({ session: { ...base, title, messages: [...base.messages, user], modelMessages } });
     const sessionId = base.id;
+    // Saved now, so the message isn't lost if the reply fails or you leave.
+    void persist(get().session);
+    startRun(sessionId, controller);
     const placeholder: UiMessage = { id: uid("a"), role: "assistant", parts: [], meta: {} };
     // A document a tool returns opens in the preview pane, like a file an agent made (once per file).
     const seenFiles = new Set<string>();
@@ -393,17 +453,16 @@ export const useStore = create<State>((set, get) => ({
       }
     };
     set((s) => ({ session: { ...s.session, messages: [...s.session.messages, placeholder] } }));
+    const withReply = (message: UiMessage) => (s: Session) => ({ ...s, messages: s.messages.map((m) => (m.id === placeholder.id ? { ...message, id: placeholder.id } : m)) });
 
     const result = await runTurn({
       modelMessages,
       workspaceId: base.workspaceId,
+      webSearch: get().webSearch,
       signal: controller.signal,
       onUpdate: (message) => {
-        if (get().session.id !== sessionId) return;
-        autoPreview(message);
-        set((s) => ({
-          session: { ...s.session, messages: [...s.session.messages.slice(0, -1), { ...message, id: placeholder.id }] },
-        }));
+        if (get().session.id === sessionId) autoPreview(message);
+        patchSession(sessionId, withReply(message));
       },
     });
 
@@ -411,19 +470,16 @@ export const useStore = create<State>((set, get) => ({
       // A whole HTML page in the reply opens next to the chat, like a document a tool made.
       const page = replyArtifacts({ ...result.message, id: placeholder.id }).filter((a) => a.mediaType === "text/html" && isFullPage("html", a.text ?? "")).pop();
       if (page) set({ previewId: page.id });
-      set((s) => ({
-        streaming: false,
-        controller: undefined,
-        session: {
-          ...s.session,
-          messages: [...s.session.messages.slice(0, -1), { ...result.message, id: placeholder.id }],
-          modelMessages: [...s.session.modelMessages, ...result.responseMessages],
-        },
-      }));
-      void persist(get().session);
-    } else {
-      set({ streaming: false, controller: undefined });
     }
+    const done = patchSession(sessionId, (s) => ({ ...withReply(result.message)(s), modelMessages: [...s.modelMessages, ...result.responseMessages] }));
+    endRun(sessionId);
+    const thinker = result.message.meta?.profileId;
+    if (thinker && result.message.parts.some((p) => p.type === "reasoning") && !get().thinkers.includes(thinker)) {
+      const thinkers = [...get().thinkers, thinker];
+      savePref("thinkers", thinkers);
+      set({ thinkers });
+    }
+    if (done) void persist(done);
   },
 
   stop: () => {
@@ -481,9 +537,7 @@ export const useStore = create<State>((set, get) => ({
     const place = (message: UiMessage, turnModel: unknown[]) => {
       const all = [...branches];
       all[to] = { label: plan.fork.label, fork: plan.fork, message, turnModel, tail: [], tailModel: [] };
-      set((s) => ({
-        session: { ...s.session, messages: [...s.session.messages.slice(0, index), { ...message, branches: all, branch: to }], modelMessages: [...before, ...turnModel] },
-      }));
+      return patchSession(sessionId, (s) => ({ ...s, messages: [...s.messages.slice(0, index), { ...message, branches: all, branch: to }], modelMessages: [...before, ...turnModel] }));
     };
     const first: UiMessage = { id: uid("a"), role: "assistant", parts: plan.parts, meta: { ...(plan.done ? current.meta : {}), inherited: kept }, fork: plan.fork };
     if (plan.done) {
@@ -492,27 +546,23 @@ export const useStore = create<State>((set, get) => ({
       return;
     }
     const controller = new AbortController();
-    set({ streaming: true, controller });
     place(first, plan.prefix);
+    startRun(sessionId, controller);
     const result = await runTurn({
       modelMessages: [...before, ...plan.prefix],
       workspaceId: session.workspaceId,
       ...(llmId ? { llmId } : {}),
       forkOf: plan.fork,
+      webSearch: get().webSearch,
       signal: controller.signal,
       onUpdate: (message) => {
-        if (get().session.id !== sessionId) return;
         place({ ...message, id: first.id, parts: [...plan.parts, ...message.parts], meta: { ...message.meta, inherited: kept }, fork: plan.fork }, plan.prefix);
       },
     });
-    if (get().session.id !== sessionId) {
-      set({ streaming: false, controller: undefined });
-      return;
-    }
     const turnModel = result.replacesLast ? [...plan.prefix.slice(0, -1), ...result.responseMessages] : [...plan.prefix, ...result.responseMessages];
-    place({ ...result.message, id: first.id, parts: [...plan.parts, ...result.message.parts], meta: { ...result.message.meta, inherited: kept }, fork: plan.fork }, turnModel);
-    set({ streaming: false, controller: undefined });
-    void persist(get().session);
+    const done = place({ ...result.message, id: first.id, parts: [...plan.parts, ...result.message.parts], meta: { ...result.message.meta, inherited: kept }, fork: plan.fork }, turnModel);
+    endRun(sessionId);
+    if (done) void persist(done);
   },
 
   showBranch: (messageId, to) => {
@@ -526,16 +576,16 @@ export const useStore = create<State>((set, get) => ({
   },
 
   newChat: () => {
-    get().controller?.abort();
-    set({ replaying: false });
+    leaveCurrent();
+    set({ replaying: false, controller: undefined });
     // In the current chat's workspace.
     set({ session: freshSession(get().workspace().id), view: "chat", streaming: false, previewId: undefined });
   },
 
   newChatIn: async (workspaceId) => {
     if (get().config.activeWorkspaceId !== workspaceId) await get().setActiveWorkspace(workspaceId);
-    get().controller?.abort();
-    set({ replaying: false, view: "chat", streaming: false, previewId: undefined, session: freshSession(workspaceId) });
+    leaveCurrent();
+    set({ replaying: false, view: "chat", streaming: false, controller: undefined, previewId: undefined, session: freshSession(workspaceId) });
   },
 
   createWorkspace: async (name) => {
@@ -557,12 +607,21 @@ export const useStore = create<State>((set, get) => ({
   },
 
   openSession: async (id) => {
-    get().controller?.abort();
+    if (get().session.id === id) return set({ view: "chat" });
+    leaveCurrent();
+    // A chat whose reply is still running: show it live.
+    const live = parked.get(id);
+    if (live) {
+      parked.delete(id);
+      set({ view: "chat", streaming: true, controller: runs.get(id), previewId: undefined, session: live });
+      return;
+    }
     try {
       const { session } = await api<{ session: any }>(`/api/sessions/${id}`);
       set({
         view: "chat",
         streaming: false,
+        controller: undefined,
         previewId: undefined,
         session: {
           id: session.id,
@@ -581,13 +640,15 @@ export const useStore = create<State>((set, get) => ({
   },
 
   deleteSession: async (id) => {
+    runs.get(id)?.abort();
+    parked.delete(id);
     await api(`/api/sessions/${id}`, { method: "DELETE" });
     if (get().session.id === id) get().newChat();
     await get().loadSessions();
   },
 
   replay: async (id, options) => {
-    get().controller?.abort();
+    leaveCurrent();
     let full: Session;
     try {
       const { session } = await api<{ session: any }>(`/api/sessions/${id}`);

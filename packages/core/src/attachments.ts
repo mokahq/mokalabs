@@ -26,6 +26,8 @@ function fallbackText(part: any): string {
   const text = part.providerOptions?.moka?.text;
   if (typeof text === "string") return text;
   const name = part.filename ?? "file";
+  // Audio sent to a speech-to-text model: its transcript is the reply that follows.
+  if (String(part.mediaType).startsWith("audio/")) return `<file name="${name}" type="${part.mediaType}">\n[Audio. If a transcript of it follows in the conversation, use that.]\n</file>`;
   return `<file name="${name}" type="${part.mediaType}">\n[This model can't read ${part.mediaType} files, and Moka couldn't read the text out of it. Tell the user, and suggest pasting the text or switching to a model that reads this kind of file.]\n</file>`;
 }
 

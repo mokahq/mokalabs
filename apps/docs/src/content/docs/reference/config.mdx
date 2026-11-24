@@ -53,7 +53,8 @@ Missing variables resolve to an empty string.
 | `maxOutputTokens` | integer? | |
 | `timeoutMs` | integer? | How long to wait for the model before ending the run with an error: for the start of each reply, and (up to 2 minutes) for a pause mid-reply. Default 300000 (5 minutes). Time spent in tools and approvals doesn't count |
 | `providerOptions` | object? | Passed to the AI SDK as `providerOptions` (they win over Moka's reasoning options) |
-| `reasoning` | `auto` · `off` · `low` · `medium` · `high`? | Show the model's thinking in the chat. `auto` (default) asks for it where the model can reason; a level also sets the effort. See [chat](/guides/chat/#see-how-the-model-thinks) |
+| `reasoning` | `auto` · `off` · `low` · `medium` · `high`? | Show the model's thinking in the chat. `auto` (default) asks for it where the model can reason; a level also sets the effort; `off` asks the model not to think. See [chat](/guides/chat/#see-how-the-model-thinks) |
+| `kind` | `chat` · `transcription`? | What the model is for. Unset: detected from its name (Whisper, Parakeet… are `transcription`). A [transcription](/guides/speech-to-text/) model takes audio and replies with its text |
 
 ## `mcpServers[]`
 
@@ -135,6 +136,17 @@ A2UI component catalogs. See [custom catalogs](/generative-ui/catalogs/).
 | `tests` | object[]? | [Tool tests](/guides/tests/): `id`, `name?`, `prompt`, `expectTools?`, `forbidTools?`, `expectArgs?` (by tool name), `answerIncludes?` |
 | `breakpoints` | object[]? | [Breakpoints](/guides/breakpoints/): `id`, `on` (`before-tool` · `after-tool` · `error` · `model-step`), `tool?` (name or `server/tool`), `when?` (`{arg, op: eq\|ne\|contains\|gt\|lt\|exists, value?}`), `enabled?` |
 | `breakpointsActive` | boolean? | `false` keeps the breakpoints without stopping at them |
+
+## `webSearch`
+
+The [Search button](/guides/web-search/) in the chat input, also under **Settings → Config file → Web search**.
+
+| Field | Type | Description |
+|---|---|---|
+| `provider` | string? | `searxng` · `tavily` · `brave` · `duckduckgo`. Unset: the chat asks the first time you turn Search on (DuckDuckGo if you search without choosing) |
+| `apiKey` | string? | Brave and Tavily; optional for SearXNG. Literal, or `env:VAR` / `${VAR}` |
+| `url` | string? | SearXNG only: the instance, e.g. `http://localhost:8080` |
+| `maxResults` | number? | Results per search, 1–20. Default 5 |
 
 ## `ui`
 

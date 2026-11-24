@@ -29,6 +29,7 @@ import { dockInspector, isInspectorPopout, openInspectorWindow } from "../popout
 import { useStore } from "../store";
 import type { MokaEvent, ToolLineage } from "../types";
 import { BreakpointsPanel } from "./Breakpoints";
+import { LlmStep } from "./LlmTrace";
 import { Highlighted } from "./Code";
 import { IconButton, Input, JsonView, Tabs, cn, formatMs } from "./ui";
 
@@ -355,6 +356,8 @@ export function EventDetail({
         <ArgsTrace selected={selected} index={attempts} onSelect={onSelect} />
         {selected.rpc ? (
           <RpcPair selected={selected} byId={byId} answers={answers} onSelect={onSelect} wide={wide} />
+        ) : selected.kind === "llm.request" || selected.kind === "llm.response" ? (
+          <LlmStep event={selected} wide={wide} />
         ) : (
           <div>
             <div className="mb-1.5 text-[11px] font-medium tracking-wide text-subtle uppercase">Payload</div>

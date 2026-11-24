@@ -59,6 +59,10 @@ function LocalModels({ onAdded }: { onAdded: (id: string) => void }) {
   );
 }
 
+
+/** Speech-to-text model names (the same test as modelKind in core). */
+const SPEECH = /whisper|parakeet|canary-\d|moonshine|sensevoice|(^|[-_/])transcribe|speech-?to-?text|(^|[-_/])stt($|[-_/])|distil-large-v\d/i;
+
 export function ModelSettings() {
   const config = useStore((s) => s.config);
   const [selected, setSelected] = useState<string | "new" | undefined>(config.llms[0]?.id ?? "new");
@@ -365,16 +369,31 @@ function ModelForm({ initial }: { initial: LlmProfile }) {
               </>
             )}
             <Field
+              label="Type"
+              className="sm:col-span-2"
+              hint={
+                draft.kind === "transcription" || (!draft.kind && SPEECH.test(draft.model ?? ""))
+                  ? "Speech to text: the chat takes audio files (or a recording) and replies with their text, through the server's /audio/transcriptions endpoint (OpenAI, Groq, oMLX, LocalAI, Speaches, whisper.cpp)."
+                  : "Detected from the model's name: Whisper, Parakeet and other speech-to-text models are Transcription."
+              }
+            >
+              <Select value={draft.kind ?? "auto"} onChange={(e) => patch({ kind: e.target.value === "auto" ? undefined : (e.target.value as LlmProfile["kind"]) })} aria-label="Model type">
+                <option value="auto">Detect: {SPEECH.test(draft.model ?? "") ? "transcription" : "chat"}</option>
+                <option value="chat">Chat</option>
+                <option value="transcription">Transcription (speech to text)</option>
+              </Select>
+            </Field>
+            <Field
               label="Reasoning"
               className="sm:col-span-2"
-              hint="Show how the model thinks, live in the chat. Auto asks for it where the model can reason (OpenAI reasoning models send summaries; Claude, Gemini 2.5+ and local models like Qwen3 or DeepSeek-R1 send their thinking)."
+              hint="Show how the model thinks, live in the chat. Auto asks for it where the model can reason (OpenAI reasoning models send summaries; Claude, Gemini 2.5+ and local models like Qwen3 or DeepSeek-R1 send their thinking). The chat input has the same control for models that think."
             >
               <Select value={draft.reasoning ?? "auto"} onChange={(e) => patch({ reasoning: e.target.value === "auto" ? undefined : (e.target.value as LlmProfile["reasoning"]) })}>
                 <option value="auto">Auto: show it when the model reasons</option>
                 <option value="low">Show it, low effort</option>
                 <option value="medium">Show it, medium effort</option>
                 <option value="high">Show it, high effort (slower, more tokens)</option>
-                <option value="off">Don't ask for it</option>
+                <option value="off">Off: ask the model not to think</option>
               </Select>
             </Field>
           </div>

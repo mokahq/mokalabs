@@ -44,7 +44,7 @@ import type { SessionSummary } from "../types";
 import { Highlighted } from "./Code";
 import { Moka, useMokaBranding } from "./Moka";
 import { SecurityMark, useSecurity } from "./Security";
-import { Button, CopyButton, IconButton, Kbd, Modal, StatusDot, Tabs, cn } from "./ui";
+import { Button, CopyButton, IconButton, Kbd, Modal, Spinner, StatusDot, Tabs, cn } from "./ui";
 
 /* ------------------------------------------------------------------ top bar */
 
@@ -510,6 +510,7 @@ function ChatRow({ chat, current, workspace }: { chat: SessionSummary; current: 
   const deleteSession = useStore((s) => s.deleteSession);
   const replay = useStore((s) => s.replay);
   const exportSession = useStore((s) => s.exportSession);
+  const running = useStore((s) => s.running.includes(chat.id));
   return (
     <div
       className={cn("group flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-1.5 text-[13px]", current ? "bg-panel-2 text-fg" : "text-muted hover:bg-panel-2 hover:text-fg")}
@@ -519,7 +520,13 @@ function ChatRow({ chat, current, workspace }: { chat: SessionSummary; current: 
         {chat.title}
         {workspace && <span className="ml-1.5 text-[11px] text-subtle">{workspace}</span>}
       </span>
-      <span className="text-[10px] text-subtle group-hover:hidden">{relative(chat.updatedAt)}</span>
+      {running ? (
+        <span className="group-hover:hidden" title="Still replying: it keeps going while you're in another chat">
+          <Spinner className="h-3 w-3 text-accent" />
+        </span>
+      ) : (
+        <span className="text-[10px] text-subtle group-hover:hidden">{relative(chat.updatedAt)}</span>
+      )}
       <button
         className="hidden text-subtle hover:text-accent group-hover:block"
         title="Replay this chat (no model needed)"
